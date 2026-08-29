@@ -1,6 +1,6 @@
-import type { PROTOCOL_VERSION } from "./index.js";
+import type { Actor } from "./actor.js";
 import type { GraphMutation } from "./mutation.js";
-import type { Actor } from "./event.js";
+import type { PROTOCOL_VERSION } from "./version.js";
 
 export interface CommandEnvelope {
   id: string;

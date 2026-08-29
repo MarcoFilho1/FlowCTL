@@ -50,6 +50,8 @@ FlowCTL/
 │       │   ├── command.ts
 │       │   ├── event.ts
 │       │   ├── mutation.ts
+│       │   ├── version.ts
+│       │   ├── actor.ts
 │       │   └── index.ts
 │       ├── test/
 │       ├── package.json
@@ -67,7 +69,8 @@ or future subsystem structure will be added to them in this increment.
 
 ## Public version and shared actor
 
-The protocol source of truth for the wire-contract version is:
+The protocol source of truth for the wire-contract version is
+`packages/protocol/src/version.ts`:
 
 ```ts
 export const PROTOCOL_VERSION = "0.1" as const;
@@ -90,6 +93,12 @@ interface Actor {
 `Actor` identifies who originated a command or event. A payload's `workerId`
 identifies the worker involved in the operation; the two concepts may coincide
 but are intentionally not interchangeable.
+
+`Actor` and `ActorType` are defined in `packages/protocol/src/actor.ts`.
+Commands and events import them directly from that shared module. The public
+`index.ts` is only a facade that reexports the version, actor, and protocol
+contracts; internal modules do not import protocol values or types through the
+barrel.
 
 ## Domain entities
 
@@ -260,7 +269,22 @@ and does not implement review behavior.
 ## Graph mutations
 
 `GraphMutation` represents a proposed graph change and domain context, not an
-envelope duplicate:
+envelope duplicate. Task creation uses a dedicated planner-owned input:
+
+```ts
+interface TaskCreationInput {
+  id: string;
+  parentId?: string;
+  level: TaskLevel;
+  title: string;
+  description?: string;
+  acceptanceCriteria: AcceptanceCriterion[];
+}
+```
+
+`TaskCreationInput` excludes status, dependencies, worker assignment,
+timestamps, and lease information. The future Core owns those operational
+fields.
 
 ```ts
 interface GraphMutation {
@@ -275,7 +299,7 @@ It deliberately excludes `actor`, `timestamp`, `projectId`, and
 `protocolVersion`; those belong to the command/event envelope. Its operations
 are:
 
-- `task.create`, carrying a complete `Task`;
+- `task.create`, carrying a `TaskCreationInput`;
 - `dependency.add`, carrying `taskId` and `dependsOnTaskId`;
 - `dependency.remove`, carrying `taskId` and `dependsOnTaskId`;
 - `task.update`, carrying `taskId` and a deliberately limited patch:
@@ -307,6 +331,10 @@ Tests will prove that:
 
 No test will implement scheduler behavior, state-machine transitions, cycle
 detection, lease timing, or semantic graph validation.
+
+All protocol timestamps remain typed as `string` and must use RFC 3339 / ISO
+8601 in UTC, for example `2026-08-29T13:42:18.321Z`. Runtime timestamp
+validation is outside this increment.
 
 ## README and follow-ups
 

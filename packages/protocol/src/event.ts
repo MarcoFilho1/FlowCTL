@@ -1,15 +1,9 @@
-import type { PROTOCOL_VERSION } from "./index.js";
+import type { Actor } from "./actor.js";
 import type { Lease } from "./lease.js";
 import type { GraphMutation } from "./mutation.js";
 import type { Task } from "./task.js";
 import type { Worker } from "./worker.js";
-
-export type ActorType = "system" | "worker" | "user";
-
-export interface Actor {
-  type: ActorType;
-  id: string;
-}
+import type { PROTOCOL_VERSION } from "./version.js";
 
 export interface EventEnvelope {
   id: string;

@@ -52,9 +52,13 @@ does not implement review behavior.
 
 `GraphMutation` describes a proposed dynamic graph change with an ID, optional
 source task, reason, and operations. It is not an envelope and therefore does
-not repeat actor, timestamp, project, or protocol-version fields. Operations
-can create a task, add or remove a dependency, or update only task title,
-description, parent, level, and acceptance criteria.
+not repeat actor, timestamp, project, or protocol-version fields. Its
+`task.create` operation carries a `TaskCreationInput` containing only `id`,
+optional `parentId`, `level`, `title`, optional `description`, and
+`acceptanceCriteria`. It cannot carry status, dependencies, worker assignment,
+timestamps, or lease information. Other operations can add or remove a
+dependency or update only task title, description, parent, level, and
+acceptance criteria.
 
 For example, a task can propose a migration subtask and require it first:
 
@@ -78,6 +82,10 @@ const mutation = {
 
 `PROTOCOL_VERSION` is the single exported version source and is currently
 `"0.1"`. Command and event envelopes reference that literal type.
+
+All protocol timestamps remain typed as `string` and must use RFC 3339 / ISO
+8601 in UTC, for example `2026-08-29T13:42:18.321Z`. The Protocol does not
+perform runtime timestamp validation.
 
 Protocol v0 deliberately excludes Core implementation, state machines,
 scheduling, semantic graph validation, dependency-cycle detection, lease

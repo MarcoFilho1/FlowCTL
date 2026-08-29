@@ -10,6 +10,7 @@ import type {
   Lease,
   Project,
   Task,
+  TaskCreationInput,
   TaskGraph,
   TaskUpdatePatch,
   Worker
@@ -127,11 +128,8 @@ test("commands and events narrow by their discriminant", () => {
           parentId: "S1",
           level: "atomic",
           title: "Create migration",
-          status: "pending",
-          dependencies: [],
           acceptanceCriteria: [],
-          createdAt: "2026-08-28T00:00:00.000Z",
-          updatedAt: "2026-08-28T00:00:00.000Z"
+          description: "Prepare the database migration."
         }
       },
       { type: "dependency.add", taskId: "S1", dependsOnTaskId: "A2" }
@@ -197,4 +195,34 @@ test("represents all mutation operations and the limited update patch", () => {
     "dependency.remove",
     "task.update"
   ]);
+});
+
+test("restricts task creation to planner-owned fields", () => {
+  const creationInput: TaskCreationInput = {
+    id: "A3",
+    parentId: "S1",
+    level: "atomic",
+    title: "Create migration",
+    description: "Prepare the database migration.",
+    acceptanceCriteria: []
+  };
+  const operation: GraphMutationOperation = { type: "task.create", task: creationInput };
+
+  // @ts-expect-error Task status is controlled by the Core.
+  const status: TaskCreationInput = { ...creationInput, status: "pending" };
+  // @ts-expect-error Dependencies are controlled by dedicated mutation operations.
+  const dependencies: TaskCreationInput = { ...creationInput, dependencies: [] };
+  // @ts-expect-error Worker assignment is controlled by the scheduler/lease layer.
+  const assignedWorkerId: TaskCreationInput = { ...creationInput, assignedWorkerId: "W1" };
+  // @ts-expect-error Timestamps are controlled by the Core.
+  const timestamps: TaskCreationInput = { ...creationInput, createdAt: "2026-08-29T13:42:18.321Z" };
+  // @ts-expect-error Lease information is not part of task creation input.
+  const leaseId: TaskCreationInput = { ...creationInput, leaseId: "L1" };
+
+  assert.equal(operation.task.title, "Create migration");
+  void status;
+  void dependencies;
+  void assignedWorkerId;
+  void timestamps;
+  void leaseId;
 });
