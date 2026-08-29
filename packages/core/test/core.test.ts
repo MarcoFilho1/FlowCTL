@@ -1008,3 +1008,187 @@ test("advanceReadyTasks promotes only pending ready tasks in sorted order", () =
   assert.equal(snapshot.tasks.B1.status, "blocked");
   assert.equal(snapshot.tasks.R1.status, "ready");
 });
+
+test("exposes the intended runtime facade surface from the source barrel", () => {
+  assert.deepEqual(Object.keys(Core).sort(), [
+    "advanceReadyTasks",
+    "applyTaskTransition",
+    "createCoreState",
+    "getReadyTaskIds",
+    "getTaskGraphSnapshot",
+    "isTaskTransitionAllowed",
+    "transitionTask",
+    "validateTaskGraph"
+  ]);
+});
+
+test("supports exhaustive narrowing for every GraphValidationIssue code", () => {
+  const samples: readonly GraphValidationIssue[] = [
+    { code: "TASK_KEY_MISMATCH", taskKey: "T1", taskId: "WRONG" },
+    { code: "ROOT_NOT_FOUND", taskId: "ROOT" },
+    { code: "DUPLICATE_ROOT", taskId: "ROOT" },
+    { code: "ROOT_HAS_PARENT", taskId: "ROOT", parentId: "PARENT" },
+    { code: "ROOT_NOT_EPIC", taskId: "ROOT", level: "task" },
+    { code: "EPIC_NOT_ROOT", taskId: "E1" },
+    { code: "EPIC_WITH_PARENT", taskId: "E1", parentId: "A1" },
+    { code: "NON_ROOT_WITHOUT_PARENT", taskId: "T1", level: "task" },
+    { code: "PARENT_NOT_FOUND", taskId: "T1", parentId: "MISSING" },
+    {
+      code: "INVALID_PARENT_LEVEL",
+      taskId: "T1",
+      taskLevel: "task",
+      parentId: "A1",
+      parentLevel: "atomic"
+    },
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T1", dependsOnTaskId: "MISSING" },
+    { code: "SELF_DEPENDENCY", taskId: "T1" },
+    { code: "DUPLICATE_DEPENDENCY", taskId: "T1", dependsOnTaskId: "A1" },
+    { code: "DEPENDENCY_CYCLE", taskIds: ["A1", "B1", "A1"] },
+    { code: "HIERARCHY_CYCLE", taskIds: ["E1", "T1", "S1", "E1"] }
+  ];
+
+  assert.deepEqual(
+    samples.map(describeGraphValidationIssue),
+    [
+      "key:T1->WRONG",
+      "root-missing:ROOT",
+      "root-duplicate:ROOT",
+      "root-parent:ROOT->PARENT",
+      "root-level:ROOT->task",
+      "epic-not-root:E1",
+      "epic-parent:E1->A1",
+      "non-root-parent:T1->task",
+      "parent-missing:T1->MISSING",
+      "parent-level:T1(task)->A1(atomic)",
+      "dependency-missing:T1->MISSING",
+      "self-dependency:T1",
+      "dependency-duplicate:T1->A1",
+      "dependency-cycle:A1>B1>A1",
+      "hierarchy-cycle:E1>T1>S1>E1"
+    ]
+  );
+});
+
+test("supports exhaustive narrowing for every public Core result union branch", () => {
+  const createdStateResult = createCoreState(makeValidGraph());
+  assert.equal(createdStateResult.ok, true);
+  if (!createdStateResult.ok) {
+    throw new Error("Expected valid graph to create CoreState");
+  }
+
+  const stateResultSamples: readonly CoreStateResult[] = [
+    { ok: false, issues: [{ code: "ROOT_NOT_FOUND", taskId: "MISSING" }] },
+    { ok: true, state: createdStateResult.state }
+  ];
+  const taskTransitionSamples: readonly TaskTransitionResult[] = [
+    { ok: false, code: "INVALID_TASK_TRANSITION", from: "pending", to: "running" },
+    { ok: true, task: makeTask("T1", "task", { parentId: "E1", status: "ready" }) }
+  ];
+  const coreTransitionSamples: readonly CoreTaskTransitionResult[] = [
+    { ok: false, code: "TASK_NOT_FOUND", taskId: "MISSING" },
+    {
+      ok: false,
+      code: "INVALID_TASK_TRANSITION",
+      taskId: "T1",
+      from: "running",
+      to: "ready"
+    },
+    {
+      ok: false,
+      code: "DEPENDENCIES_NOT_COMPLETED",
+      taskId: "T1",
+      incompleteDependencyIds: ["A1", "S1"]
+    },
+    { ok: true, task: makeTask("T1", "task", { parentId: "E1", status: "ready" }) }
+  ];
+
+  assert.deepEqual(stateResultSamples.map(describeCoreStateResult), [
+    "state-error:ROOT_NOT_FOUND",
+    "state-ok"
+  ]);
+  assert.deepEqual(taskTransitionSamples.map(describeTaskTransitionResult), [
+    "task-transition-error:pending->running:INVALID_TASK_TRANSITION",
+    "task-transition-ok:ready"
+  ]);
+  assert.deepEqual(coreTransitionSamples.map(describeCoreTaskTransitionResult), [
+    "core-transition-missing:MISSING",
+    "core-transition-invalid:T1:running->ready",
+    "core-transition-blocked:T1:A1,S1",
+    "core-transition-ok:ready"
+  ]);
+});
+
+function describeGraphValidationIssue(issue: GraphValidationIssue): string {
+  switch (issue.code) {
+    case "TASK_KEY_MISMATCH":
+      return `key:${issue.taskKey}->${issue.taskId}`;
+    case "ROOT_NOT_FOUND":
+      return `root-missing:${issue.taskId}`;
+    case "DUPLICATE_ROOT":
+      return `root-duplicate:${issue.taskId}`;
+    case "ROOT_HAS_PARENT":
+      return `root-parent:${issue.taskId}->${issue.parentId}`;
+    case "ROOT_NOT_EPIC":
+      return `root-level:${issue.taskId}->${issue.level}`;
+    case "EPIC_NOT_ROOT":
+      return `epic-not-root:${issue.taskId}`;
+    case "EPIC_WITH_PARENT":
+      return `epic-parent:${issue.taskId}->${issue.parentId}`;
+    case "NON_ROOT_WITHOUT_PARENT":
+      return `non-root-parent:${issue.taskId}->${issue.level}`;
+    case "PARENT_NOT_FOUND":
+      return `parent-missing:${issue.taskId}->${issue.parentId}`;
+    case "INVALID_PARENT_LEVEL":
+      return `parent-level:${issue.taskId}(${issue.taskLevel})->${issue.parentId}(${issue.parentLevel})`;
+    case "DEPENDENCY_NOT_FOUND":
+      return `dependency-missing:${issue.taskId}->${issue.dependsOnTaskId}`;
+    case "SELF_DEPENDENCY":
+      return `self-dependency:${issue.taskId}`;
+    case "DUPLICATE_DEPENDENCY":
+      return `dependency-duplicate:${issue.taskId}->${issue.dependsOnTaskId}`;
+    case "DEPENDENCY_CYCLE":
+      return `dependency-cycle:${issue.taskIds.join(">")}`;
+    case "HIERARCHY_CYCLE":
+      return `hierarchy-cycle:${issue.taskIds.join(">")}`;
+    default:
+      return assertNever(issue);
+  }
+}
+
+function describeTaskTransitionResult(result: TaskTransitionResult): string {
+  if (result.ok) {
+    return `task-transition-ok:${result.task.status}`;
+  }
+
+  const code: "INVALID_TASK_TRANSITION" = result.code;
+  return `task-transition-error:${result.from}->${result.to}:${code}`;
+}
+
+function describeCoreStateResult(result: CoreStateResult): string {
+  if (result.ok) {
+    return "state-ok";
+  }
+
+  return `state-error:${result.issues[0]?.code ?? "NONE"}`;
+}
+
+function describeCoreTaskTransitionResult(result: CoreTaskTransitionResult): string {
+  if (result.ok) {
+    return `core-transition-ok:${result.task.status}`;
+  }
+
+  switch (result.code) {
+    case "TASK_NOT_FOUND":
+      return `core-transition-missing:${result.taskId}`;
+    case "INVALID_TASK_TRANSITION":
+      return `core-transition-invalid:${result.taskId}:${result.from}->${result.to}`;
+    case "DEPENDENCIES_NOT_COMPLETED":
+      return `core-transition-blocked:${result.taskId}:${result.incompleteDependencyIds.join(",")}`;
+    default:
+      return assertNever(result);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${JSON.stringify(value)}`);
+}
