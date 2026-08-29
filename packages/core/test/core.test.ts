@@ -1,8 +1,15 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { validateTaskGraph } from "../src/index.js";
-import type { GraphValidationIssue } from "../src/index.js";
-import type { Task, TaskGraph, TaskLevel } from "@flowctl/protocol";
+import * as Core from "../src/index.js";
+import * as Protocol from "@flowctl/protocol";
+
+const validateTaskGraph = Core.validateTaskGraph;
+const getReadyTaskIds = Core.getReadyTaskIds;
+
+type GraphValidationIssue = Core.GraphValidationIssue;
+type Task = Protocol.Task;
+type TaskGraph = Protocol.TaskGraph;
+type TaskLevel = Protocol.TaskLevel;
 
 const TIMESTAMP = "2026-08-29T00:00:00.000Z";
 
@@ -386,4 +393,117 @@ function isTaskKeyMismatch(
   issue: GraphValidationIssue
 ): issue is Extract<GraphValidationIssue, { code: "TASK_KEY_MISMATCH" }> {
   return issue.code === "TASK_KEY_MISMATCH";
+}
+
+test("returns pending tasks with no dependencies", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    T1: makeTask("T1", "task", { parentId: "E1" })
+  });
+
+  assert.deepEqual(getReadyTaskIds(graph), ["T1"]);
+});
+
+test("returns pending tasks only after all dependencies complete", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    A1: makeTask("A1", "task", { parentId: "E1", status: "completed" }),
+    S1: makeTask("S1", "subtask", { parentId: "A1", status: "completed" }),
+    T1: makeTask("T1", "task", { parentId: "E1", dependencies: ["A1", "S1"] })
+  });
+
+  assert.deepEqual(getReadyTaskIds(graph), ["T1"]);
+});
+
+test("does not return a task when any dependency is not completed", () => {
+  const nonCompletedStatuses: Exclude<Protocol.TaskStatus, "completed">[] = [
+    "pending",
+    "ready",
+    "claimed",
+    "running",
+    "blocked",
+    "review",
+    "failed",
+    "cancelled"
+  ];
+
+  for (const dependencyStatus of nonCompletedStatuses) {
+    const graph = makeReadinessGraph({
+      E1: makeTask("E1", "epic", { status: "completed" }),
+      A1: makeTask("A1", "task", {
+        parentId: "E1",
+        status: dependencyStatus,
+        dependencies: ["MISSING"]
+      }),
+      T1: makeTask("T1", "task", { parentId: "E1", dependencies: ["A1"] })
+    });
+
+    assert.deepEqual(getReadyTaskIds(graph), []);
+  }
+});
+
+test("treats hierarchy as independent from readiness", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    A1: makeTask("A1", "task", { parentId: "E1", status: "completed" }),
+    S1: makeTask("S1", "subtask", { parentId: "A1", status: "completed" }),
+    T1: makeTask("T1", "task", { parentId: "E1", dependencies: ["S1"] })
+  });
+
+  assert.deepEqual(getReadyTaskIds(graph), ["T1"]);
+});
+
+test("returns ready task ids in lexicographic order", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    Z1: makeTask("Z1", "task", { parentId: "E1" }),
+    A1: makeTask("A1", "task", { parentId: "E1" }),
+    M1: makeTask("M1", "task", { parentId: "E1" })
+  });
+
+  assert.deepEqual(getReadyTaskIds(graph), ["A1", "M1", "Z1"]);
+});
+
+test("does not return claimed or blocked tasks even when dependencies are complete", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    A1: makeTask("A1", "task", { parentId: "E1", status: "completed" }),
+    P1: makeTask("P1", "task", { parentId: "E1", dependencies: ["A1"] }),
+    R1: makeTask("R1", "task", { parentId: "E1", status: "ready", dependencies: ["A1"] }),
+    C1: makeTask("C1", "task", { parentId: "E1", status: "claimed", dependencies: ["A1"] }),
+    B1: makeTask("B1", "task", { parentId: "E1", status: "blocked", dependencies: ["A1"] })
+  });
+
+  assert.deepEqual(getReadyTaskIds(graph), ["P1"]);
+});
+
+test("does not return a task with a missing dependency", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    A1: makeTask("A1", "task", { parentId: "E1", status: "completed" }),
+    T1: makeTask("T1", "task", { parentId: "E1", dependencies: ["A1", "MISSING"] })
+  });
+
+  assert.deepEqual(getReadyTaskIds(graph), []);
+});
+
+test("does not mutate the input graph", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    A1: makeTask("A1", "task", { parentId: "E1", status: "completed" }),
+    T1: makeTask("T1", "task", { parentId: "E1", dependencies: ["MISSING", "A1"] })
+  });
+  const snapshot = structuredClone(graph);
+
+  getReadyTaskIds(graph);
+
+  assert.deepEqual(graph, snapshot);
+});
+
+function makeReadinessGraph(tasks: Record<string, Task>): TaskGraph {
+  return {
+    projectId: "P1",
+    rootTaskIds: ["E1"],
+    tasks
+  };
 }
