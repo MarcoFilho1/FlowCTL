@@ -36,6 +36,9 @@ heartbeats, timers, and management are not implemented here.
 use an envelope with `id`, `protocolVersion`, `timestamp`, `projectId`, and an
 `actor`. A command does not change state or become an event in this package.
 
+The envelope `actor` identifies who originated the command or event. A payload
+`workerId` identifies the worker involved in that operation; the two may differ.
+
 One possible future flow is:
 
 ```text

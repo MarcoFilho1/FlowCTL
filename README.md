@@ -10,7 +10,7 @@ OpenCode ───┘
 
 **Status:** Protocol v0 / early MVP
 
-This repository currently publishes `@flowctl/protocol`: the shared TypeScript
+This repository currently contains `@flowctl/protocol`: the shared TypeScript
 contracts for projects, tasks, workers, leases, commands, events, and proposed
 graph mutations. It does not implement FlowCTL Core, scheduling, adapters, a
 desktop application, or an overlay.
