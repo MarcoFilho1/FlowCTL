@@ -11,7 +11,7 @@ export function getReadyTaskIds(graph: TaskGraph): readonly string[] {
     .sort();
 }
 
-function getIncompleteDependencyIds(graph: TaskGraph, task: Task): readonly string[] {
+export function getIncompleteDependencyIds(graph: TaskGraph, task: Task): readonly string[] {
   return Array.from(new Set(task.dependencies))
     .filter((dependencyId) => graph.tasks[dependencyId]?.status !== "completed")
     .sort();

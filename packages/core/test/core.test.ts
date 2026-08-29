@@ -7,12 +7,23 @@ const validateTaskGraph = Core.validateTaskGraph;
 const getReadyTaskIds = Core.getReadyTaskIds;
 const isTaskTransitionAllowed = Core.isTaskTransitionAllowed;
 const transitionTask = Core.transitionTask;
+const createCoreState = Core.createCoreState;
+const getTaskGraphSnapshot = Core.getTaskGraphSnapshot;
+const applyTaskTransition = Core.applyTaskTransition;
+const advanceReadyTasks = Core.advanceReadyTasks;
 
 type GraphValidationIssue = Core.GraphValidationIssue;
+type CoreState = Core.CoreState;
+type CoreStateResult = Core.CoreStateResult;
+type CoreTaskTransitionResult = Core.CoreTaskTransitionResult;
 type TaskTransitionResult = Core.TaskTransitionResult;
 type Task = Protocol.Task;
 type TaskGraph = Protocol.TaskGraph;
 type TaskLevel = Protocol.TaskLevel;
+
+// @ts-expect-error CoreState is an opaque branded handle.
+const forgedState: CoreState = {};
+void forgedState;
 
 const TIMESTAMP = "2026-08-29T00:00:00.000Z";
 
@@ -665,4 +676,329 @@ test("preserves unrelated task fields when transitioning successfully", () => {
       updatedAt: "2026-08-29T09:08:07.000Z"
     });
   }
+});
+
+test("rejects invalid graphs when creating state", () => {
+  const graph = makeValidGraph();
+  graph.rootTaskIds = ["MISSING"];
+
+  const result = createCoreState(graph);
+
+  const narrowResult: CoreStateResult = result;
+  assert.deepEqual(narrowResult, {
+    ok: false,
+    issues: [
+      { code: "ROOT_NOT_FOUND", taskId: "MISSING" },
+      { code: "EPIC_NOT_ROOT", taskId: "E1" }
+    ]
+  });
+});
+
+test("creates state from a valid graph and returns a branded handle", () => {
+  const result = createCoreState(makeValidGraph());
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const state: CoreState = result.state;
+    assert.equal(typeof state, "object");
+    assert.notEqual(state, null);
+  }
+});
+
+test("defensively isolates state from later mutations to the source graph", () => {
+  const graph = makeValidGraph();
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  graph.rootTaskIds.push("T1");
+  graph.tasks.T1.status = "running";
+  graph.tasks.T1.dependencies.push("S2");
+  graph.tasks.T1.acceptanceCriteria.push({ id: "AC1", description: "mutated" });
+
+  const snapshot = getTaskGraphSnapshot(result.state);
+
+  assert.deepEqual(snapshot.rootTaskIds, ["E1"]);
+  assert.equal(snapshot.tasks.T1.status, "pending");
+  assert.deepEqual(snapshot.tasks.T1.dependencies, []);
+  assert.deepEqual(snapshot.tasks.T1.acceptanceCriteria, []);
+});
+
+test("returns defensive graph snapshots", () => {
+  const result = createCoreState(makeValidGraph());
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const firstSnapshot = getTaskGraphSnapshot(result.state);
+  firstSnapshot.rootTaskIds.push("T1");
+  firstSnapshot.tasks.T1.status = "running";
+  firstSnapshot.tasks.T1.dependencies.push("S2");
+  firstSnapshot.tasks.T1.acceptanceCriteria.push({ id: "AC1", description: "changed" });
+
+  const secondSnapshot = getTaskGraphSnapshot(result.state);
+
+  assert.deepEqual(secondSnapshot.rootTaskIds, ["E1"]);
+  assert.equal(secondSnapshot.tasks.T1.status, "pending");
+  assert.deepEqual(secondSnapshot.tasks.T1.dependencies, []);
+  assert.deepEqual(secondSnapshot.tasks.T1.acceptanceCriteria, []);
+});
+
+test("returns task not found before any lifecycle or dependency checks", () => {
+  const result = createCoreState(makeValidGraph());
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResult = applyTaskTransition(
+    result.state,
+    "MISSING",
+    "ready",
+    "2026-08-29T10:00:00.000Z"
+  );
+
+  const narrowResult: CoreTaskTransitionResult = transitionResult;
+  assert.deepEqual(narrowResult, {
+    ok: false,
+    code: "TASK_NOT_FOUND",
+    taskId: "MISSING"
+  });
+  assert.deepEqual(getTaskGraphSnapshot(result.state), makeValidGraph());
+});
+
+test("returns an invalid transition result before dependency checks when lifecycle disallows it", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.status = "running";
+  graph.tasks.T1.dependencies = ["S1"];
+  graph.tasks.S1.status = "pending";
+
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResult = applyTaskTransition(
+    result.state,
+    "T1",
+    "ready",
+    "2026-08-29T10:00:00.000Z"
+  );
+
+  const narrowResult: CoreTaskTransitionResult = transitionResult;
+  assert.deepEqual(narrowResult, {
+    ok: false,
+    code: "INVALID_TASK_TRANSITION",
+    taskId: "T1",
+    from: "running",
+    to: "ready"
+  });
+  assert.equal(getTaskGraphSnapshot(result.state).tasks.T1.status, "running");
+});
+
+test("rejects ready transitions when dependencies are not completed and sorts incomplete ids", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.status = "claimed";
+  graph.tasks.T1.dependencies = ["S2", "A1", "T2"];
+  graph.tasks.A1.status = "blocked";
+  graph.tasks.S2.status = "pending";
+  graph.tasks.T2.status = "ready";
+
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResult = applyTaskTransition(
+    result.state,
+    "T1",
+    "ready",
+    "2026-08-29T10:00:00.000Z"
+  );
+
+  const narrowResult: CoreTaskTransitionResult = transitionResult;
+  assert.deepEqual(narrowResult, {
+    ok: false,
+    code: "DEPENDENCIES_NOT_COMPLETED",
+    taskId: "T1",
+    incompleteDependencyIds: ["A1", "S2", "T2"]
+  });
+  assert.equal(getTaskGraphSnapshot(result.state).tasks.T1.status, "claimed");
+});
+
+test("allows a pending task to become ready when dependencies are completed", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.dependencies = ["S1", "A1"];
+  graph.tasks.S1.status = "completed";
+  graph.tasks.A1.status = "completed";
+
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResult = applyTaskTransition(
+    result.state,
+    "T1",
+    "ready",
+    "2026-08-29T10:00:00.000Z"
+  );
+
+  assert.equal(transitionResult.ok, true);
+  if (transitionResult.ok) {
+    assert.equal(transitionResult.task.status, "ready");
+    assert.equal(transitionResult.task.updatedAt, "2026-08-29T10:00:00.000Z");
+  }
+});
+
+test("allows a claimed task to become ready when dependencies are completed", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.status = "claimed";
+  graph.tasks.T1.dependencies = ["S1"];
+  graph.tasks.S1.status = "completed";
+
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResult = applyTaskTransition(
+    result.state,
+    "T1",
+    "ready",
+    "2026-08-29T10:00:00.000Z"
+  );
+
+  assert.equal(transitionResult.ok, true);
+  if (transitionResult.ok) {
+    assert.equal(transitionResult.task.status, "ready");
+  }
+});
+
+test("allows a blocked task to become ready when dependencies are completed", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.status = "blocked";
+  graph.tasks.T1.dependencies = ["S1"];
+  graph.tasks.S1.status = "completed";
+
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResult = applyTaskTransition(
+    result.state,
+    "T1",
+    "ready",
+    "2026-08-29T10:00:00.000Z"
+  );
+
+  assert.equal(transitionResult.ok, true);
+  if (transitionResult.ok) {
+    assert.equal(transitionResult.task.status, "ready");
+  }
+});
+
+test("allows non-ready lifecycle transitions through the pure state machine", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.status = "ready";
+
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResult = applyTaskTransition(
+    result.state,
+    "T1",
+    "claimed",
+    "2026-08-29T10:00:00.000Z"
+  );
+
+  assert.equal(transitionResult.ok, true);
+  if (transitionResult.ok) {
+    assert.deepEqual(transitionResult.task, {
+      ...makeValidGraph().tasks.T1,
+      status: "claimed",
+      updatedAt: "2026-08-29T10:00:00.000Z"
+    });
+  }
+});
+
+test("does not mutate state on failed transitions", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.status = "claimed";
+  graph.tasks.T1.dependencies = ["S1"];
+  graph.tasks.S1.status = "pending";
+
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const snapshotBefore = getTaskGraphSnapshot(result.state);
+
+  applyTaskTransition(result.state, "T1", "ready", "2026-08-29T10:00:00.000Z");
+
+  assert.deepEqual(getTaskGraphSnapshot(result.state), snapshotBefore);
+});
+
+test("advanceReadyTasks promotes only pending ready tasks in sorted order", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    A1: makeTask("A1", "task", { parentId: "E1", status: "completed" }),
+    M1: makeTask("M1", "task", { parentId: "E1" }),
+    Z1: makeTask("Z1", "task", { parentId: "E1", dependencies: ["A1"] }),
+    C1: makeTask("C1", "task", {
+      parentId: "E1",
+      status: "claimed",
+      dependencies: ["A1"]
+    }),
+    B1: makeTask("B1", "task", {
+      parentId: "E1",
+      status: "blocked",
+      dependencies: ["A1"]
+    }),
+    R1: makeTask("R1", "task", {
+      parentId: "E1",
+      status: "ready",
+      dependencies: ["A1"]
+    })
+  });
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const changedTaskIds = advanceReadyTasks(result.state, "2026-08-29T11:00:00.000Z");
+  const snapshot = getTaskGraphSnapshot(result.state);
+
+  assert.deepEqual(changedTaskIds, ["M1", "Z1"]);
+  assert.equal(snapshot.tasks.M1.status, "ready");
+  assert.equal(snapshot.tasks.Z1.status, "ready");
+  assert.equal(snapshot.tasks.C1.status, "claimed");
+  assert.equal(snapshot.tasks.B1.status, "blocked");
+  assert.equal(snapshot.tasks.R1.status, "ready");
 });
