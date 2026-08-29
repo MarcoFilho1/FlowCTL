@@ -861,6 +861,10 @@ test("allows a pending task to become ready when dependencies are completed", ()
     assert.equal(transitionResult.task.status, "ready");
     assert.equal(transitionResult.task.updatedAt, "2026-08-29T10:00:00.000Z");
   }
+
+  const snapshot = getTaskGraphSnapshot(result.state);
+  assert.equal(snapshot.tasks.T1.status, "ready");
+  assert.equal(snapshot.tasks.T1.updatedAt, "2026-08-29T10:00:00.000Z");
 });
 
 test("allows a claimed task to become ready when dependencies are completed", () => {
@@ -997,7 +1001,9 @@ test("advanceReadyTasks promotes only pending ready tasks in sorted order", () =
 
   assert.deepEqual(changedTaskIds, ["M1", "Z1"]);
   assert.equal(snapshot.tasks.M1.status, "ready");
+  assert.equal(snapshot.tasks.M1.updatedAt, "2026-08-29T11:00:00.000Z");
   assert.equal(snapshot.tasks.Z1.status, "ready");
+  assert.equal(snapshot.tasks.Z1.updatedAt, "2026-08-29T11:00:00.000Z");
   assert.equal(snapshot.tasks.C1.status, "claimed");
   assert.equal(snapshot.tasks.B1.status, "blocked");
   assert.equal(snapshot.tasks.R1.status, "ready");
