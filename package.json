@@ -1,0 +1,14 @@
+{
+  "name": "flowctl",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @flowctl/protocol build",
+    "typecheck": "pnpm --filter @flowctl/protocol typecheck",
+    "test": "pnpm --filter @flowctl/protocol test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}
