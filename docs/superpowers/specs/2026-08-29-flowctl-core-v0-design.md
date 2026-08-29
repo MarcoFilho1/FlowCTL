@@ -389,9 +389,14 @@ array, and acceptance-criteria objects/arrays. Mutating the original graph or
 its nested values after creation must not change Core state.
 
 The public representation of `CoreState` must not expose a mutable graph
-reference. Consumers may receive a defensive graph snapshot through a read
-API if implementation requires inspection, but external mutation must not
-bypass Core state operations.
+reference. The public read API is:
+
+```ts
+getTaskGraphSnapshot(state: CoreState): TaskGraph
+```
+
+It always returns a defensive graph copy. External mutation of that snapshot
+must not bypass Core state operations.
 
 ### Controlled mutations
 
@@ -443,7 +448,8 @@ result types:
 - `getReadyTaskIds`;
 - `isTaskTransitionAllowed`;
 - `transitionTask` and its result types;
-- `createCoreState`, `applyTaskTransition`, and `advanceReadyTasks`;
+- `createCoreState`, `getTaskGraphSnapshot`, `applyTaskTransition`, and
+  `advanceReadyTasks`;
 - `CoreState` and state-creation result types.
 
 Cycle traversal helpers, clone helpers, and other implementation details do
@@ -506,6 +512,7 @@ The test suite must cover:
 - invalid graphs are rejected by `createCoreState`;
 - a valid graph creates a usable state;
 - changes to the original graph after creation do not affect state;
+- `getTaskGraphSnapshot` does not expose mutable internal state;
 - contextual `pending -> ready` is rejected when dependencies are incomplete;
 - contextual `pending -> ready` succeeds when dependencies are complete;
 - `advanceReadyTasks` updates only eligible pending tasks;
