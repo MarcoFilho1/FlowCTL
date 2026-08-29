@@ -1,0 +1,10 @@
+.superpowers/
+node_modules/
+dist/
+dist-test/
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+!.env.example
