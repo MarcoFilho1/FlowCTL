@@ -132,6 +132,24 @@ Therefore:
 Hierarchy edges and dependency edges are independent. A dependency may cross
 branches, and a parent relationship does not imply an execution dependency.
 
+### Canonical task identity
+
+Within a `TaskGraph`, the keys of `graph.tasks` are the canonical task
+identity used for every graph lookup. This applies to:
+
+- `rootTaskIds`;
+- `parentId`;
+- `dependencies`.
+
+Every task's `task.id` must equal the key under which it is stored. A mismatch
+produces `TASK_KEY_MISMATCH`. The validator must never use `task.id` as an
+alternate lookup key and must not normalize, re-key, or repair the graph.
+
+For example, when `graph.tasks["T1"].id === "WRONG"`, validation reports
+`TASK_KEY_MISMATCH`. A dependency on `"WRONG"` still produces
+`DEPENDENCY_NOT_FOUND` when there is no `graph.tasks["WRONG"]` key, even if a
+task stored under another key has `id === "WRONG"`.
+
 ## Graph validation
 
 ### Public API
@@ -277,8 +295,32 @@ detection follows `task.dependencies` edges in the direction “current task
 depends on target task.” Both are directed graph checks.
 
 Issue production is deterministic: task IDs are processed in ascending ID
-order, and cycle paths use a stable traversal order. The validator may report
-multiple issues for one malformed task when those are independently true.
+order, and cycle paths use a stable traversal order. Issue codes have this
+fixed precedence, which is an internal ordering rule rather than a public API:
+
+1. `TASK_KEY_MISMATCH`
+2. `ROOT_NOT_FOUND`
+3. `DUPLICATE_ROOT`
+4. `ROOT_HAS_PARENT`
+5. `ROOT_NOT_EPIC`
+6. `EPIC_NOT_ROOT`
+7. `EPIC_WITH_PARENT`
+8. `NON_ROOT_WITHOUT_PARENT`
+9. `PARENT_NOT_FOUND`
+10. `INVALID_PARENT_LEVEL`
+11. `DEPENDENCY_NOT_FOUND`
+12. `SELF_DEPENDENCY`
+13. `DUPLICATE_DEPENDENCY`
+14. `DEPENDENCY_CYCLE`
+15. `HIERARCHY_CYCLE`
+
+The validator sorts issues by this precedence first. Within one code, it
+sorts the relevant canonical identifiers lexicographically: `taskKey` then
+`taskId` for `TASK_KEY_MISMATCH`, `taskId` then the related ID for parent or
+dependency issues, and the complete canonical cycle path for cycle issues.
+Cycle paths retain the stable traversal rule defined above. The validator may
+report multiple issues for one malformed task when those are independently
+true.
 
 The validator does not validate task titles, descriptions, acceptance-criteria
 content, timestamps, worker state, lease timestamps, actor identity, or command
@@ -431,8 +473,23 @@ object, `rootTaskIds`, the task record, each task object, each dependency
 array, and acceptance-criteria objects/arrays. Mutating the original graph or
 its nested values after creation must not change Core state.
 
-The public representation of `CoreState` must not expose a mutable graph
-reference. The public read API is:
+`CoreState` is an opaque branded handle, not a structurally constructible
+object literal. Its public TypeScript shape is conceptually equivalent to:
+
+```ts
+declare const coreStateBrand: unique symbol;
+
+type CoreState = {
+  readonly [coreStateBrand]: "CoreState";
+};
+```
+
+The brand symbol is private to `core-state.ts` and is not exported. Only
+`createCoreState` can produce a valid `CoreState`; consumers cannot normally
+construct one through an object literal. The internal graph is not part of
+the public representation.
+
+The public read API is:
 
 ```ts
 getTaskGraphSnapshot(state: CoreState): TaskGraph
