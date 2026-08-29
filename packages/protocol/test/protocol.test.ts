@@ -7,6 +7,8 @@ import type {
   FlowctlEvent,
   GraphMutation,
   GraphMutationOperation,
+  Lease,
+  Project,
   Task,
   TaskGraph,
   TaskUpdatePatch,
@@ -25,6 +27,20 @@ const epic: Task = {
 };
 
 const actor: Actor = { type: "worker", id: "W1" };
+
+test("exports the complete public protocol surface", () => {
+  const project = {} as Project;
+  const task = {} as Task;
+  const graph = {} as TaskGraph;
+  const worker = {} as Worker;
+  const lease = {} as Lease;
+  const mutation = {} as GraphMutation;
+  const command = {} as FlowctlCommand;
+  const event = {} as FlowctlEvent;
+
+  assert.equal(PROTOCOL_VERSION, "0.1");
+  assert.ok(project && task && graph && worker && lease && mutation && command && event);
+});
 
 function commandType(command: FlowctlCommand): string {
   switch (command.type) {
