@@ -294,6 +294,12 @@ Hierarchy-cycle detection follows `parentId` edges. Dependency-cycle
 detection follows `task.dependencies` edges in the direction “current task
 depends on target task.” Both are directed graph checks.
 
+A self-edge is diagnosed only as `SELF_DEPENDENCY` and is excluded from cycle
+traversal. For example, `T1.dependencies = ["T1"]` must not also produce a
+`DEPENDENCY_CYCLE` issue. A `DEPENDENCY_CYCLE` issue represents a cycle with
+at least two distinct canonical task keys. This rule does not change
+hierarchy-cycle detection.
+
 Issue production is deterministic: task IDs are processed in ascending ID
 order, and cycle paths use a stable traversal order. Issue codes have this
 fixed precedence, which is an internal ordering rule rather than a public API:

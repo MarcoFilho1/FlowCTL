@@ -16,10 +16,12 @@
 - The only production dependency of `@flowctl/core` is the workspace package `@flowctl/protocol`.
 - Core consumes Protocol types directly and does not redeclare `Task`, `TaskGraph`, `TaskStatus`, `TaskLevel`, `Worker`, `Lease`, or other Protocol domain types.
 - Use TypeScript strict mode and the Node.js built-in `node:test` runner.
+- Internal Core tests import the Core facade through `../src/index.js` and import Protocol contracts through `@flowctl/protocol`; only the final post-build package-resolution smoke test imports `@flowctl/core`.
 - Pure functions do not mutate their graph or task arguments.
 - Expected domain failures are returned as discriminated unions; do not throw exceptions for them.
 - `CoreState` is an opaque branded handle produced only by `createCoreState`; its internal graph is never exposed as a mutable reference.
 - Graph lookup identity is always the key of `graph.tasks`; never use `task.id` as an alternate key or repair mismatches.
+- A self-dependency produces only `SELF_DEPENDENCY`; dependency-cycle detection reports only cycles containing at least two distinct task keys.
 - `getReadyTaskIds` returns only `pending` tasks with all dependencies completed; contextual `-> ready` transitions use dependency completion independently of the current status.
 - `advanceReadyTasks` promotes only `pending` tasks.
 - `failed`, `completed`, and `cancelled` are terminal; failed-task retry is not implemented.
@@ -34,42 +36,14 @@
 - Create: `packages/core/tsconfig.json`
 - Create: `packages/core/tsconfig.test.json`
 - Create: `packages/core/src/index.ts`
-- Create: `packages/core/test/core.test.ts`
 - Modify: `package.json`
 - Modify: `pnpm-lock.yaml` through `pnpm install`
 
 **Interfaces:**
 - Consumes: existing root workspace configuration and `@flowctl/protocol` package metadata.
-- Produces: a buildable `@flowctl/core` ESM package with empty public facade and Node test compilation; later tasks add facade exports and behavior.
+- Produces: a buildable `@flowctl/core` ESM package with an empty public facade and TypeScript configuration; later tasks add tests, facade exports, and behavior.
 
-- [ ] **Step 1: Write the failing package smoke test**
-
-Add a Node test that imports the package entry point and proves the package can be resolved as ESM:
-
-```ts
-import { test } from "node:test";
-import assert from "node:assert/strict";
-
-test("loads the public Core package", async () => {
-  const core = await import("@flowctl/core");
-
-  assert.equal(typeof core, "object");
-});
-```
-
-At this stage the test may fail until package metadata and the compiled entry point exist.
-
-- [ ] **Step 2: Run the smoke test to verify the scaffold is absent**
-
-Run:
-
-```bash
-pnpm --filter @flowctl/core test
-```
-
-Expected: FAIL because `@flowctl/core` does not yet exist in the workspace.
-
-- [ ] **Step 3: Add the package and TypeScript configuration**
+- [ ] **Step 1: Add the package and TypeScript configuration**
 
 Create `packages/core/package.json` with no production dependency other than Protocol:
 
@@ -99,9 +73,9 @@ Create `packages/core/package.json` with no production dependency other than Pro
 
 Create `tsconfig.json` extending `../../tsconfig.base.json` with `rootDir: "src"`, `outDir: "dist"`, and `include: ["src/**/*.ts"]`. Create `tsconfig.test.json` extending the same base with `rootDir: "."`, `outDir: "dist-test"`, `declaration: false`, and both `src/**/*.ts` and `test/**/*.ts` in `include`.
 
-Create an initially empty `src/index.ts` so the package entry point compiles.
+Create an initially empty `src/index.ts` so the package entry point compiles. Do not create a failing test for configuration or package discovery; the first behavioral RED begins in Task 2.
 
-- [ ] **Step 4: Update root scripts to run all workspace packages**
+- [ ] **Step 2: Update root scripts to run all workspace packages**
 
 Change the root scripts to run package scripts recursively in dependency order:
 
@@ -115,21 +89,20 @@ Change the root scripts to run package scripts recursively in dependency order:
 }
 ```
 
-Do not add a new external dependency. Run `pnpm install` so the workspace lockfile records `@flowctl/core` and its local Protocol dependency.
+Do not add a new external dependency. Run `pnpm install` so the workspace lockfile records `@flowctl/core` and its local Protocol dependency. The existing `packages/*` workspace glob already discovers the new package; do not add artificial workspace entries.
 
-- [ ] **Step 5: Run the scaffold checks**
+- [ ] **Step 3: Run the scaffold checks**
 
 Run:
 
 ```bash
-pnpm --filter @flowctl/core test
 pnpm --filter @flowctl/core typecheck
 pnpm --filter @flowctl/core build
 ```
 
-Expected: the smoke test passes, typecheck passes, and `dist/index.js` is generated.
+Expected: typecheck passes and `dist/index.js` is generated. No behavioral test is required for this configuration-only task.
 
-- [ ] **Step 6: Commit the scaffold**
+- [ ] **Step 4: Commit the scaffold**
 
 ```bash
 git add package.json pnpm-lock.yaml packages/core
@@ -139,9 +112,9 @@ git commit -m "chore(core): scaffold Core package"
 ### Task 2: Implement structured TaskGraph validation
 
 **Files:**
-- Modify: `packages/core/src/graph-validation.ts`
+- Create: `packages/core/src/graph-validation.ts`
 - Modify: `packages/core/src/index.ts`
-- Modify: `packages/core/test/core.test.ts`
+- Create: `packages/core/test/core.test.ts`
 
 **Interfaces:**
 - Consumes: `TaskGraph`, `Task`, and `TaskLevel` from `@flowctl/protocol`.
@@ -149,7 +122,7 @@ git commit -m "chore(core): scaffold Core package"
 
 - [ ] **Step 1: Add failing validation tests and fixtures**
 
-In `core.test.ts`, import Protocol types from `@flowctl/protocol` and define a local test fixture factory that creates complete Protocol `Task` objects. Add tests for:
+In `core.test.ts`, import Core functions and types through `../src/index.js`, import Protocol types from `@flowctl/protocol`, and define a local test fixture factory that creates complete Protocol `Task` objects. Add tests for:
 
 ```ts
 test("accepts a strict Epic to Atomic hierarchy", () => {
@@ -171,7 +144,22 @@ test("uses graph.tasks keys as canonical identity", () => {
 });
 ```
 
-Add focused tests for root not found, duplicate root, root with parent, root not Epic, Epic not root, Epic with parent, non-root without parent, missing parent, invalid parent level, missing dependency, self-dependency, duplicate dependency, dependency cycle, hierarchy cycle, cross-branch dependency, and input immutability.
+Add focused tests for root not found, duplicate root, root with parent, root not Epic, Epic not root, Epic with parent, non-root without parent, missing parent, invalid parent level, missing dependency, self-dependency, duplicate dependency, dependency cycle, hierarchy cycle, cross-branch dependency, and input immutability. Add this explicit self-dependency test:
+
+```ts
+test("reports self-dependency without also reporting a dependency cycle", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.dependencies = ["T1"];
+
+  const result = validateTaskGraph(graph);
+
+  assert.deepEqual(result.issues, [
+    { code: "SELF_DEPENDENCY", taskId: "T1" }
+  ]);
+});
+```
+
+The fixture must import Core only from `../src/index.js`; do not import `@flowctl/core` in this internal test suite.
 
 Add a test containing several issue codes and assert the exact precedence from the spec: `TASK_KEY_MISMATCH`, `ROOT_NOT_FOUND`, `DUPLICATE_ROOT`, `ROOT_HAS_PARENT`, `ROOT_NOT_EPIC`, `EPIC_NOT_ROOT`, `EPIC_WITH_PARENT`, `NON_ROOT_WITHOUT_PARENT`, `PARENT_NOT_FOUND`, `INVALID_PARENT_LEVEL`, `DEPENDENCY_NOT_FOUND`, `SELF_DEPENDENCY`, `DUPLICATE_DEPENDENCY`, `DEPENDENCY_CYCLE`, `HIERARCHY_CYCLE`. Add same-code cases asserting lexicographic ordering of relevant canonical IDs.
 
@@ -221,7 +209,7 @@ Implement `validateTaskGraph` using `Object.keys(graph.tasks)` as the only task 
 
 - [ ] **Step 5: Implement private cycle detection and issue ordering**
 
-Use stable DFS traversal over canonical task keys. Traverse `parentId` for hierarchy cycles and `dependencies` for dependency cycles; skip missing references because those already produce reference issues. Report cycle paths in `taskIds` without exposing cycle helpers publicly.
+Use stable DFS traversal over canonical task keys. Traverse `parentId` for hierarchy cycles and `dependencies` for dependency cycles; skip missing references because those already produce reference issues. Exclude self-edges from dependency-cycle traversal because they already produce `SELF_DEPENDENCY`; a `DEPENDENCY_CYCLE` issue must contain at least two distinct canonical task keys. Report cycle paths in `taskIds` without exposing cycle helpers publicly.
 
 Sort all issues first by the fixed code precedence from the spec, then by relevant canonical identifiers lexicographically. For cycle issues, compare the complete canonical cycle path. Do not normalize or mutate the graph.
 
@@ -530,9 +518,9 @@ git commit -m "feat(core): add controlled in-memory state"
 
 - [ ] **Step 1: Add public-surface and exhaustive narrowing tests**
 
-Import every intended public function/type through `@flowctl/core` and import the domain fixture types through `@flowctl/protocol`. Add a runtime smoke test for the package import and `PROTOCOL_VERSION` through the unchanged Protocol package. Add TypeScript narrowing tests for every `GraphValidationIssue` code and every result union branch; use an exhaustive `never` assertion where appropriate.
+Import every intended public function/type through `../src/index.js` and import the domain fixture types through `@flowctl/protocol`. Add TypeScript narrowing tests for every `GraphValidationIssue` code and every result union branch; use an exhaustive `never` assertion where appropriate. Do not make the internal test suite depend on the compiled package export.
 
-- [ ] **Step 2: Run the public-surface test to verify any missing export**
+- [ ] **Step 2: Run the source-facade public-surface test to verify any missing export**
 
 Run:
 
@@ -540,7 +528,7 @@ Run:
 pnpm --filter @flowctl/core test
 ```
 
-Expected: FAIL if any intended public export or exhaustive union branch is missing.
+Expected: FAIL if any intended source-facade export or exhaustive union branch is missing.
 
 - [ ] **Step 3: Finalize `index.ts` as the facade**
 
@@ -559,7 +547,7 @@ cd ../..
 git diff --check
 ```
 
-Expected: Protocol and Core tests pass, both packages typecheck and build, the public import succeeds, and `git diff --check` produces no output.
+Expected: Protocol and Core tests pass, both packages typecheck and build, the post-build package import resolves through `@flowctl/core`, and `git diff --check` produces no output.
 
 - [ ] **Step 5: Run the scope and dependency review**
 
