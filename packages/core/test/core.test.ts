@@ -5,8 +5,11 @@ import * as Protocol from "@flowctl/protocol";
 
 const validateTaskGraph = Core.validateTaskGraph;
 const getReadyTaskIds = Core.getReadyTaskIds;
+const isTaskTransitionAllowed = Core.isTaskTransitionAllowed;
+const transitionTask = Core.transitionTask;
 
 type GraphValidationIssue = Core.GraphValidationIssue;
+type TaskTransitionResult = Core.TaskTransitionResult;
 type Task = Protocol.Task;
 type TaskGraph = Protocol.TaskGraph;
 type TaskLevel = Protocol.TaskLevel;
@@ -519,3 +522,147 @@ function makeReadinessGraph(tasks: Record<string, Task>): TaskGraph {
     tasks
   };
 }
+
+test("allows every lifecycle transition listed in the spec", () => {
+  const allowedTransitions: readonly [Protocol.TaskStatus, Protocol.TaskStatus][] = [
+    ["pending", "ready"],
+    ["pending", "cancelled"],
+    ["ready", "claimed"],
+    ["ready", "cancelled"],
+    ["claimed", "running"],
+    ["claimed", "ready"],
+    ["claimed", "blocked"],
+    ["claimed", "failed"],
+    ["claimed", "cancelled"],
+    ["running", "review"],
+    ["running", "blocked"],
+    ["running", "failed"],
+    ["running", "cancelled"],
+    ["blocked", "ready"],
+    ["blocked", "cancelled"],
+    ["review", "running"],
+    ["review", "completed"],
+    ["review", "cancelled"]
+  ];
+
+  for (const [from, to] of allowedTransitions) {
+    assert.equal(isTaskTransitionAllowed(from, to), true, `${from} -> ${to}`);
+  }
+});
+
+test("rejects representative lifecycle transitions that are not listed", () => {
+  const disallowedTransitions: readonly [Protocol.TaskStatus, Protocol.TaskStatus][] = [
+    ["pending", "running"],
+    ["ready", "running"],
+    ["claimed", "completed"],
+    ["running", "claimed"],
+    ["blocked", "claimed"],
+    ["review", "failed"],
+    ["completed", "running"],
+    ["failed", "running"],
+    ["cancelled", "ready"]
+  ];
+
+  for (const [from, to] of disallowedTransitions) {
+    assert.equal(isTaskTransitionAllowed(from, to), false, `${from} -> ${to}`);
+  }
+});
+
+test("treats completed, failed, and cancelled as terminal states", () => {
+  const terminalStatuses: readonly Protocol.TaskStatus[] = ["completed", "failed", "cancelled"];
+  const targetStatuses: readonly Protocol.TaskStatus[] = [
+    "pending",
+    "ready",
+    "claimed",
+    "running",
+    "blocked",
+    "review",
+    "completed",
+    "failed",
+    "cancelled"
+  ];
+
+  for (const from of terminalStatuses) {
+    for (const to of targetStatuses) {
+      assert.equal(isTaskTransitionAllowed(from, to), false, `${from} -> ${to}`);
+    }
+  }
+});
+
+test("transitions a task through the pure lifecycle helper without mutating the input", () => {
+  const task = makeTask("T1", "task", {
+    parentId: "E1",
+    description: "keep me",
+    assignedWorkerId: "W1",
+    status: "review",
+    dependencies: ["A1", "S1"],
+    acceptanceCriteria: [
+      { id: "AC1", description: "one" },
+      { id: "AC2", description: "two" }
+    ]
+  });
+  const snapshot = structuredClone(task);
+
+  const result = transitionTask(task, "running", "2026-08-29T01:02:03.000Z");
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.deepEqual(result.task, {
+      ...snapshot,
+      status: "running",
+      updatedAt: "2026-08-29T01:02:03.000Z"
+    });
+    assert.notEqual(result.task, task);
+    assert.deepEqual(task, snapshot);
+  }
+});
+
+test("returns a structured invalid transition result for disallowed pairs", () => {
+  const task = makeTask("T2", "task", { status: "failed" });
+  const snapshot = structuredClone(task);
+
+  const result = transitionTask(task, "running", "2026-08-29T01:02:03.000Z");
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    const narrowResult: TaskTransitionResult = result;
+
+    assert.deepEqual(narrowResult, {
+      ok: false,
+      code: "INVALID_TASK_TRANSITION",
+      from: "failed",
+      to: "running"
+    });
+  }
+  assert.deepEqual(task, snapshot);
+});
+
+test("preserves unrelated task fields when transitioning successfully", () => {
+  const task = makeTask("T3", "atomic", {
+    parentId: "S1",
+    description: "desc",
+    assignedWorkerId: "W2",
+    status: "claimed",
+    dependencies: ["A1"],
+    acceptanceCriteria: [{ id: "AC1", description: "done" }]
+  });
+
+  const result = transitionTask(task, "running", "2026-08-29T09:08:07.000Z");
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.deepEqual(result.task, {
+      id: "T3",
+      parentId: "S1",
+      level: "atomic",
+      title: "T3 title",
+      description: "desc",
+      status: "running",
+      dependencies: ["A1"],
+      acceptanceCriteria: [{ id: "AC1", description: "done" }],
+      assignedWorkerId: "W2",
+      createdAt: TIMESTAMP,
+      updatedAt: "2026-08-29T09:08:07.000Z"
+    });
+  }
+});
