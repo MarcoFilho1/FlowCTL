@@ -213,6 +213,25 @@ test("reports dependency cycles with a stable canonical path", () => {
   ]);
 });
 
+test("sorts multiple dependency cycles by the complete canonical cycle path", () => {
+  const graph = makeValidGraph();
+  graph.tasks.D1 = makeTask("D1", "task", { parentId: "E1", dependencies: ["D2"] });
+  graph.tasks.D2 = makeTask("D2", "task", { parentId: "E1", dependencies: ["D1"] });
+  graph.tasks.C1 = makeTask("C1", "task", { parentId: "E1", dependencies: ["C2"] });
+  graph.tasks.C2 = makeTask("C2", "task", { parentId: "E1", dependencies: ["C3"] });
+  graph.tasks.C3 = makeTask("C3", "task", { parentId: "E1", dependencies: ["C1"] });
+
+  const issues = validateTaskGraph(graph).issues.filter(
+    (issue): issue is Extract<GraphValidationIssue, { code: "DEPENDENCY_CYCLE" }> =>
+      issue.code === "DEPENDENCY_CYCLE"
+  );
+
+  assert.deepEqual(issues, [
+    { code: "DEPENDENCY_CYCLE", taskIds: ["C1", "C2", "C3", "C1"] },
+    { code: "DEPENDENCY_CYCLE", taskIds: ["D1", "D2", "D1"] }
+  ]);
+});
+
 test("reports hierarchy cycles with a stable canonical path", () => {
   const graph = makeValidGraph();
   graph.tasks.E1.parentId = "A1";
@@ -228,6 +247,25 @@ test("reports hierarchy cycles with a stable canonical path", () => {
       parentLevel: "atomic"
     },
     { code: "HIERARCHY_CYCLE", taskIds: ["A1", "S1", "T1", "E1", "A1"] }
+  ]);
+});
+
+test("sorts multiple hierarchy cycles by the complete canonical cycle path", () => {
+  const graph = makeValidGraph();
+  graph.tasks.C1 = makeTask("C1", "task", { parentId: "C2" });
+  graph.tasks.C2 = makeTask("C2", "subtask", { parentId: "C3" });
+  graph.tasks.C3 = makeTask("C3", "atomic", { parentId: "C1" });
+  graph.tasks.D1 = makeTask("D1", "task", { parentId: "D2" });
+  graph.tasks.D2 = makeTask("D2", "subtask", { parentId: "D1" });
+
+  const issues = validateTaskGraph(graph).issues.filter(
+    (issue): issue is Extract<GraphValidationIssue, { code: "HIERARCHY_CYCLE" }> =>
+      issue.code === "HIERARCHY_CYCLE"
+  );
+
+  assert.deepEqual(issues, [
+    { code: "HIERARCHY_CYCLE", taskIds: ["C1", "C2", "C3", "C1"] },
+    { code: "HIERARCHY_CYCLE", taskIds: ["D1", "D2", "D1"] }
   ]);
 });
 
