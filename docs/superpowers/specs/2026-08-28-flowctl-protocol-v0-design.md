@@ -205,7 +205,10 @@ interface CommandEnvelope {
 
 The public `FlowctlCommand` union includes:
 
-- `task.claim` with `taskId` and `workerId`;
+- `task.claim` with `taskId` and `workerId`. The `taskId` supplied by a worker
+  is only a claim request; it grants no execution authority, and the future
+  Core may accept or reject it. A scheduler-selected next-work mechanism is
+  deferred to a later increment;
 - `task.start` with `taskId`, `workerId`, and `leaseId`;
 - `task.complete` with `taskId`, `workerId`, and `leaseId`;
 - `task.fail` with `taskId`, `workerId`, `leaseId`, and `reason`;
@@ -234,7 +237,8 @@ interface EventEnvelope {
 The public `FlowctlEvent` union includes:
 
 - `task.created`, `task.ready`, `task.claimed`, `task.started`,
-  `task.completed`, `task.failed`, `task.blocked`, and `task.cancelled`;
+  `task.review_requested`, `task.completed`, `task.failed`, `task.blocked`,
+  and `task.cancelled`;
 - `lease.created` and `lease.expired`;
 - `worker.connected` and `worker.disconnected`;
 - `graph.mutation.proposed`, `graph.mutation.approved`, and
@@ -244,8 +248,14 @@ Each event has a specific typed payload. Mutation events follow this exact
 convention:
 
 - `graph.mutation.proposed` carries the complete `GraphMutation`;
-- `graph.mutation.approved` carries at least `mutationId`;
+- `graph.mutation.approved` carries the complete `GraphMutation`, so event-
+  driven consumers can identify the approved change without retaining the
+  earlier proposal event;
 - `graph.mutation.rejected` carries `mutationId` and `reason`.
+
+The public event union also includes `task.review_requested`, representing a
+future transition into review. This increment defines only the event contract
+and does not implement review behavior.
 
 ## Graph mutations
 
