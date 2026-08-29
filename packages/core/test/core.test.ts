@@ -453,6 +453,18 @@ test("treats hierarchy as independent from readiness", () => {
   assert.deepEqual(getReadyTaskIds(graph), ["T1"]);
 });
 
+test("returns a pending task whose dependency is completed in another branch", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    A1: makeTask("A1", "task", { parentId: "E1", status: "completed" }),
+    S1: makeTask("S1", "subtask", { parentId: "A1", status: "completed" }),
+    A2: makeTask("A2", "task", { parentId: "E1", status: "completed" }),
+    T1: makeTask("T1", "task", { parentId: "A2", dependencies: ["S1"] })
+  });
+
+  assert.deepEqual(getReadyTaskIds(graph), ["T1"]);
+});
+
 test("returns ready task ids in lexicographic order", () => {
   const graph = makeReadinessGraph({
     E1: makeTask("E1", "epic", { status: "completed" }),

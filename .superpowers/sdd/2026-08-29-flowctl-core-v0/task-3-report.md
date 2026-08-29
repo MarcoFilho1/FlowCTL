@@ -38,3 +38,19 @@ Implemented pure readiness calculation in `packages/core/src/readiness.ts` and e
 
 - No functional concerns remain from this task.
 - The local untracked `.pnpm-store/` directory was left untouched and is not part of the commit.
+
+## Fix Round 1
+
+### Changed Files
+
+- `packages/core/test/core.test.ts`
+- `.superpowers/sdd/2026-08-29-flowctl-core-v0/task-3-report.md`
+
+### Command
+
+- `CI=true pnpm --filter @flowctl/core test`
+
+### Output
+
+- `31` tests passed, `0` failed.
+- Added coverage for a pending task whose dependency is completed in another hierarchy branch.
