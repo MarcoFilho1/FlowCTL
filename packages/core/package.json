@@ -13,6 +13,10 @@
     }
   },
   "scripts": {
+    "prepare:protocol": "pnpm --filter @flowctl/protocol build",
+    "prebuild": "pnpm run prepare:protocol",
+    "pretypecheck": "pnpm run prepare:protocol",
+    "prebuild:test": "pnpm run prepare:protocol",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:test": "tsc -p tsconfig.test.json",

@@ -1,4 +1,11 @@
 import type { TaskGraph, TaskLevel } from "@flowctl/protocol";
+import {
+  compareTaskIds,
+  compareTaskIdTuples,
+  getSortedTaskKeys,
+  getSortedUniqueTaskIds,
+  getTaskByKey
+} from "./task-graph-helpers.js";
 
 export interface GraphValidationResult {
   valid: boolean;
@@ -55,9 +62,9 @@ const EXPECTED_PARENT_LEVEL: Readonly<Record<TaskLevel, TaskLevel | undefined>> 
 
 export function validateTaskGraph(graph: TaskGraph): GraphValidationResult {
   const issues: GraphValidationIssue[] = [];
-  const taskKeys = Object.keys(graph.tasks).sort();
+  const taskKeys = getSortedTaskKeys(graph);
   const rootCounts = countValues(graph.rootTaskIds);
-  const sortedRootIds = Array.from(rootCounts.keys()).sort();
+  const sortedRootIds = Array.from(rootCounts.keys()).sort(compareTaskIds);
 
   for (const taskKey of taskKeys) {
     const task = graph.tasks[taskKey];
@@ -67,7 +74,7 @@ export function validateTaskGraph(graph: TaskGraph): GraphValidationResult {
   }
 
   for (const rootId of sortedRootIds) {
-    const rootTask = graph.tasks[rootId];
+    const rootTask = getTaskByKey(graph, rootId);
 
     if (rootTask === undefined) {
       issues.push({ code: "ROOT_NOT_FOUND", taskId: rootId });
@@ -109,7 +116,7 @@ export function validateTaskGraph(graph: TaskGraph): GraphValidationResult {
     }
 
     if (task.parentId !== undefined) {
-      const parentTask = graph.tasks[task.parentId];
+      const parentTask = getTaskByKey(graph, task.parentId);
 
       if (parentTask === undefined) {
         issues.push({ code: "PARENT_NOT_FOUND", taskId: taskKey, parentId: task.parentId });
@@ -125,12 +132,12 @@ export function validateTaskGraph(graph: TaskGraph): GraphValidationResult {
     }
 
     const dependencyCounts = countValues(task.dependencies);
-    const dependencyIds = Array.from(dependencyCounts.keys()).sort();
+    const dependencyIds = Array.from(dependencyCounts.keys()).sort(compareTaskIds);
 
     for (const dependencyId of dependencyIds) {
       if (dependencyId === taskKey) {
         issues.push({ code: "SELF_DEPENDENCY", taskId: taskKey });
-      } else if (graph.tasks[dependencyId] === undefined) {
+      } else if (getTaskByKey(graph, dependencyId) === undefined) {
         issues.push({
           code: "DEPENDENCY_NOT_FOUND",
           taskId: taskKey,
@@ -169,13 +176,13 @@ function findDependencyCycles(
   taskKeys: readonly string[]
 ): readonly (readonly string[])[] {
   return findCycles(taskKeys, (taskKey) => {
-    const dependencies = graph.tasks[taskKey]?.dependencies ?? [];
+    const dependencies = getTaskByKey(graph, taskKey)?.dependencies ?? [];
 
-    return Array.from(
-      new Set(
-        dependencies.filter((dependencyId) => dependencyId !== taskKey && graph.tasks[dependencyId] !== undefined)
+    return getSortedUniqueTaskIds(
+      dependencies.filter(
+        (dependencyId) => dependencyId !== taskKey && getTaskByKey(graph, dependencyId) !== undefined
       )
-    ).sort();
+    );
   }, 2);
 }
 
@@ -184,8 +191,8 @@ function findHierarchyCycles(
   taskKeys: readonly string[]
 ): readonly (readonly string[])[] {
   return findCycles(taskKeys, (taskKey) => {
-    const parentId = graph.tasks[taskKey]?.parentId;
-    return parentId !== undefined && graph.tasks[parentId] !== undefined ? [parentId] : [];
+    const parentId = getTaskByKey(graph, taskKey)?.parentId;
+    return parentId !== undefined && getTaskByKey(graph, parentId) !== undefined ? [parentId] : [];
   }, 1);
 }
 
@@ -194,7 +201,7 @@ function findCycles(
   getNeighbors: (taskKey: string) => readonly string[],
   minDistinctTaskCount: number
 ): readonly (readonly string[])[] {
-  const cycles = new Map<string, readonly string[]>();
+  const cycles: (readonly string[])[] = [];
   const visited = new Set<string>();
   const path: string[] = [];
 
@@ -211,7 +218,10 @@ function findCycles(
 
         if (distinctTaskCount >= minDistinctTaskCount) {
           const normalizedCycle = normalizeCyclePath(rawCycle);
-          cycles.set(normalizedCycle.join("\u0000"), normalizedCycle);
+
+          if (!cycles.some((existingCycle) => compareCyclePaths(existingCycle, normalizedCycle) === 0)) {
+            cycles.push(normalizedCycle);
+          }
         }
 
         continue;
@@ -231,21 +241,18 @@ function findCycles(
     }
   }
 
-  return Array.from(cycles.values()).sort(compareCyclePaths);
+  return cycles.sort(compareCyclePaths);
 }
 
 function normalizeCyclePath(taskIds: readonly string[]): readonly string[] {
   const cycle = taskIds.slice(0, -1);
   let bestPath = [...cycle, cycle[0]];
-  let bestKey = bestPath.join("\u0000");
 
   for (let index = 1; index < cycle.length; index += 1) {
     const rotated = cycle.slice(index).concat(cycle.slice(0, index));
     const candidate = [...rotated, rotated[0]];
-    const candidateKey = candidate.join("\u0000");
 
-    if (candidateKey < bestKey) {
-      bestKey = candidateKey;
+    if (compareCyclePaths(candidate, bestPath) < 0) {
       bestPath = candidate;
     }
   }
@@ -282,7 +289,7 @@ function compareIssues(left: GraphValidationIssue, right: GraphValidationIssue):
         GraphValidationIssue,
         { code: "ROOT_NOT_FOUND" | "DUPLICATE_ROOT" | "EPIC_NOT_ROOT" }
       >;
-      return left.taskId.localeCompare(other.taskId);
+      return compareTaskIds(left.taskId, other.taskId);
     }
     case "ROOT_HAS_PARENT":
     case "EPIC_WITH_PARENT":
@@ -321,7 +328,7 @@ function compareIssues(left: GraphValidationIssue, right: GraphValidationIssue):
     }
     case "SELF_DEPENDENCY": {
       const other = right as Extract<GraphValidationIssue, { code: "SELF_DEPENDENCY" }>;
-      return left.taskId.localeCompare(other.taskId);
+      return compareTaskIds(left.taskId, other.taskId);
     }
     case "DEPENDENCY_CYCLE":
     case "HIERARCHY_CYCLE": {
@@ -339,14 +346,5 @@ function compareCyclePaths(left: readonly string[], right: readonly string[]): n
 }
 
 function compareTuples(left: readonly string[], right: readonly string[]): number {
-  const length = Math.min(left.length, right.length);
-
-  for (let index = 0; index < length; index += 1) {
-    const difference = left[index]?.localeCompare(right[index] ?? "") ?? 0;
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-
-  return left.length - right.length;
+  return compareTaskIdTuples(left, right);
 }

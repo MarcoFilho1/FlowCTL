@@ -1,6 +1,7 @@
 import type { GraphValidationIssue } from "./graph-validation.js";
 import { validateTaskGraph } from "./graph-validation.js";
 import { areTaskDependenciesCompleted, getIncompleteDependencyIds, getReadyTaskIds } from "./readiness.js";
+import { getTaskByKey } from "./task-graph-helpers.js";
 import { transitionTask } from "./task-state-machine.js";
 import type { Task, TaskGraph, TaskStatus } from "@flowctl/protocol";
 
@@ -64,7 +65,7 @@ export function applyTaskTransition(
   updatedAt: string
 ): CoreTaskTransitionResult {
   const graph = getStoredGraph(state);
-  const task = graph.tasks[taskId];
+  const task = getTaskByKey(graph, taskId);
 
   if (task === undefined) {
     return {
@@ -94,9 +95,13 @@ export function applyTaskTransition(
     };
   }
 
-  graph.tasks[taskId] = transitionResult.task;
+  const storedTask = cloneTask(transitionResult.task);
+  graph.tasks[taskId] = storedTask;
 
-  return transitionResult;
+  return {
+    ok: true,
+    task: cloneTask(storedTask)
+  };
 }
 
 export function advanceReadyTasks(state: CoreState, updatedAt: string): readonly string[] {
@@ -104,12 +109,17 @@ export function advanceReadyTasks(state: CoreState, updatedAt: string): readonly
   const readyTaskIds = getReadyTaskIds(graph);
 
   for (const taskId of readyTaskIds) {
-    const transitionResult = transitionTask(graph.tasks[taskId], "ready", updatedAt);
+    const task = getTaskByKey(graph, taskId);
+    if (task === undefined) {
+      continue;
+    }
+
+    const transitionResult = transitionTask(task, "ready", updatedAt);
     if (!transitionResult.ok) {
       continue;
     }
 
-    graph.tasks[taskId] = transitionResult.task;
+    graph.tasks[taskId] = cloneTask(transitionResult.task);
   }
 
   return readyTaskIds;

@@ -45,6 +45,16 @@ function makeTask(
   };
 }
 
+function makeTaskRecord(entries: readonly (readonly [string, Task])[]): Record<string, Task> {
+  const tasks = Object.create(null) as Record<string, Task>;
+
+  for (const [taskId, task] of entries) {
+    tasks[taskId] = task;
+  }
+
+  return tasks;
+}
+
 function makeValidGraph(): TaskGraph {
   const epic = makeTask("E1", "epic");
   const taskOne = makeTask("T1", "task", { parentId: "E1" });
@@ -206,6 +216,32 @@ test("reports a missing dependency target", () => {
   ]);
 });
 
+test("treats inherited-property ids as missing canonical references", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.parentId = "constructor";
+  graph.tasks.T4.dependencies = ["toString", "__proto__"];
+
+  assert.deepEqual(validateTaskGraph(graph).issues, [
+    { code: "PARENT_NOT_FOUND", taskId: "T1", parentId: "constructor" },
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T4", dependsOnTaskId: "__proto__" },
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T4", dependsOnTaskId: "toString" }
+  ]);
+});
+
+test("orders dependency issues with a locale-independent comparator", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T4.dependencies = ["a", "á", "__proto__", "A", "Ä", "Z"];
+
+  assert.deepEqual(validateTaskGraph(graph).issues, [
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T4", dependsOnTaskId: "A" },
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T4", dependsOnTaskId: "Z" },
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T4", dependsOnTaskId: "__proto__" },
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T4", dependsOnTaskId: "a" },
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T4", dependsOnTaskId: "Ä" },
+    { code: "DEPENDENCY_NOT_FOUND", taskId: "T4", dependsOnTaskId: "á" }
+  ]);
+});
+
 test("reports self-dependency without also reporting a dependency cycle", () => {
   const graph = makeValidGraph();
   graph.tasks.T1.dependencies = ["T1"];
@@ -250,6 +286,48 @@ test("sorts multiple dependency cycles by the complete canonical cycle path", ()
   assert.deepEqual(issues, [
     { code: "DEPENDENCY_CYCLE", taskIds: ["C1", "C2", "C3", "C1"] },
     { code: "DEPENDENCY_CYCLE", taskIds: ["D1", "D2", "D1"] }
+  ]);
+});
+
+test("sorts dependency cycles with a locale-independent canonical comparator", () => {
+  const graph = makeValidGraph();
+  graph.tasks.A1 = makeTask("A1", "task", { parentId: "E1", dependencies: ["B1"] });
+  graph.tasks.B1 = makeTask("B1", "task", { parentId: "E1", dependencies: ["A1"] });
+  graph.tasks.a1 = makeTask("a1", "task", { parentId: "E1", dependencies: ["b1"] });
+  graph.tasks.b1 = makeTask("b1", "task", { parentId: "E1", dependencies: ["a1"] });
+  graph.tasks["á1"] = makeTask("á1", "task", { parentId: "E1", dependencies: ["c1"] });
+  graph.tasks.c1 = makeTask("c1", "task", { parentId: "E1", dependencies: ["á1"] });
+
+  const issues = validateTaskGraph(graph).issues.filter(
+    (issue): issue is Extract<GraphValidationIssue, { code: "DEPENDENCY_CYCLE" }> =>
+      issue.code === "DEPENDENCY_CYCLE"
+  );
+
+  assert.deepEqual(issues, [
+    { code: "DEPENDENCY_CYCLE", taskIds: ["A1", "B1", "A1"] },
+    { code: "DEPENDENCY_CYCLE", taskIds: ["a1", "b1", "a1"] },
+    { code: "DEPENDENCY_CYCLE", taskIds: ["c1", "á1", "c1"] }
+  ]);
+});
+
+test("does not deduplicate distinct dependency cycles when ids contain NUL", () => {
+  const graph = makeValidGraph();
+  graph.tasks.A = makeTask("A", "task", { parentId: "E1", dependencies: ["B", "B\u0000C"] });
+  graph.tasks.B = makeTask("B", "task", { parentId: "E1", dependencies: ["C"] });
+  graph.tasks.C = makeTask("C", "task", { parentId: "E1", dependencies: ["A"] });
+  graph.tasks["B\u0000C"] = makeTask("B\u0000C", "task", {
+    parentId: "E1",
+    dependencies: ["A"]
+  });
+
+  const issues = validateTaskGraph(graph).issues.filter(
+    (issue): issue is Extract<GraphValidationIssue, { code: "DEPENDENCY_CYCLE" }> =>
+      issue.code === "DEPENDENCY_CYCLE"
+  );
+
+  assert.deepEqual(issues, [
+    { code: "DEPENDENCY_CYCLE", taskIds: ["A", "B", "C", "A"] },
+    { code: "DEPENDENCY_CYCLE", taskIds: ["A", "B\u0000C", "A"] }
   ]);
 });
 
@@ -511,6 +589,31 @@ test("does not return a task with a missing dependency", () => {
   });
 
   assert.deepEqual(getReadyTaskIds(graph), []);
+});
+
+test("does not treat inherited-property ids as ready dependencies", () => {
+  const graph = makeReadinessGraph({
+    E1: makeTask("E1", "epic", { status: "completed" }),
+    T1: makeTask("T1", "task", { parentId: "E1", dependencies: ["constructor"] })
+  });
+
+  assert.deepEqual(getReadyTaskIds(graph), []);
+});
+
+test("returns ready task ids with a locale-independent comparator", () => {
+  const graph = makeReadinessGraph(
+    makeTaskRecord([
+      ["E1", makeTask("E1", "epic", { status: "completed" })],
+      ["a", makeTask("a", "task", { parentId: "E1" })],
+      ["á", makeTask("á", "task", { parentId: "E1" })],
+      ["__proto__", makeTask("__proto__", "task", { parentId: "E1" })],
+      ["A", makeTask("A", "task", { parentId: "E1" })],
+      ["Ä", makeTask("Ä", "task", { parentId: "E1" })],
+      ["Z", makeTask("Z", "task", { parentId: "E1" })]
+    ])
+  );
+
+  assert.deepEqual(getReadyTaskIds(graph), ["A", "Z", "__proto__", "a", "Ä", "á"]);
 });
 
 test("does not mutate the input graph", () => {
@@ -867,6 +970,48 @@ test("allows a pending task to become ready when dependencies are completed", ()
   assert.equal(snapshot.tasks.T1.updatedAt, "2026-08-29T10:00:00.000Z");
 });
 
+test("returns a defensive task clone from successful applyTaskTransition", () => {
+  const graph = makeValidGraph();
+  graph.tasks.T1.dependencies = ["S1"];
+  graph.tasks.T1.acceptanceCriteria = [{ id: "AC1", description: "original" }];
+  graph.tasks.S1.status = "completed";
+
+  const result = createCoreState(graph);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResult = applyTaskTransition(
+    result.state,
+    "T1",
+    "ready",
+    "2026-08-29T10:00:00.000Z"
+  );
+
+  assert.equal(transitionResult.ok, true);
+  if (!transitionResult.ok) {
+    return;
+  }
+
+  transitionResult.task.status = "running";
+  transitionResult.task.title = "mutated";
+  transitionResult.task.dependencies.push("S2");
+  transitionResult.task.acceptanceCriteria[0]!.description = "mutated";
+  transitionResult.task.acceptanceCriteria.push({ id: "AC2", description: "extra" });
+
+  const snapshot = getTaskGraphSnapshot(result.state);
+
+  assert.equal(snapshot.tasks.T1.status, "ready");
+  assert.equal(snapshot.tasks.T1.title, "T1 title");
+  assert.equal(snapshot.tasks.T1.updatedAt, "2026-08-29T10:00:00.000Z");
+  assert.deepEqual(snapshot.tasks.T1.dependencies, ["S1"]);
+  assert.deepEqual(snapshot.tasks.T1.acceptanceCriteria, [
+    { id: "AC1", description: "original" }
+  ]);
+});
+
 test("allows a claimed task to become ready when dependencies are completed", () => {
   const graph = makeValidGraph();
   graph.tasks.T1.status = "claimed";
@@ -917,6 +1062,26 @@ test("allows a blocked task to become ready when dependencies are completed", ()
   if (transitionResult.ok) {
     assert.equal(transitionResult.task.status, "ready");
   }
+});
+
+test("returns TASK_NOT_FOUND for inherited-property ids instead of throwing", () => {
+  const result = createCoreState(makeValidGraph());
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const transitionResults = ["toString", "constructor", "__proto__"].map((taskId) =>
+    applyTaskTransition(result.state, taskId, "ready", "2026-08-29T10:00:00.000Z")
+  );
+
+  assert.deepEqual(transitionResults, [
+    { ok: false, code: "TASK_NOT_FOUND", taskId: "toString" },
+    { ok: false, code: "TASK_NOT_FOUND", taskId: "constructor" },
+    { ok: false, code: "TASK_NOT_FOUND", taskId: "__proto__" }
+  ]);
+  assert.deepEqual(getTaskGraphSnapshot(result.state), makeValidGraph());
 });
 
 test("allows non-ready lifecycle transitions through the pure state machine", () => {
