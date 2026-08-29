@@ -216,6 +216,8 @@ test("restricts task creation to planner-owned fields", () => {
   const assignedWorkerId: TaskCreationInput = { ...creationInput, assignedWorkerId: "W1" };
   // @ts-expect-error Timestamps are controlled by the Core.
   const timestamps: TaskCreationInput = { ...creationInput, createdAt: "2026-08-29T13:42:18.321Z" };
+  // @ts-expect-error Timestamps are controlled by the Core.
+  const updatedAt: TaskCreationInput = { ...creationInput, updatedAt: "2026-08-29T13:42:18.321Z" };
   // @ts-expect-error Lease information is not part of task creation input.
   const leaseId: TaskCreationInput = { ...creationInput, leaseId: "L1" };
 
@@ -224,5 +226,6 @@ test("restricts task creation to planner-owned fields", () => {
   void dependencies;
   void assignedWorkerId;
   void timestamps;
+  void updatedAt;
   void leaseId;
 });
