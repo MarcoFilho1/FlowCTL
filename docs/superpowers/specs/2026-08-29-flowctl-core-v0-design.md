@@ -327,6 +327,23 @@ transitionTask(
 ): TaskTransitionResult
 ```
 
+`TaskTransitionResult` is a discriminated union with no exception-based
+domain failure:
+
+```ts
+type TaskTransitionResult =
+  | {
+      ok: true;
+      task: Task;
+    }
+  | {
+      ok: false;
+      code: "INVALID_TASK_TRANSITION";
+      from: TaskStatus;
+      to: TaskStatus;
+    };
+```
+
 For an allowed pair it returns a new Protocol `Task`, changing only
 `status` and `updatedAt`. It preserves identity, hierarchy, dependencies,
 assignment, creation timestamp, and acceptance criteria. For a disallowed pair
@@ -351,6 +368,13 @@ Any dependency in `pending`, `ready`, `claimed`, `running`, `blocked`,
 task in another hierarchy branch. Failure and blocking are not automatically
 propagated to dependents in Core v0.
 
+The internal pure helper
+`areTaskDependenciesCompleted(graph: TaskGraph, task: Task): boolean` checks
+only whether every dependency of the supplied task resolves to a task with
+status `completed`. It does not inspect the supplied task's own status and is
+not part of the public Core API. An internal companion may collect the
+incomplete dependency IDs for structured contextual errors.
+
 ### Public API and algorithm
 
 The pure API is:
@@ -364,6 +388,10 @@ dependency, does not mutate the graph, and returns IDs sorted in ascending
 lexicographic order. Its expected complexity is O(V + E) for a graph with V
 tasks and E dependency edges.
 
+`getReadyTaskIds` calls the dependency predicate only for tasks whose current
+status is `pending`. It never returns `claimed`, `blocked`, or any other
+status, even when those tasks have all dependencies completed.
+
 The function is intended to run after graph validation. It must still handle a
 missing dependency defensively by treating that task as not ready; graph
 validity remains the responsibility of `validateTaskGraph`.
@@ -376,6 +404,21 @@ The Core owns a small in-memory state. The conceptual creation API is:
 
 ```ts
 createCoreState(graph: TaskGraph): CoreStateResult
+```
+
+`CoreStateResult` is a discriminated union. Invalid graph structure is an
+expected domain result, not an exception:
+
+```ts
+type CoreStateResult =
+  | {
+      ok: true;
+      state: CoreState;
+    }
+  | {
+      ok: false;
+      issues: readonly GraphValidationIssue[];
+    };
 ```
 
 Creation first calls `validateTaskGraph`. If any issue exists, it returns the
@@ -408,7 +451,7 @@ applyTaskTransition(
   taskId: string,
   nextStatus: TaskStatus,
   updatedAt: string
-): TaskTransitionResult
+): CoreTaskTransitionResult
 ```
 
 ```ts
@@ -423,18 +466,59 @@ advanceReadyTasks(
 1. resolve the task in the internal graph;
 2. reject an unknown task without mutation;
 3. check `isTaskTransitionAllowed`;
-4. when `nextStatus` is `ready`, require the task to be included by the same
-   readiness rule used by `getReadyTaskIds`;
+4. when `nextStatus` is `ready`, require
+   `areTaskDependenciesCompleted` to be true, regardless of whether the
+   current status is `pending`, `claimed`, or `blocked`;
 5. apply the new task returned by `transitionTask` only after all checks pass.
 
 Thus no public state API can manually bypass dependencies by setting a task to
-`ready`. Other lifecycle transitions are checked for lifecycle validity only;
-worker, lease, actor, and command context remain outside Core v0.
+`ready`, while valid `claimed -> ready` and `blocked -> ready` transitions
+remain possible. Other lifecycle transitions are checked for lifecycle
+validity only; worker, lease, actor, and command context remain outside Core
+v0.
 
 `advanceReadyTasks` finds all currently eligible pending tasks with
 `getReadyTaskIds`, transitions them to `ready` using the supplied timestamp,
 and returns the changed IDs in deterministic order. It does not revert an
 already-ready task, propagate failure, or execute work.
+
+`advanceReadyTasks` promotes only tasks currently in `pending`; it does not
+promote `claimed` or `blocked` tasks. Those tasks can reach `ready` only by an
+explicit `applyTaskTransition` call that passes both the lifecycle check and
+the dependency-completion check.
+
+The contextual transition result is a separate discriminated union from the
+pure transition result:
+
+```ts
+type CoreTaskTransitionResult =
+  | {
+      ok: true;
+      task: Task;
+    }
+  | {
+      ok: false;
+      code: "TASK_NOT_FOUND";
+      taskId: string;
+    }
+  | {
+      ok: false;
+      code: "INVALID_TASK_TRANSITION";
+      taskId: string;
+      from: TaskStatus;
+      to: TaskStatus;
+    }
+  | {
+      ok: false;
+      code: "DEPENDENCIES_NOT_COMPLETED";
+      taskId: string;
+      incompleteDependencyIds: readonly string[];
+    };
+```
+
+`incompleteDependencyIds` is sorted in ascending lexicographic order. Domain
+failures from `applyTaskTransition` are returned through this union; they are
+not thrown as exceptions.
 
 Core v0 has no graph mutation application API. The internal graph can only
 change through the explicitly supported status operations in this increment.
@@ -448,8 +532,10 @@ result types:
 - `getReadyTaskIds`;
 - `isTaskTransitionAllowed`;
 - `transitionTask` and its result types;
-- `createCoreState`, `getTaskGraphSnapshot`, `applyTaskTransition`, and
-  `advanceReadyTasks`;
+- `createCoreState` and its result type;
+- `getTaskGraphSnapshot`;
+- `applyTaskTransition` and `CoreTaskTransitionResult`;
+- `advanceReadyTasks`;
 - `CoreState` and state-creation result types.
 
 Cycle traversal helpers, clone helpers, and other implementation details do
@@ -515,6 +601,11 @@ The test suite must cover:
 - `getTaskGraphSnapshot` does not expose mutable internal state;
 - contextual `pending -> ready` is rejected when dependencies are incomplete;
 - contextual `pending -> ready` succeeds when dependencies are complete;
+- contextual `claimed -> ready` succeeds when dependencies are complete;
+- contextual `blocked -> ready` succeeds when dependencies are complete;
+- contextual `claimed -> ready` and `blocked -> ready` return
+  `DEPENDENCIES_NOT_COMPLETED` with deterministic incomplete dependency IDs
+  when dependencies are incomplete;
 - `advanceReadyTasks` updates only eligible pending tasks;
 - state mutations are limited to the internal state;
 - unknown task IDs are rejected without mutation;
@@ -598,15 +689,19 @@ choices:
    relationship-specific fields; consumers must not depend on free-form
    messages.
 4. Readiness is based only on dependency status `completed`; hierarchy does
-   not imply readiness.
+   not imply readiness. `getReadyTaskIds` filters to `pending`, while
+   contextual transitions to `ready` check dependency completion for every
+   lifecycle source that permits `-> ready`.
 5. The pure state machine knows only lifecycle pairs. Contextual readiness is
    enforced by `CoreState`.
-6. `failed` is terminal and has no retry transition in this increment.
-7. Core state owns a defensive copy and does not expose a mutable graph
+6. Pure and contextual task transitions have distinct result unions, and
+   expected domain failures are returned rather than thrown.
+7. `failed` is terminal and has no retry transition in this increment.
+8. Core state owns a defensive copy and does not expose a mutable graph
    reference.
-8. Core v0 changes only task status and `updatedAt`; it does not assign
+9. Core v0 changes only task status and `updatedAt`; it does not assign
    workers, manage leases, interpret actors, or emit events.
-9. No Protocol changes, runtime schema library, or external production
+10. No Protocol changes, runtime schema library, or external production
    dependency is required by this design.
 
 ## Implementation handoff
