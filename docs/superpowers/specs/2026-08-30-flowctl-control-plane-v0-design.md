@@ -86,8 +86,9 @@ through the Control Plane. The Control Plane must not write directly to
 `TaskGraph.tasks` and must not use `Task.assignedWorkerId` as authority.
 
 The public Control Plane handle is opaque. Its private state conceptually
-contains a CoreState handle, active leases and an Event Log. The exact storage
-type is an implementation detail.
+contains a CoreState handle, the canonical active-Lease map defined below and
+an Event Log. The surrounding handle representation is an implementation
+detail.
 
 ## 4. Internal state and atomic candidate commits
 
@@ -96,14 +97,16 @@ The private state is conceptually:
 ```ts
 {
   coreState: CoreState;
-  activeLeases: Map<string, Lease>;
+  activeLeaseByTaskId: Map<string, Lease>;
   eventLog: FlowctlEvent[];
 }
 ```
 
-There can be at most one active Lease for a task. The handle, CoreState,
-active lease map and Event Log must not be constructible or readable through a
-normal consumer object literal.
+`activeLeaseByTaskId` is the canonical active-Lease storage. Its key is the
+canonical `taskId`, and there can be at most one active Lease for a task. There
+is no inactive-Lease map or other inactive-Lease storage in this increment.
+The handle, CoreState, active Lease map and Event Log must not be constructible
+or readable through a normal consumer object literal.
 
 An implementation may stage every accepted Command on a defensive graph
 snapshot and a candidate CoreState, alongside copied Lease and Event Log
@@ -155,16 +158,22 @@ An expected Command is applied completely or produces no observable mutation.
 
 Conceptually, each dispatch performs:
 
-1. resolve the Command and project context;
-2. validate every domain precondition;
-3. obtain all required timestamps;
-4. generate all required Lease IDs;
-5. generate all required Event IDs;
-6. construct all Lease data and Events;
-7. prepare the Core transition on candidate state;
-8. replace private CoreState and Lease state;
-9. replace the Event Log with its prepared append-only copy;
-10. return defensive copies of accepted Events.
+1. validate the Command's project context;
+2. check whether the Command type is supported;
+3. validate every command-specific domain precondition;
+4. obtain all required timestamps;
+5. generate all required Lease IDs;
+6. generate all required Event IDs;
+7. construct all Lease data and Events;
+8. prepare the Core transition on candidate state;
+9. replace private CoreState and Lease state;
+10. replace the Event Log with its prepared append-only copy;
+11. return defensive copies of accepted Events.
+
+This common dispatch precedence applies to every `FlowctlCommand`. A
+Command for another project returns `PROJECT_MISMATCH` even when its type is
+unsupported. An unsupported Command for the Control Plane's project returns
+`UNSUPPORTED_COMMAND`. Only then are command-specific validations evaluated.
 
 For an expected rejection:
 
@@ -243,16 +252,31 @@ this increment.
 
 Expected domain failures are not represented by exceptions.
 
+For a successful dispatch, `events` contains only the Events produced by that
+dispatch, in the fixed order defined below. It never contains the accumulated
+Event Log. For example, a claim returns `[lease.created, task.claimed]`, a
+start returns `[task.started]`, and a complete returns
+`[task.review_requested]`. `getEventLogSnapshot` is the API for the accumulated
+history.
+
 ## 9. Claim admission
 
 `task.claim` remains a request, not authority. It is accepted only when:
 
 - the task exists in the canonical Core graph;
-- the task status is `ready`;
-- there is no active Lease for the task.
+- there is no active Lease for the task;
+- the task status is `ready`.
 
-For deterministic failures, claim validation resolves the project first, then
-looks up the task, checks `ready`, and finally checks for an active Lease.
+For deterministic failures, claim validation checks, in order:
+
+1. the project;
+2. the task lookup;
+3. `activeLeaseByTaskId.get(taskId)`;
+4. the task status `ready`.
+
+Therefore, an existing active Lease yields `TASK_ALREADY_LEASED` even when the
+task is already `claimed` or `running`. This precedence is intentional and
+keeps a second claim from being reported merely as `TASK_NOT_READY`.
 
 There is no Worker Registry in this increment. The Control Plane does not
 check whether a Worker is connected, available or authenticated. It does not
@@ -263,7 +287,7 @@ On success, the Control Plane atomically:
 
 1. prepares a Lease for the task and requested Worker;
 2. applies `ready -> claimed` through Core;
-3. records the Lease as active;
+3. records the Lease in `activeLeaseByTaskId` under `taskId`;
 4. emits `lease.created` followed by `task.claimed`.
 
 `task.claimed` contains the Lease ID created by the same Command.
@@ -289,9 +313,18 @@ out of scope:
 - reassignment;
 - expiry behavior while `running`.
 
-When `task.complete` succeeds and the task enters `review`, the Lease is
-removed or marked inactive internally and cannot authorize further execution.
-No `lease.released` Protocol Event is added.
+When `task.complete` succeeds and the task enters `review`, the corresponding
+Lease is removed from `activeLeaseByTaskId`. There is no inactive-Lease record
+and it cannot authorize further execution. No `lease.released` Protocol Event
+is added.
+
+For both `task.start` and `task.complete`, the canonical sequence is: resolve
+the project, resolve the task, validate the lifecycle pair, look up
+`activeLeaseByTaskId.get(taskId)`, return `LEASE_NOT_FOUND` when absent, return
+`LEASE_MISMATCH` when `lease.id !== command.leaseId` or
+`lease.workerId !== command.workerId`, and only then prepare the Core
+transition. The map key establishes the task association, and
+`Task.assignedWorkerId` is never consulted for Lease authority.
 
 ## 11. Start
 
@@ -305,8 +338,11 @@ No `lease.released` Protocol Event is added.
 - the supplied `leaseId` matches.
 
 When multiple preconditions could fail, validation is deterministic: resolve
-the project, look up the task, validate the lifecycle pair, look up the Lease,
-then validate its task, Worker and ID associations.
+the project, look up the task, validate the lifecycle pair, look up
+`activeLeaseByTaskId.get(taskId)`, return `LEASE_NOT_FOUND` when absent, then
+return `LEASE_MISMATCH` when the Lease ID or Worker does not match. The
+canonical map key establishes the task association; `assignedWorkerId` is
+never used as an authority lookup.
 
 On success, the task moves from `claimed` to `running` and the Control Plane
 emits `task.started`. The Event inherits the causal actor and envelope context
@@ -325,8 +361,8 @@ An accepted `task.complete` requires the task lifecycle pair
 Its result is the transition `running -> review` followed by exactly one
 `task.review_requested` Event. It must not emit `task.completed`.
 
-After this transition, the Lease is removed or marked inactive internally and
-cannot authorize further execution.
+After this transition, the Lease is removed from `activeLeaseByTaskId`; no
+inactive-Lease record is retained and it cannot authorize further execution.
 
 The future transition is `review -> completed` and requires explicit
 Verifier/System authority in a later increment. The Control Plane must not
@@ -381,6 +417,14 @@ log snapshot is returned and when Events are returned in
 `CommandProcessingResult`. Nested mutable payloads, including Lease objects,
 must not share references with internal log state.
 
+The dispatch boundary must not retain references to caller-supplied Command
+objects. Before constructing Events, the Control Plane copies the Command data
+needed for the causal envelope and payload. After an accepted Command,
+mutating the original Command, including its nested `actor` object or other
+nested objects, must not alter the internal Event Log or any Events already
+returned in its `CommandProcessingResult`. This is ownership isolation, not
+runtime schema validation.
+
 ## 15. Determinism and injected dependencies
 
 Construction options must provide these responsibilities:
@@ -434,12 +478,15 @@ Required coverage:
 4. accepted claim creates one Lease and changes A to `claimed`;
 5. claim emits `lease.created` before `task.claimed`;
 6. Events preserve Command actor, project and protocol version;
-7. claim rejection for missing, non-ready or already-leased tasks is atomic;
+7. claim rejection for missing, non-ready or already-leased tasks is atomic and
+   follows `PROJECT_MISMATCH -> TASK_NOT_FOUND -> TASK_ALREADY_LEASED ->
+   TASK_NOT_READY` after common dispatch precedence;
 8. accepted start changes A to `running` and emits `task.started`;
 9. start rejects missing, mismatched and wrong-Worker leases atomically;
 10. accepted complete changes A to `review` and emits only
     `task.review_requested`;
-11. accepted complete deactivates the Lease internally;
+11. accepted complete removes the Lease from `activeLeaseByTaskId` and retains
+    no inactive-Lease record;
 12. later execution through the inactive Lease is rejected;
 13. unsupported Commands return `UNSUPPORTED_COMMAND` without mutation;
 14. Event Log order is append-only and deterministic;
@@ -447,7 +494,16 @@ Required coverage:
 16. broken ID/clock dependencies fail before observable mutation;
 17. injected dependencies produce reproducible Lease/Event data;
 18. `Task.assignedWorkerId` remains unchanged;
-19. B, C and D are not promoted during this milestone.
+19. project validation precedes support validation: an unsupported Command for
+    another project returns `PROJECT_MISMATCH`, while one for the correct
+    project returns `UNSUPPORTED_COMMAND`;
+20. each successful dispatch result contains only its own Events, while
+    `getEventLogSnapshot` contains the accumulated history;
+21. accepted complete removes the active Lease while the Event Log still
+    preserves the historical `lease.created` Event;
+22. mutating an accepted Command after dispatch, including its nested `actor`,
+    cannot alter its returned Events or the internal Event Log;
+23. B, C and D are not promoted during this milestone.
 
 The full DAG scenario is not an acceptance criterion for this increment. Its
 later target is `A completed -> B/C ready -> B/C completed -> D ready`.
