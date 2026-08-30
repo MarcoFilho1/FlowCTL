@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @flowctl/protocol build",
-    "typecheck": "pnpm --filter @flowctl/protocol typecheck",
-    "test": "pnpm --filter @flowctl/protocol test"
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
