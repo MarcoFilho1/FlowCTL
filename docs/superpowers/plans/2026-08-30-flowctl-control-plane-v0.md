@@ -29,6 +29,7 @@
 - `CommandProcessingResult.events` contains only Events produced by the current dispatch; `getEventLogSnapshot` returns accumulated history.
 - Expected domain failures use discriminated unions and do not use exceptions. Clock and ID generator failures may throw as programming/configuration failures, but only before state replacement.
 - Event and Lease data must be deterministic under injected `now`, `nextLeaseId`, `nextEventId`, and `leaseExpiresAt` functions.
+- Never `structuredClone`, inspect internals of, or reconstruct a `CoreState` handle. Candidate staging must call `getTaskGraphSnapshot(currentCoreState)`, pass that defensive `TaskGraph` to `createCoreState(snapshot)`, use the returned candidate `CoreState`, apply the transition only to that candidate, and replace the private CoreState handle only at commit. A rejection while recreating a snapshot from a valid CoreState is a programming/invariant failure, not a new domain result.
 - Event actor, project ID, and protocol version are copied from the accepted Command; payload Worker IDs remain operation data and do not replace the causal actor.
 - All caller-visible mutable structures are defensively copied, including the input Command data retained for Events, returned Events, Event Log snapshots, Lease payloads, and TaskGraph snapshots.
 - Initialization preserves input statuses, starts with an empty Event Log, creates no Lease, does not call `advanceReadyTasks`, and emits no `task.ready` Event.
@@ -187,10 +188,9 @@ Expected: FAIL because the Control Plane creation result and facade functions do
 
 - [ ] **Step 3: Define the private branded state and result contracts**
 
-In `results.ts`, define the public creation result:
+In `results.ts`, define the public creation result and options using only types needed at this stage:
 
 ```ts
-import type { FlowctlCommand, FlowctlEvent, TaskStatus } from "@flowctl/protocol";
 import type { GraphValidationIssue } from "@flowctl/core";
 import type { ControlPlane } from "./state.js";
 
@@ -275,22 +275,20 @@ git add packages/control-plane/src packages/control-plane/test/control-plane.tes
 git commit -m "feat(control-plane): own CoreState privately"
 ```
 
-### Task 3: Implement the in-memory Event Log and defensive copies
+### Task 3: Expose the empty in-memory Event Log boundary
 
 **Files:**
 - Create: `packages/control-plane/src/event-log.ts`
-- Modify: `packages/control-plane/src/state.ts`
-- Modify: `packages/control-plane/src/control-plane.ts`
 - Modify: `packages/control-plane/src/index.ts`
 - Modify: `packages/control-plane/test/control-plane.test.ts`
 
 **Interfaces:**
-- Consumes: private Control Plane state from Task 2 and Protocol `FlowctlEvent`/`Lease` structures.
-- Produces: `getEventLogSnapshot(controlPlane): readonly FlowctlEvent[]`, plus private append/clone helpers used by command handlers.
+- Consumes: private Control Plane state from Task 2 and the empty Protocol `FlowctlEvent[]` collection.
+- Produces: `getEventLogSnapshot(controlPlane): readonly FlowctlEvent[]` with a fresh array boundary. Real Event append and deep cloning are produced by Task 4, when an accepted claim first makes those behaviors observable.
 
 - [ ] **Step 1: Write failing Event Log boundary tests**
 
-Add the empty initial snapshot assertion:
+Add the empty initial snapshot assertion before implementing the new API:
 
 ```ts
 test("starts with an empty Event Log", () => {
@@ -300,9 +298,18 @@ test("starts with an empty Event Log", () => {
 
   assert.deepEqual(ControlPlane.getEventLogSnapshot(result.controlPlane), []);
 });
-```
 
-Add the adversarial assertions to the first accepted-command test in Task 4: mutate the returned Event actor and nested `lease.created` Lease payload, mutate the Event Log snapshot and its nested Lease payload, and verify a fresh `getEventLogSnapshot` is unchanged. Keep that assertion failing until both result and log copy boundaries exist.
+test("does not expose the internal Event Log array", () => {
+  const result = ControlPlane.createControlPlane(makeMilestoneGraph(), makeOptions());
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const first = ControlPlane.getEventLogSnapshot(result.controlPlane);
+  const second = ControlPlane.getEventLogSnapshot(result.controlPlane);
+  assert.deepEqual(first, []);
+  assert.notStrictEqual(first, second);
+});
+```
 
 - [ ] **Step 2: Run the focused RED**
 
@@ -312,19 +319,19 @@ Run:
 pnpm --filter @flowctl/control-plane test
 ```
 
-Expected: the empty-log assertion passes; the new defensive-copy assertions fail once Task 4 returns a mutable Event, until the copy implementation is added.
+Expected: FAIL because `getEventLogSnapshot` is not yet exported. Do not create a RED for deep Event copying before real Events exist.
 
 - [ ] **Step 3: Implement Event Log ownership isolation**
 
-Use Node's built-in `structuredClone` for Protocol Event and Lease payload copies; no dependency or runtime schema is introduced. Implement private helpers with these signatures:
+For this task, implement only the empty-log read boundary. Return a fresh array from the private `eventLog` collection, which proves that the public API does not expose the internal array even though no real Event exists yet. Do not implement Event append or deep Event cloning in this task; those become exercisable only after the first accepted claim in Task 4. Use Node's built-in `structuredClone` for the later Event and Lease copies; no dependency or runtime schema is introduced.
+
+Implement the empty-log helper with this signature:
 
 ```ts
-function cloneEvent(event: FlowctlEvent): FlowctlEvent;
-function appendEvents(existing: readonly FlowctlEvent[], events: readonly FlowctlEvent[]): FlowctlEvent[];
 export function getEventLogSnapshot(controlPlane: ControlPlane): readonly FlowctlEvent[];
 ```
 
-`appendEvents` must return a new array containing cloned existing and new Events, and each caller must assign that array only to its candidate state. `getEventLogSnapshot` must return newly cloned Events. Do not return the internal array, the internal Event objects, or nested Lease payload references. Keep `ControlPlaneState` as an internal-module type; expose only the read function through `index.ts`.
+At this stage `eventLog` is empty by construction, so a fresh shallow array is sufficient. Keep `ControlPlaneState` as an internal-module type; expose only the read function through `index.ts`.
 
 - [ ] **Step 4: Run GREEN and typecheck**
 
@@ -335,13 +342,13 @@ pnpm --filter @flowctl/control-plane test
 pnpm --filter @flowctl/control-plane typecheck
 ```
 
-Expected: empty-log and all Event/Lease copy assertions pass. Confirm the Protocol and Core working files are unchanged.
+Expected: empty-log and internal-array isolation tests pass. Confirm the Protocol and Core working files are unchanged.
 
 - [ ] **Step 5: Commit the Event Log**
 
 ```bash
 git add packages/control-plane/src packages/control-plane/test/control-plane.test.ts
-git commit -m "feat(control-plane): add defensive in-memory event log"
+git commit -m "feat(control-plane): expose event log boundary"
 ```
 
 ### Task 4: Implement claim admission and Lease creation
@@ -350,6 +357,7 @@ git commit -m "feat(control-plane): add defensive in-memory event log"
 - Create: `packages/control-plane/src/dispatch.ts`
 - Create: `packages/control-plane/src/claim.ts`
 - Create: `packages/control-plane/src/command-copy.ts`
+- Create: `packages/control-plane/src/task-lookup.ts`
 - Modify: `packages/control-plane/src/results.ts`
 - Modify: `packages/control-plane/src/index.ts`
 - Modify: `packages/control-plane/test/control-plane.test.ts`
@@ -360,9 +368,11 @@ git commit -m "feat(control-plane): add defensive in-memory event log"
 
 - [ ] **Step 1: Add the exact dispatch result union**
 
-In `results.ts`, define `CommandProcessingResult` with these exact variants and fields:
+In `results.ts`, now add the imports required for the dispatch result and define `CommandProcessingResult` with these exact variants and fields:
 
 ```ts
+import type { FlowctlCommand, FlowctlEvent, TaskStatus } from "@flowctl/protocol";
+
 export type CommandProcessingResult =
   | { ok: true; events: readonly FlowctlEvent[] }
   | { ok: false; code: "UNSUPPORTED_COMMAND"; commandId: string; commandType: FlowctlCommand["type"] }
@@ -403,6 +413,27 @@ test("claims ready A with one active Lease and ordered Events", () => {
 
 Add atomic failure tests for missing task, pending task, and a second claim. The second claim must assert `TASK_ALREADY_LEASED` even though A is already `claimed`. Add a foreign-project claim assertion for `PROJECT_MISMATCH`.
 
+Add an own-key regression test using inherited names that are absent as own keys in the fixture:
+
+```ts
+for (const taskId of ["toString", "constructor", "__proto__"]) {
+  test(`does not resolve inherited task key ${taskId}`, () => {
+    const { controlPlane } = makeReadyControlPlane();
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const result = ControlPlane.dispatchCommand(
+      controlPlane,
+      makeClaimCommand({ taskId })
+    );
+
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "TASK_NOT_FOUND");
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  });
+}
+```
+
 - [ ] **Step 3: Run the claim RED**
 
 Run:
@@ -415,7 +446,15 @@ Expected: FAIL because dispatch, claim validation, and claim Events are not impl
 
 - [ ] **Step 4: Implement claim validation in the required order**
 
-Implement the initial dispatch path with project validation followed by `task.claim` handling. Use own-key lookup against the graph snapshot; do not use `task.id` as an alternate key. Claim-specific validation must be exactly:
+Create `task-lookup.ts` with the shared internal helper below and reuse it from claim, start, and complete handlers:
+
+```ts
+export function getCanonicalTask(graph: TaskGraph, taskId: string): Task | undefined {
+  return Object.hasOwn(graph.tasks, taskId) ? graph.tasks[taskId] : undefined;
+}
+```
+
+Implement the initial dispatch path with project validation followed by `task.claim` handling. Use this own-key lookup against the graph snapshot; do not use `task.id` as an alternate key. Claim-specific validation must be exactly:
 
 ```text
 project
@@ -438,7 +477,9 @@ nextEventId() for task.claimed
 
 Construct a Protocol `Lease` with `taskId`, requested `workerId`, `acquiredAt` and `lastHeartbeatAt` equal to the dispatch timestamp, and `expiresAt` from `leaseExpiresAt`. Construct `lease.created` followed by `task.claimed`, copying actor/project/protocolVersion from the Command and preserving the Lease ID in both payloads.
 
-Stage a cloned CoreState, copied active-Lease map, and copied Event Log. Apply `ready -> claimed` to the candidate CoreState with the dispatch timestamp, add the Lease under `activeLeaseByTaskId.set(taskId, lease)`, append cloned Events, replace the private state once, and return a separately cloned `[lease.created, task.claimed]` result. Do not modify `Task.assignedWorkerId`.
+Stage without cloning the opaque handle: call `getTaskGraphSnapshot(currentCoreState)`, pass that defensive `TaskGraph` to `createCoreState(snapshot)`, and use the returned candidate `CoreState`. If `createCoreState(snapshot)` rejects even though the current handle was valid, throw a programming/invariant error rather than returning a new domain result. Copy the active-Lease map and Event Log into the candidate state, apply `ready -> claimed` only to the candidate CoreState, add the Lease under `activeLeaseByTaskId.set(taskId, lease)`, append cloned Events, replace the private state once, and return a separately cloned `[lease.created, task.claimed]` result. Do not modify `Task.assignedWorkerId`.
+
+At this point implement the real Event boundaries from Task 3: append cloned Events to the candidate Event Log, return separately cloned Events in `CommandProcessingResult.events`, and ensure the copied Command actor and nested Lease payload are not shared with either destination.
 
 - [ ] **Step 5: Prove atomicity and defensive input ownership**
 
@@ -537,7 +578,7 @@ Expected: accepted start and its rejection cases fail because the dispatch path 
 
 In `start.ts`, resolve the canonical graph task, check `isTaskTransitionAllowed(task.status, "running")`, then look up `activeLeaseByTaskId.get(taskId)`. If absent return `{ ok: false, code: "LEASE_NOT_FOUND", commandId, leaseId }`. If `lease.id !== command.payload.leaseId` or `lease.workerId !== command.payload.workerId`, return `LEASE_MISMATCH`; do not inspect `assignedWorkerId`.
 
-Only after these checks, create a candidate CoreState, obtain the dispatch timestamp and Event ID, apply `claimed -> running`, construct one `task.started` Event with copied causal envelope and `{ taskId, workerId, leaseId }`, append it to the candidate log, replace private state, and return a cloned one-Event result. Do not remove or replace the active Lease on start.
+Only after these checks, create the candidate CoreState by calling `getTaskGraphSnapshot(currentCoreState)`, passing that defensive snapshot to `createCoreState(snapshot)`, and using the returned candidate handle. Never clone or inspect the current opaque handle. Obtain the dispatch timestamp and Event ID, apply `claimed -> running` only to the candidate, construct one `task.started` Event with copied causal envelope and `{ taskId, workerId, leaseId }`, append it to the candidate log, replace private state, and return a cloned one-Event result. If candidate creation rejects a snapshot from a valid current handle, throw a programming/invariant error. Do not remove or replace the active Lease on start.
 
 - [ ] **Step 4: Run GREEN, review the diff, and commit**
 
@@ -593,7 +634,21 @@ test("completes implementation into review and removes the active Lease", () => 
 });
 ```
 
-Add tests for complete without Lease, wrong Lease ID, wrong Worker ID, and complete outside `running`. Prove rejected complete leaves both graph and Event Log unchanged. After accepted complete, attempt another operation with the old Lease and assert it cannot authorize execution; do not add an inactive-Lease store or a `lease.released` Event.
+Add tests for complete without Lease, wrong Lease ID, wrong Worker ID, and complete outside `running`. Prove rejected complete leaves both graph and Event Log unchanged. The required black-box claim test below is the Lease-removal proof; do not rely only on a later start/complete rejection, do not add an inactive-Lease store, and do not add a `lease.released` Event.
+
+The required black-box removal proof is a new claim after completion:
+
+```ts
+const claimAgain = ControlPlane.dispatchCommand(
+  controlPlane,
+  makeClaimCommand({ taskId: "A", workerId: "W2" })
+);
+
+assert.equal(claimAgain.ok, false);
+if (!claimAgain.ok) assert.equal(claimAgain.code, "TASK_NOT_READY");
+```
+
+Because claim checks an active Lease before readiness, `TASK_NOT_READY` proves that the old Lease was removed without exposing `activeLeaseByTaskId`; an incorrectly retained Lease would produce `TASK_ALREADY_LEASED`.
 
 - [ ] **Step 2: Run the complete RED**
 
@@ -607,7 +662,7 @@ Expected: complete handling and Lease removal tests fail because `task.complete`
 
 - [ ] **Step 3: Implement complete using the start authority sequence**
 
-Validate project in the dispatcher, then in `complete.ts` resolve the task, require `isTaskTransitionAllowed(task.status, "review")`, look up `activeLeaseByTaskId.get(taskId)`, return `LEASE_NOT_FOUND` when absent, and return `LEASE_MISMATCH` when the active Lease ID or Worker ID differs from the command. Only after those checks, stage the Core transition, generate one timestamp and one Event ID, apply `running -> review`, delete `candidate.activeLeaseByTaskId` at the canonical task key, append exactly one `task.review_requested`, commit, and return only that Event.
+Validate project in the dispatcher, then in `complete.ts` resolve the task, require `isTaskTransitionAllowed(task.status, "review")`, look up `activeLeaseByTaskId.get(taskId)`, return `LEASE_NOT_FOUND` when absent, and return `LEASE_MISMATCH` when the active Lease ID or Worker ID differs from the command. Only after those checks, stage the Core transition using the public snapshot → `createCoreState(snapshot)` sequence, generate one timestamp and one Event ID, apply `running -> review` only to the candidate, delete `candidate.activeLeaseByTaskId` at the canonical task key, append exactly one `task.review_requested`, commit, and return only that Event. If candidate creation rejects a snapshot from a valid current handle, throw a programming/invariant error rather than returning a domain result.
 
 The Lease is removed, not marked inactive. Preserve the historical `lease.created` Event in the Event Log. Do not emit `task.completed`, `lease.released`, or `task.ready`, and do not promote B/C/D.
 
@@ -835,7 +890,24 @@ node --input-type=module -e 'const api = await import("@flowctl/control-plane");
 
 This is the only test that resolves the package through its `exports` entry; internal tests continue to use `../src/index.js`.
 
-- [ ] **Step 5: Perform final scope and ownership review**
+- [ ] **Step 5: Validate a clean archive checkout**
+
+Run this exact sequence from the repository root after the implementation commits exist. It creates a temporary checkout from Git, so ignored `dist` and `dist-test` directories from the working tree are not present:
+
+```bash
+CLEAN_CHECKOUT_DIR="$(mktemp -d /tmp/flowctl-control-plane-clean.XXXXXX)"
+git archive --format=tar HEAD | tar -x -C "$CLEAN_CHECKOUT_DIR"
+cd "$CLEAN_CHECKOUT_DIR"
+pnpm install --frozen-lockfile
+pnpm test
+pnpm typecheck
+pnpm build
+node --input-type=module -e 'const api = await import("@flowctl/control-plane"); for (const name of ["createControlPlane", "getTaskGraphSnapshot", "dispatchCommand", "getEventLogSnapshot"]) { if (typeof api[name] !== "function") throw new Error(`Missing public export: ${name}`); } console.log("@flowctl/control-plane clean-checkout public import passed");'
+```
+
+Expected: install/workspace resolution, tests, typecheck, build, and public package import all pass from the archive checkout without relying on pre-existing compilation artifacts. Record the temporary checkout path and return to the original repository before continuing the review.
+
+- [ ] **Step 6: Perform final scope and ownership review**
 
 Run:
 
@@ -847,7 +919,7 @@ rg -n "zod|zod-to|scheduler|worker pool|heartbeat|lease\.expired|lease\.released
 
 The Protocol/Core path query must be empty. Review the source to confirm there is no scheduler, runtime schema, adapter, transport, persistence, or GraphMutation application. The grep may match explicit rejection tests or comments; inspect matches and ensure they are scope assertions, not implementations.
 
-- [ ] **Step 6: Commit the final facade and acceptance coverage**
+- [ ] **Step 7: Commit the final facade and acceptance coverage**
 
 ```bash
 git add packages/control-plane
@@ -860,18 +932,18 @@ Before execution, verify this plan against every spec section:
 
 - Section 1: Tasks 2 and 8 preserve A/B/C/D initialization and prove the exact `ready -> claimed -> running -> review` milestone.
 - Section 2: Task 1 restricts production dependencies to Protocol/Core and leaves frozen packages untouched.
-- Sections 3–4: Task 2 brands ControlPlane, privately owns CoreState, stores `activeLeaseByTaskId`, and stages candidate state.
+- Sections 3–4: Task 2 brands ControlPlane and privately owns CoreState; Tasks 4–6 stage candidates through the public Core snapshot → `createCoreState(snapshot)` sequence and store `activeLeaseByTaskId`.
 - Section 5: Task 2 preserves statuses, empty log, no Lease, no readiness promotion, and no `task.ready`.
 - Section 6: Task 7 covers every unsupported Protocol command.
 - Section 7: Tasks 4–7 enforce project-first support checks, atomic staging, generator-failure safety, and no partial mutation.
 - Section 8: Task 4 defines exact creation/dispatch result unions; Task 7 tests discriminated narrowing and exhaustive event handling.
 - Sections 9–12: Tasks 4–6 implement claim precedence, Lease authority, start, complete-to-review, exact Event order, and Lease removal.
-- Sections 13–14: Tasks 3–8 cover causal envelope copying, deterministic IDs/timestamps, current-dispatch result Events, accumulated Event Log history, and defensive copies.
+- Sections 13–14: Task 3 proves the empty-log and array boundary; Tasks 4–8 cover causal Command copying, deterministic IDs/timestamps, current-dispatch result Events, accumulated Event Log history, nested Lease copies, and snapshot defensive copies.
 - Section 15: Task 4 fixes generator order; all tasks use injected dependencies and no collision retry.
 - Section 16: Task 8 exposes only the four public functions and public result/options/handle types.
-- Section 17: Tasks 2–8 cover all listed acceptance and adversarial cases, including project-plus-unsupported precedence and post-dispatch Command mutation.
+- Section 17: Tasks 2–8 cover all listed acceptance and adversarial cases, including project-plus-unsupported precedence, inherited own-key lookup regression, black-box Lease removal, and post-dispatch Command mutation.
 - Sections 18–20: the Global Constraints and final scope review explicitly exclude every listed future subsystem and preserve all architectural invariants.
 
-Placeholder scan: no placeholder markers or unspecified implementation steps remain. Every behavior has an owning file, public/private interface, RED command, GREEN command, and commit boundary.
+Placeholder scan: no placeholder markers or unspecified implementation steps remain. Every behavior has an owning file, public/private interface, RED command, GREEN command, and commit boundary. No task clones or inspects an opaque CoreState handle.
 
 Execution rule: after each task, run the task's tests and typecheck, review the diff against the spec, resolve findings, and commit before starting the next task. At Task 8, run the full workspace validation and the package-resolution smoke test before claiming completion.
