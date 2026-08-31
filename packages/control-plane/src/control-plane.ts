@@ -1,4 +1,8 @@
-import { createCoreState, getTaskGraphSnapshot as getCoreTaskGraphSnapshot } from "@flowctl/core";
+import {
+  createCoreState,
+  getTaskGraphSnapshot as getCoreTaskGraphSnapshot
+} from "@flowctl/core";
+import type { CoreState } from "@flowctl/core";
 import type { TaskGraph } from "@flowctl/protocol";
 import type { ControlPlaneCreationResult, ControlPlaneOptions } from "./results.js";
 import {
@@ -35,4 +39,14 @@ export function createControlPlane(
 
 export function getTaskGraphSnapshot(controlPlane: ControlPlane): TaskGraph {
   return getCoreTaskGraphSnapshot(readControlPlaneState(controlPlane).coreState);
+}
+
+export function recreateCoreState(currentCoreState: CoreState): CoreState {
+  const recreated = createCoreState(getCoreTaskGraphSnapshot(currentCoreState));
+
+  if (!recreated.ok) {
+    throw new Error("Invariant violation: createCoreState rejected a snapshot from ControlPlane.");
+  }
+
+  return recreated.state;
 }

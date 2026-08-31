@@ -87,6 +87,33 @@ function makeClaimCommand(
   };
 }
 
+function makeStartCommand(
+  overrides: {
+    id?: string;
+    projectId?: string;
+    taskId?: string;
+    workerId?: string;
+    leaseId?: string;
+    actor?: Actor;
+  } = {}
+): Extract<FlowctlCommand, { type: "task.start" }> {
+  const actor = overrides.actor ?? makeActor();
+
+  return {
+    id: overrides.id ?? "S1",
+    protocolVersion: "0.1",
+    timestamp: TIMESTAMP,
+    projectId: overrides.projectId ?? "P1",
+    actor,
+    type: "task.start",
+    payload: {
+      taskId: overrides.taskId ?? "A",
+      workerId: overrides.workerId ?? actor.id,
+      leaseId: overrides.leaseId ?? "L1"
+    }
+  };
+}
+
 function makeReadyControlPlane(
   options: ControlPlane.ControlPlaneOptions = makeOptions()
 ): { controlPlane: ControlPlane.ControlPlane } {
@@ -97,6 +124,23 @@ function makeReadyControlPlane(
   }
 
   return { controlPlane: result.controlPlane };
+}
+
+function makeClaimedControlPlane(): {
+  controlPlane: ControlPlane.ControlPlane;
+  leaseId: string;
+} {
+  const { controlPlane } = makeReadyControlPlane();
+  const claim = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand());
+  assert.equal(claim.ok, true);
+  if (!claim.ok || claim.events[0]?.type !== "lease.created") {
+    throw new Error("Expected a claimed control plane fixture.");
+  }
+
+  return {
+    controlPlane,
+    leaseId: claim.events[0].payload.lease.id
+  };
 }
 
 test("creates an opaque ControlPlane and preserves initialization statuses", () => {
@@ -417,4 +461,120 @@ test("copies command input and returned Events independently from stored history
   if (freshSnapshot[0]?.type === "lease.created") {
     assert.equal(freshSnapshot[0].payload.lease.workerId, "W1");
   }
+});
+
+test("starts only with the active Lease and emits task.started", () => {
+  const { controlPlane, leaseId } = makeClaimedControlPlane();
+  const command = makeStartCommand({ leaseId });
+  const result = ControlPlane.dispatchCommand(controlPlane, command);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.events.map((event) => event.type), ["task.started"]);
+  if (result.events[0]?.type === "task.started") {
+    assert.deepEqual(result.events[0].payload, {
+      taskId: "A",
+      workerId: "W1",
+      leaseId
+    });
+    assert.deepEqual(result.events[0].actor, command.actor);
+    assert.equal(result.events[0].projectId, "P1");
+    assert.equal(result.events[0].protocolVersion, "0.1");
+    assert.equal(result.events[0].timestamp, TIMESTAMP);
+  }
+  assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A?.status, "running");
+});
+
+test("rejects start without an active Lease even when assignedWorkerId matches", () => {
+  const graph = makeMilestoneGraph();
+  graph.tasks.A.status = "claimed";
+  graph.tasks.A.assignedWorkerId = "W1";
+  const created = ControlPlane.createControlPlane(graph, makeOptions());
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(created.controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(created.controlPlane);
+  const result = ControlPlane.dispatchCommand(
+    created.controlPlane,
+    makeStartCommand({ leaseId: "L1" })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "LEASE_NOT_FOUND",
+    commandId: "S1",
+    leaseId: "L1"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(created.controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(created.controlPlane), beforeLog);
+});
+
+test("rejects start with a wrong Lease ID without mutating graph or Event Log", () => {
+  const { controlPlane } = makeClaimedControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeStartCommand({ id: "S2", leaseId: "WRONG" })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "LEASE_MISMATCH",
+    commandId: "S2",
+    taskId: "A",
+    leaseId: "WRONG",
+    workerId: "W1"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("rejects start with a wrong Worker ID without mutating graph or Event Log", () => {
+  const { controlPlane, leaseId } = makeClaimedControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeStartCommand({ id: "S2", leaseId, workerId: "W2" })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "LEASE_MISMATCH",
+    commandId: "S2",
+    taskId: "A",
+    leaseId,
+    workerId: "W2"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("rejects a lifecycle-invalid start without mutating graph or Event Log", () => {
+  const { controlPlane, leaseId } = makeClaimedControlPlane();
+  const accepted = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeStartCommand({ leaseId })
+  );
+  assert.equal(accepted.ok, true);
+
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeStartCommand({ id: "S2", leaseId })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "INVALID_TASK_TRANSITION",
+    commandId: "S2",
+    taskId: "A",
+    from: "running",
+    to: "running"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
 });

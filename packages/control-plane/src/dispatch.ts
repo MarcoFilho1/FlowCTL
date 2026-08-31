@@ -1,5 +1,6 @@
 import type { FlowctlCommand } from "@flowctl/protocol";
 import { dispatchClaimCommand } from "./claim.js";
+import { dispatchStartCommand } from "./start.js";
 import type { CommandProcessingResult } from "./results.js";
 import { readControlPlaneState, type ControlPlane } from "./state.js";
 
@@ -22,6 +23,8 @@ export function dispatchCommand(
   switch (command.type) {
     case "task.claim":
       return dispatchClaimCommand(controlPlane, command);
+    case "task.start":
+      return dispatchStartCommand(controlPlane, command);
     default:
       return {
         ok: false,
