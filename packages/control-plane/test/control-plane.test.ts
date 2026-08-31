@@ -123,3 +123,25 @@ test("returns defensive task graph snapshots", () => {
   assert.deepEqual(secondSnapshot.tasks.B.dependencies, []);
   assert.deepEqual(secondSnapshot.tasks.C.acceptanceCriteria, []);
 });
+
+test("starts with an empty Event Log", () => {
+  const result = ControlPlane.createControlPlane(makeMilestoneGraph(), makeOptions());
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(result.controlPlane), []);
+});
+
+test("does not expose the internal Event Log array", () => {
+  const result = ControlPlane.createControlPlane(makeMilestoneGraph(), makeOptions());
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const first = ControlPlane.getEventLogSnapshot(result.controlPlane);
+  const second = ControlPlane.getEventLogSnapshot(result.controlPlane);
+
+  assert.deepEqual(first, []);
+  assert.notStrictEqual(first, second);
+});
