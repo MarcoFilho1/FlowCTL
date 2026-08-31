@@ -403,6 +403,17 @@ function makeRunningControlPlane(): {
   return claimed;
 }
 
+function getLeaseId(
+  result: ControlPlane.CommandProcessingResult
+): string {
+  assert.equal(result.ok, true);
+  if (!result.ok || result.events[0]?.type !== "lease.created") {
+    throw new Error("Expected a successful claim with a created Lease.");
+  }
+
+  return result.events[0].payload.lease.id;
+}
+
 const unsupportedCommands: readonly FlowctlCommand[] = [
   makeFailCommand(),
   makeBlockCommand(),
@@ -964,6 +975,66 @@ test("completes implementation into review and removes the active Lease", () => 
 
   assert.equal(claimAgain.ok, false);
   if (!claimAgain.ok) assert.equal(claimAgain.code, "TASK_NOT_READY");
+});
+
+test("executes the complete v0 milestone for A without promoting B, C, or D", () => {
+  const { controlPlane } = makeReadyControlPlane();
+
+  const initialGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  assert.equal(initialGraph.tasks.A?.status, "ready");
+  assert.equal(initialGraph.tasks.B?.status, "pending");
+  assert.equal(initialGraph.tasks.C?.status, "pending");
+  assert.equal(initialGraph.tasks.D?.status, "pending");
+
+  const claim = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand());
+  const leaseId = getLeaseId(claim);
+  const start = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeStartCommand({ leaseId, workerId: "W1" })
+  );
+  const complete = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeCompleteCommand({ leaseId, workerId: "W1" })
+  );
+
+  assert.deepEqual(
+    claim.ok && claim.events.map((event) => event.type),
+    ["lease.created", "task.claimed"]
+  );
+  assert.deepEqual(
+    start.ok && start.events.map((event) => event.type),
+    ["task.started"]
+  );
+  assert.deepEqual(
+    complete.ok && complete.events.map((event) => event.type),
+    ["task.review_requested"]
+  );
+
+  assert.deepEqual(
+    claim.ok && claim.events.map((event) => event.id),
+    ["E1", "E2"]
+  );
+  assert.deepEqual(start.ok && start.events.map((event) => event.id), ["E3"]);
+  assert.deepEqual(
+    complete.ok && complete.events.map((event) => event.id),
+    ["E4"]
+  );
+
+  const finalGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  assert.equal(finalGraph.tasks.A?.status, "review");
+  assert.equal(finalGraph.tasks.B?.status, "pending");
+  assert.equal(finalGraph.tasks.C?.status, "pending");
+  assert.equal(finalGraph.tasks.D?.status, "pending");
+
+  const eventLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  assert.deepEqual(eventLog.map((event) => event.type), [
+    "lease.created",
+    "task.claimed",
+    "task.started",
+    "task.review_requested"
+  ]);
+  assert.equal(eventLog.some((event) => event.type === "task.ready"), false);
+  assert.equal(eventLog.some((event) => event.type === "task.completed"), false);
 });
 
 test("rejects complete without an active Lease even when assignedWorkerId matches", () => {
