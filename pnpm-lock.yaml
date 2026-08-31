@@ -21,6 +21,15 @@ importers:
         specifier: workspace:*
         version: link:../protocol
 
+  packages/control-plane:
+    dependencies:
+      '@flowctl/core':
+        specifier: workspace:*
+        version: link:../core
+      '@flowctl/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/protocol: {}
 
 packages:
