@@ -1,4 +1,5 @@
 import type { GraphValidationIssue } from "@flowctl/core";
+import type { FlowctlCommand, FlowctlEvent, TaskStatus } from "@flowctl/protocol";
 import type { ControlPlane } from "./state.js";
 
 export interface ControlPlaneOptions {
@@ -11,3 +12,39 @@ export interface ControlPlaneOptions {
 export type ControlPlaneCreationResult =
   | { ok: true; controlPlane: ControlPlane }
   | { ok: false; code: "INVALID_GRAPH"; issues: readonly GraphValidationIssue[] };
+
+export type CommandProcessingResult =
+  | { ok: true; events: readonly FlowctlEvent[] }
+  | {
+      ok: false;
+      code: "UNSUPPORTED_COMMAND";
+      commandId: string;
+      commandType: FlowctlCommand["type"];
+    }
+  | {
+      ok: false;
+      code: "PROJECT_MISMATCH";
+      commandId: string;
+      commandProjectId: string;
+      controlPlaneProjectId: string;
+    }
+  | { ok: false; code: "TASK_NOT_FOUND"; commandId: string; taskId: string }
+  | { ok: false; code: "TASK_NOT_READY"; commandId: string; taskId: string }
+  | { ok: false; code: "TASK_ALREADY_LEASED"; commandId: string; taskId: string }
+  | { ok: false; code: "LEASE_NOT_FOUND"; commandId: string; leaseId: string }
+  | {
+      ok: false;
+      code: "LEASE_MISMATCH";
+      commandId: string;
+      taskId: string;
+      leaseId: string;
+      workerId: string;
+    }
+  | {
+      ok: false;
+      code: "INVALID_TASK_TRANSITION";
+      commandId: string;
+      taskId: string;
+      from: TaskStatus;
+      to: TaskStatus;
+    };

@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import * as ControlPlane from "../src/index.js";
-import type { Task, TaskGraph, TaskLevel } from "@flowctl/protocol";
+import type { Actor, FlowctlCommand, Task, TaskGraph, TaskLevel } from "@flowctl/protocol";
 
 type ControlPlaneCreationResult = ControlPlane.ControlPlaneCreationResult;
 
@@ -43,12 +43,60 @@ function makeMilestoneGraph(): TaskGraph {
 }
 
 function makeOptions(): ControlPlane.ControlPlaneOptions {
+  let leaseIdCounter = 0;
+  let eventIdCounter = 0;
+
   return {
     now: () => TIMESTAMP,
-    nextLeaseId: () => "lease-1",
-    nextEventId: () => "event-1",
+    nextLeaseId: () => `L${++leaseIdCounter}`,
+    nextEventId: () => `E${++eventIdCounter}`,
     leaseExpiresAt: () => "2026-08-30T01:00:00.000Z"
   };
+}
+
+function makeActor(overrides: Partial<Actor> = {}): Actor {
+  return {
+    type: "worker",
+    id: "W1",
+    ...overrides
+  };
+}
+
+function makeClaimCommand(
+  overrides: {
+    id?: string;
+    projectId?: string;
+    taskId?: string;
+    workerId?: string;
+    actor?: Actor;
+  } = {}
+): FlowctlCommand {
+  const actor = overrides.actor ?? makeActor();
+
+  return {
+    id: overrides.id ?? "C1",
+    protocolVersion: "0.1",
+    timestamp: TIMESTAMP,
+    projectId: overrides.projectId ?? "P1",
+    actor,
+    type: "task.claim",
+    payload: {
+      taskId: overrides.taskId ?? "A",
+      workerId: overrides.workerId ?? actor.id
+    }
+  };
+}
+
+function makeReadyControlPlane(
+  options: ControlPlane.ControlPlaneOptions = makeOptions()
+): { controlPlane: ControlPlane.ControlPlane } {
+  const result = ControlPlane.createControlPlane(makeMilestoneGraph(), options);
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    throw new Error("Expected a valid control plane fixture.");
+  }
+
+  return { controlPlane: result.controlPlane };
 }
 
 test("creates an opaque ControlPlane and preserves initialization statuses", () => {
@@ -144,4 +192,229 @@ test("does not expose the internal Event Log array", () => {
 
   assert.deepEqual(first, []);
   assert.notStrictEqual(first, second);
+});
+
+test("claims ready A with one active Lease and ordered Events", () => {
+  const result = ControlPlane.createControlPlane(makeMilestoneGraph(), makeOptions());
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const command = makeClaimCommand({ actor: { type: "worker", id: "W1" } });
+  const dispatch = ControlPlane.dispatchCommand(result.controlPlane, command);
+
+  assert.equal(dispatch.ok, true);
+  if (!dispatch.ok) return;
+  assert.deepEqual(
+    dispatch.events.map((event) => event.type),
+    ["lease.created", "task.claimed"]
+  );
+  if (dispatch.events[0]?.type === "lease.created" && dispatch.events[1]?.type === "task.claimed") {
+    assert.equal(dispatch.events[0].payload.lease.id, "L1");
+    assert.equal(dispatch.events[1].payload.leaseId, dispatch.events[0].payload.lease.id);
+  }
+  assert.equal(ControlPlane.getTaskGraphSnapshot(result.controlPlane).tasks.A?.status, "claimed");
+});
+
+test("rejects claims for missing tasks without mutating state", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeClaimCommand({ taskId: "MISSING" })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "TASK_NOT_FOUND",
+    commandId: "C1",
+    taskId: "MISSING"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("rejects claims for pending tasks without mutating state", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+
+  const result = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "B" }));
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "TASK_NOT_READY",
+    commandId: "C1",
+    taskId: "B"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("rejects a second claim as TASK_ALREADY_LEASED before task status checks", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const accepted = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand());
+  assert.equal(accepted.ok, true);
+  if (!accepted.ok) return;
+
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  const second = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeClaimCommand({ id: "C2", actor: { type: "worker", id: "W2" }, workerId: "W2" })
+  );
+
+  assert.deepEqual(second, {
+    ok: false,
+    code: "TASK_ALREADY_LEASED",
+    commandId: "C2",
+    taskId: "A"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("rejects claims from a foreign project before task lookup", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeClaimCommand({ projectId: "P2", taskId: "MISSING" })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "PROJECT_MISMATCH",
+    commandId: "C1",
+    commandProjectId: "P2",
+    controlPlaneProjectId: "P1"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+for (const taskId of ["toString", "constructor", "__proto__"]) {
+  test(`does not resolve inherited task key ${taskId}`, () => {
+    const { controlPlane } = makeReadyControlPlane();
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const result = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId }));
+
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "TASK_NOT_FOUND");
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  });
+}
+
+test("keeps state unchanged when now throws during claim dispatch", () => {
+  const { controlPlane } = makeReadyControlPlane({
+    ...makeOptions(),
+    now: () => {
+      throw new Error("now failed");
+    }
+  });
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+
+  assert.throws(
+    () => ControlPlane.dispatchCommand(controlPlane, makeClaimCommand()),
+    /now failed/
+  );
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("keeps state unchanged when nextLeaseId throws during claim dispatch", () => {
+  const { controlPlane } = makeReadyControlPlane({
+    ...makeOptions(),
+    nextLeaseId: () => {
+      throw new Error("lease id failed");
+    }
+  });
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+
+  assert.throws(
+    () => ControlPlane.dispatchCommand(controlPlane, makeClaimCommand()),
+    /lease id failed/
+  );
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("keeps state unchanged when leaseExpiresAt throws during claim dispatch", () => {
+  const { controlPlane } = makeReadyControlPlane({
+    ...makeOptions(),
+    leaseExpiresAt: () => {
+      throw new Error("lease expiry failed");
+    }
+  });
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+
+  assert.throws(
+    () => ControlPlane.dispatchCommand(controlPlane, makeClaimCommand()),
+    /lease expiry failed/
+  );
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("keeps state unchanged when the second nextEventId throws during claim dispatch", () => {
+  let eventIdCounter = 0;
+  const { controlPlane } = makeReadyControlPlane({
+    ...makeOptions(),
+    nextEventId: () => {
+      eventIdCounter += 1;
+      if (eventIdCounter === 2) {
+        throw new Error("event id failed");
+      }
+
+      return `E${eventIdCounter}`;
+    }
+  });
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+
+  assert.throws(
+    () => ControlPlane.dispatchCommand(controlPlane, makeClaimCommand()),
+    /event id failed/
+  );
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("copies command input and returned Events independently from stored history", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const command = makeClaimCommand({ actor: { type: "worker", id: "W1" } });
+  const result = ControlPlane.dispatchCommand(controlPlane, command);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  command.actor.id = "MUTATED";
+  if (result.events[1] !== undefined) {
+    result.events[1].actor.id = "RESULT_MUTATED";
+  }
+
+  const history = ControlPlane.getEventLogSnapshot(controlPlane);
+  if (result.events[0]?.type === "lease.created") {
+    result.events[0].payload.lease.workerId = "RESULT_LEASE_MUTATED";
+  }
+  assert.equal(history[1]?.actor.id, "W1");
+  const snapshot = ControlPlane.getEventLogSnapshot(controlPlane);
+  if (snapshot[0]?.type === "lease.created") {
+    snapshot[0].payload.lease.workerId = "SNAPSHOT_LEASE_MUTATED";
+  }
+  assert.equal(history[0]?.type, "lease.created");
+  if (history[0]?.type === "lease.created") {
+    assert.equal(history[0].payload.lease.workerId, "W1");
+  }
+  const freshSnapshot = ControlPlane.getEventLogSnapshot(controlPlane);
+  if (freshSnapshot[0]?.type === "lease.created") {
+    assert.equal(freshSnapshot[0].payload.lease.workerId, "W1");
+  }
 });
