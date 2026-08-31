@@ -1,7 +1,14 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import * as ControlPlane from "../src/index.js";
-import type { Actor, FlowctlCommand, Task, TaskGraph, TaskLevel } from "@flowctl/protocol";
+import type {
+  Actor,
+  FlowctlCommand,
+  FlowctlEvent,
+  Task,
+  TaskGraph,
+  TaskLevel
+} from "@flowctl/protocol";
 
 type ControlPlaneCreationResult = ControlPlane.ControlPlaneCreationResult;
 
@@ -141,6 +148,218 @@ function makeCompleteCommand(
   };
 }
 
+function makeFailCommand(
+  projectId = "P1"
+): Extract<FlowctlCommand, { type: "task.fail" }> {
+  return {
+    id: "F1",
+    protocolVersion: "0.1",
+    timestamp: TIMESTAMP,
+    projectId,
+    actor: makeActor(),
+    type: "task.fail",
+    payload: {
+      taskId: "A",
+      workerId: "W1",
+      leaseId: "L1",
+      reason: "failure"
+    }
+  };
+}
+
+function makeBlockCommand(
+  projectId = "P1"
+): Extract<FlowctlCommand, { type: "task.block" }> {
+  return {
+    id: "B1",
+    protocolVersion: "0.1",
+    timestamp: TIMESTAMP,
+    projectId,
+    actor: makeActor(),
+    type: "task.block",
+    payload: {
+      taskId: "A",
+      workerId: "W1",
+      leaseId: "L1",
+      reason: "blocked"
+    }
+  };
+}
+
+function makeHeartbeatCommand(
+  projectId = "P1"
+): Extract<FlowctlCommand, { type: "lease.heartbeat" }> {
+  return {
+    id: "H1",
+    protocolVersion: "0.1",
+    timestamp: TIMESTAMP,
+    projectId,
+    actor: makeActor(),
+    type: "lease.heartbeat",
+    payload: {
+      taskId: "A",
+      workerId: "W1",
+      leaseId: "L1"
+    }
+  };
+}
+
+function makeGraphMutationCommand(
+  projectId = "P1"
+): Extract<FlowctlCommand, { type: "graph.mutation.propose" }> {
+  return {
+    id: "GM1",
+    protocolVersion: "0.1",
+    timestamp: TIMESTAMP,
+    projectId,
+    actor: makeActor({ type: "user", id: "U1" }),
+    type: "graph.mutation.propose",
+    payload: {
+      mutation: {
+        id: "M1",
+        reason: "future graph change",
+        operations: []
+      }
+    }
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${String(value)}`);
+}
+
+function assertCommandPayloadNarrowing(command: FlowctlCommand): void {
+  switch (command.type) {
+    case "task.claim":
+      assert.equal(typeof command.payload.taskId, "string");
+      assert.equal(typeof command.payload.workerId, "string");
+      return;
+    case "task.start":
+    case "task.complete":
+      assert.equal(typeof command.payload.taskId, "string");
+      assert.equal(typeof command.payload.workerId, "string");
+      assert.equal(typeof command.payload.leaseId, "string");
+      return;
+    case "task.fail":
+    case "task.block":
+      assert.equal(typeof command.payload.taskId, "string");
+      assert.equal(typeof command.payload.workerId, "string");
+      assert.equal(typeof command.payload.leaseId, "string");
+      assert.equal(typeof command.payload.reason, "string");
+      return;
+    case "lease.heartbeat":
+      assert.equal(typeof command.payload.taskId, "string");
+      assert.equal(typeof command.payload.workerId, "string");
+      assert.equal(typeof command.payload.leaseId, "string");
+      return;
+    case "graph.mutation.propose":
+      assert.equal(typeof command.payload.mutation.id, "string");
+      return;
+    default:
+      assertNever(command);
+  }
+}
+
+function assertCommandProcessingResultFields(
+  result: ControlPlane.CommandProcessingResult
+): void {
+  if (result.ok) {
+    for (const event of result.events) {
+      assertEventPayloadNarrowing(event);
+    }
+    return;
+  }
+
+  switch (result.code) {
+    case "UNSUPPORTED_COMMAND":
+      assert.equal(typeof result.commandId, "string");
+      assert.equal(typeof result.commandType, "string");
+      return;
+    case "PROJECT_MISMATCH":
+      assert.equal(typeof result.commandId, "string");
+      assert.equal(typeof result.commandProjectId, "string");
+      assert.equal(typeof result.controlPlaneProjectId, "string");
+      return;
+    case "TASK_NOT_FOUND":
+    case "TASK_NOT_READY":
+    case "TASK_ALREADY_LEASED":
+      assert.equal(typeof result.commandId, "string");
+      assert.equal(typeof result.taskId, "string");
+      return;
+    case "LEASE_NOT_FOUND":
+      assert.equal(typeof result.commandId, "string");
+      assert.equal(typeof result.leaseId, "string");
+      return;
+    case "LEASE_MISMATCH":
+      assert.equal(typeof result.commandId, "string");
+      assert.equal(typeof result.taskId, "string");
+      assert.equal(typeof result.leaseId, "string");
+      assert.equal(typeof result.workerId, "string");
+      return;
+    case "INVALID_TASK_TRANSITION":
+      assert.equal(typeof result.commandId, "string");
+      assert.equal(typeof result.taskId, "string");
+      assert.equal(typeof result.from, "string");
+      assert.equal(typeof result.to, "string");
+      return;
+    default:
+      assertNever(result);
+  }
+}
+
+function assertEventPayloadNarrowing(event: FlowctlEvent): void {
+  switch (event.type) {
+    case "task.created":
+      assert.equal(typeof event.payload.task.id, "string");
+      return;
+    case "task.ready":
+      assert.equal(typeof event.payload.taskId, "string");
+      return;
+    case "task.claimed":
+    case "task.started":
+    case "task.review_requested":
+    case "task.completed":
+      assert.equal(typeof event.payload.taskId, "string");
+      assert.equal(typeof event.payload.workerId, "string");
+      assert.equal(typeof event.payload.leaseId, "string");
+      return;
+    case "task.failed":
+    case "task.blocked":
+      assert.equal(typeof event.payload.taskId, "string");
+      assert.equal(typeof event.payload.workerId, "string");
+      assert.equal(typeof event.payload.leaseId, "string");
+      assert.equal(typeof event.payload.reason, "string");
+      return;
+    case "task.cancelled":
+      assert.equal(typeof event.payload.taskId, "string");
+      return;
+    case "lease.created":
+      assert.equal(typeof event.payload.lease.id, "string");
+      return;
+    case "lease.expired":
+      assert.equal(typeof event.payload.leaseId, "string");
+      assert.equal(typeof event.payload.taskId, "string");
+      assert.equal(typeof event.payload.workerId, "string");
+      return;
+    case "worker.connected":
+      assert.equal(typeof event.payload.worker.id, "string");
+      return;
+    case "worker.disconnected":
+      assert.equal(typeof event.payload.workerId, "string");
+      return;
+    case "graph.mutation.proposed":
+    case "graph.mutation.approved":
+      assert.equal(typeof event.payload.mutation.id, "string");
+      return;
+    case "graph.mutation.rejected":
+      assert.equal(typeof event.payload.mutationId, "string");
+      assert.equal(typeof event.payload.reason, "string");
+      return;
+    default:
+      assertNever(event);
+  }
+}
+
 function makeReadyControlPlane(
   options: ControlPlane.ControlPlaneOptions = makeOptions()
 ): { controlPlane: ControlPlane.ControlPlane } {
@@ -183,6 +402,94 @@ function makeRunningControlPlane(): {
 
   return claimed;
 }
+
+const unsupportedCommands: readonly FlowctlCommand[] = [
+  makeFailCommand(),
+  makeBlockCommand(),
+  makeHeartbeatCommand(),
+  makeGraphMutationCommand()
+];
+
+for (const command of unsupportedCommands) {
+  test(`rejects ${command.type} as unsupported without mutation`, () => {
+    assertCommandPayloadNarrowing(command);
+    const { controlPlane } = makeReadyControlPlane();
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const result = ControlPlane.dispatchCommand(controlPlane, command);
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.code, "UNSUPPORTED_COMMAND");
+      assert.equal(result.commandId, command.id);
+      assert.equal(result.commandType, command.type);
+    }
+    assertCommandProcessingResultFields(result);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  });
+}
+
+const foreignUnsupportedCommands: readonly FlowctlCommand[] = [
+  makeFailCommand("OTHER"),
+  makeBlockCommand("OTHER"),
+  makeHeartbeatCommand("OTHER"),
+  makeGraphMutationCommand("OTHER")
+];
+
+for (const command of foreignUnsupportedCommands) {
+  test(`rejects foreign ${command.type} before support detection`, () => {
+    assertCommandPayloadNarrowing(command);
+    const { controlPlane } = makeReadyControlPlane();
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const result = ControlPlane.dispatchCommand(controlPlane, command);
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.code, "PROJECT_MISMATCH");
+      assert.equal(result.commandId, command.id);
+      assert.equal(result.commandProjectId, "OTHER");
+      assert.equal(result.controlPlaneProjectId, "P1");
+    }
+    assertCommandProcessingResultFields(result);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  });
+}
+
+test("project mismatch precedes unsupported-command detection", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeGraphMutationCommand("OTHER")
+  );
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.code, "PROJECT_MISMATCH");
+    assert.equal(result.commandId, "GM1");
+    assert.equal(result.commandProjectId, "OTHER");
+    assert.equal(result.controlPlaneProjectId, "P1");
+  }
+  assertCommandProcessingResultFields(result);
+});
+
+test("a supported-project unsupported command returns UNSUPPORTED_COMMAND", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeGraphMutationCommand()
+  );
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.code, "UNSUPPORTED_COMMAND");
+    assert.equal(result.commandId, "GM1");
+    assert.equal(result.commandType, "graph.mutation.propose");
+  }
+  assertCommandProcessingResultFields(result);
+});
 
 test("creates an opaque ControlPlane and preserves initialization statuses", () => {
   const result = ControlPlane.createControlPlane(makeMilestoneGraph(), makeOptions());
@@ -745,4 +1052,92 @@ test("rejects complete outside running before Lease validation", () => {
   });
   assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
   assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+});
+
+test("narrows every public command result and emitted event by its discriminant", () => {
+  const results: ControlPlane.CommandProcessingResult[] = [];
+
+  const mismatchPlane = makeReadyControlPlane().controlPlane;
+  results.push(
+    ControlPlane.dispatchCommand(mismatchPlane, makeGraphMutationCommand("OTHER"))
+  );
+  results.push(
+    ControlPlane.dispatchCommand(mismatchPlane, makeGraphMutationCommand())
+  );
+  results.push(
+    ControlPlane.dispatchCommand(
+      mismatchPlane,
+      makeClaimCommand({ taskId: "MISSING" })
+    )
+  );
+  results.push(
+    ControlPlane.dispatchCommand(mismatchPlane, makeClaimCommand({ taskId: "B" }))
+  );
+
+  const claimedPlane = makeReadyControlPlane().controlPlane;
+  results.push(
+    ControlPlane.dispatchCommand(claimedPlane, makeClaimCommand())
+  );
+  results.push(
+    ControlPlane.dispatchCommand(
+      claimedPlane,
+      makeClaimCommand({ id: "C2", workerId: "W2", actor: makeActor({ id: "W2" }) })
+    )
+  );
+
+  const noLeasePlane = makeMilestoneGraph();
+  noLeasePlane.tasks.A.status = "claimed";
+  const noLeaseCreation = ControlPlane.createControlPlane(noLeasePlane, makeOptions());
+  assert.equal(noLeaseCreation.ok, true);
+  if (!noLeaseCreation.ok) return;
+  results.push(
+    ControlPlane.dispatchCommand(noLeaseCreation.controlPlane, makeStartCommand())
+  );
+
+  const leaseMismatchPlane = makeClaimedControlPlane();
+  results.push(
+    ControlPlane.dispatchCommand(
+      leaseMismatchPlane.controlPlane,
+      makeStartCommand({ leaseId: "WRONG" })
+    )
+  );
+
+  const runningPlane = makeClaimedControlPlane();
+  const started = ControlPlane.dispatchCommand(
+    runningPlane.controlPlane,
+    makeStartCommand({ leaseId: runningPlane.leaseId })
+  );
+  results.push(started);
+  results.push(
+    ControlPlane.dispatchCommand(
+      runningPlane.controlPlane,
+      makeStartCommand({ id: "S2", leaseId: runningPlane.leaseId })
+    )
+  );
+
+  const completedPlane = makeRunningControlPlane();
+  results.push(
+    ControlPlane.dispatchCommand(
+      completedPlane.controlPlane,
+      makeCompleteCommand({ leaseId: completedPlane.leaseId })
+    )
+  );
+
+  for (const result of results) {
+    assertCommandProcessingResultFields(result);
+  }
+
+  assert.deepEqual(
+    results.filter((result) => !result.ok).map((result) => result.code),
+    [
+      "PROJECT_MISMATCH",
+      "UNSUPPORTED_COMMAND",
+      "TASK_NOT_FOUND",
+      "TASK_NOT_READY",
+      "TASK_ALREADY_LEASED",
+      "LEASE_NOT_FOUND",
+      "LEASE_MISMATCH",
+      "INVALID_TASK_TRANSITION"
+    ]
+  );
 });

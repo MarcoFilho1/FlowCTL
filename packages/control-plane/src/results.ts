@@ -13,8 +13,9 @@ export type ControlPlaneCreationResult =
   | { ok: true; controlPlane: ControlPlane }
   | { ok: false; code: "INVALID_GRAPH"; issues: readonly GraphValidationIssue[] };
 
-export type CommandProcessingResult =
-  | { ok: true; events: readonly FlowctlEvent[] }
+type CommandProcessingSuccess = { ok: true; events: readonly FlowctlEvent[] };
+
+type CommandProcessingFailure =
   | {
       ok: false;
       code: "UNSUPPORTED_COMMAND";
@@ -48,3 +49,7 @@ export type CommandProcessingResult =
       from: TaskStatus;
       to: TaskStatus;
     };
+
+export type CommandProcessingResult =
+  | CommandProcessingSuccess
+  | CommandProcessingFailure;
