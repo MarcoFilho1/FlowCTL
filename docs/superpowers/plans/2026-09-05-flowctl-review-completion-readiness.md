@@ -24,7 +24,7 @@ Spec: docs/superpowers/specs/2026-09-05-flowctl-review-completion-readiness-desi
 - Todos os Events de um dispatch usam um timestamp e Actor causal; task.completed precede todos os task.ready do dispatch.
 - Não serão adicionados version negotiation, migration layer, runtime schemas, Zod ou outra validação runtime.
 - Não serão implementados Scheduler, auto-claim, Workers reais, adapters, Lease expiry, persistence, networking, UI, Desktop, Overlay, Planner, LLM, Intent Layer, review rejection ou GraphMutation application.
-- Cada task comportamental terá RED real, GREEN mínimo, typecheck, self-review e commit próprio.
+- Cada task que introduz comportamento terá RED real, GREEN mínimo, typecheck e self-review; tasks de prova/regressão podem passar imediatamente e não exigem produção artificial.
 - A suíte dos Incrementos #1–#3 deve permanecer coberta; nenhum teste anterior será removido.
 
 ## File map
@@ -133,6 +133,14 @@ Trocar todos os protocolVersion: "0.1" tipados nos testes para "0.2". Atualizar 
 
 Atualizar docs/protocol-v0.md com v0.2, task.review.approve, o novo payload de completed e a ausência de negotiation/runtime schemas.
 
+Executar uma auditoria repository-wide sem substituição cega:
+
+~~~bash
+rg 'protocolVersion:\s*"0\.1"|PROTOCOL_VERSION.*0\.1|Protocol v0\.1|Protocol 0\.1'
+~~~
+
+Revisar cada ocorrência e classificá-la como fixture/contrato que deve migrar, documento histórico deliberadamente preservado ou ocorrência irrelevante. Nenhuma referência operacional acidental a v0.1 pode permanecer.
+
 - [ ] Step 5: GREEN e regressão
 
 Run: pnpm --filter @flowctl/protocol test
@@ -152,7 +160,7 @@ git commit -m "feat(protocol): evolve to v0.2 review approval contract"
 
 ---
 
-### Task 2: Adicionar dispatch de approval e conclusão review -> completed
+### Task 2: Implementar o vertical slice atômico de review approval
 
 Files:
 - Create: packages/control-plane/src/review-approve.ts
@@ -185,6 +193,24 @@ function makeReviewApprovalCommand(
 
 Adicionar testes para: Task ausente; pending/ready/running; completed com from/to completed; project mismatch; unsupported + wrong project; own-key regression para toString/constructor/__proto__; approval em review sem Lease e com assignedWorkerId.
 
+Adicionar também o milestone mínimo no mesmo RED:
+
+~~~text
+A = review
+B = pending
+C = pending
+D = pending
+
+approve A
+
+A = completed
+B = ready
+C = ready
+D = pending
+~~~
+
+O result deve conter exatamente task.completed(A), task.ready(B) e task.ready(C), nessa ordem. O teste garante que não existe uma versão funcional intermediária de approval que conclua A sem reconciliar readiness.
+
 Cada falha compara Graph snapshot e Event Log antes/depois.
 
 - [ ] Step 2: Confirmar RED
@@ -197,9 +223,9 @@ Expected: approval ainda retorna UNSUPPORTED_COMMAND.
 
 Estender SupportedCommand, isSupportedCommand e o switch de dispatch.ts. Preservar a precedência project mismatch -> unsupported command -> validação específica.
 
-Em review-approve.ts, resolver com getCanonicalTask, validar isTaskTransitionAllowed(status, "completed") e retornar INVALID_TASK_TRANSITION antes do staging.
+Em review-approve.ts, resolver com getCanonicalTask, validar isTaskTransitionAllowed(status, "completed") e retornar INVALID_TASK_TRANSITION antes do staging. A aceitação deve ser implementada como um vertical slice completo; não retornar sucesso parcial com A completed e B/C ainda pending.
 
-- [ ] Step 4: Implementar candidate e task.completed
+- [ ] Step 4: Implementar candidate, completion e readiness no mesmo ciclo
 
 Usar somente a fachada pública do Core via recreateCoreState:
 
@@ -219,81 +245,12 @@ const candidateState: ControlPlaneState = {
 };
 const timestamp = currentState.options.now();
 const transition = applyTaskTransition(candidateCoreState, task.id, "completed", timestamp);
+const promotedTaskIds = advanceReadyTasks(candidateCoreState, timestamp);
 ~~~
 
 Se a transição falhar depois da pre-validação, lançar erro de invariante. Approval não consulta nem modifica activeLeaseByTaskId.
 
-Construir um Event com um ID, command.protocolVersion, timestamp único, projectId, copyActor(command.actor), type task.completed e payload { taskId }. Acrescentar cópia ao candidate Event Log, substituir uma vez e retornar cópia do Event. Readiness entra na Task 3.
-
-- [ ] Step 5: GREEN e typecheck
-
-Run: pnpm --filter @flowctl/control-plane test
-Run: pnpm typecheck
-
-Expected: PASS com a suíte anterior e os novos testes de approval.
-
-- [ ] Step 6: Self-review e commit
-
-Confirmar ausência de lookup por assignedWorkerId e de lease.created no approval.
-
-~~~bash
-git add packages/control-plane/src/dispatch.ts packages/control-plane/src/review-approve.ts packages/control-plane/test/control-plane.test.ts
-git commit -m "feat(control-plane): approve reviewed tasks"
-~~~
-
----
-
-### Task 3: Reconciliar readiness global e completar A -> B/C -> D
-
-Files:
-- Modify: packages/control-plane/src/review-approve.ts
-- Modify: packages/control-plane/test/control-plane.test.ts
-
-Interfaces:
-- Consumes: candidate CoreState, advanceReadyTasks(candidateCoreState, timestamp) e ordem dos IDs retornados pelo Core.
-- Produces: task.completed seguido por zero ou mais task.ready, com timestamp, Actor, projectId e protocolVersion do approval.
-
-- [ ] Step 1: Escrever RED de readiness e E2E
-
-Adicionar testes para:
-
-1. A review aprovada produz task.completed, task.ready B e task.ready C.
-2. Fixture global A review, B pending depende de A, X pending com dependencies já completas: o resultado promove B e X.
-3. Nenhuma Task elegível produz somente task.completed.
-4. Múltiplos ready Events seguem a ordem do Core; não usar ordenação própria.
-5. Todos os Events compartilham timestamp/Actor/projectId/protocolVersion e têm IDs distintos.
-6. result.events contém apenas o dispatch atual e getEventLogSnapshot acumula.
-7. O E2E explícito usa claim/start/complete/approve para A, B e C no DAG:
-
-~~~text
-        A
-       / \
-      B   C
-       \ /
-        D
-~~~
-
-Verificar A completed -> B/C ready -> D pending, B completed -> C ready -> D pending, C completed -> D ready. Não executar D nem auto-claim.
-
-- [ ] Step 2: Confirmar RED
-
-Run: pnpm --filter @flowctl/control-plane test -- --test-name-pattern='readiness|DAG|approval'
-
-Expected: falha porque o approval ainda produz somente task.completed.
-
-- [ ] Step 3: Chamar exclusivamente o Core
-
-Após applyTaskTransition no mesmo timestamp:
-
-~~~ts
-const promotedTaskIds = advanceReadyTasks(candidateCoreState, timestamp);
-~~~
-
-Não percorrer parentId, dependentes ou dependencies e não reordenar os IDs.
-
-- [ ] Step 4: Construir Events na ordem causal
-
-Alocar todos os IDs antes do commit:
+Construir TODOS os IDs antes de qualquer commit e construir em memória, na ordem, task.completed e todos os task.ready retornados pelo Core:
 
 ~~~ts
 const eventIds = [
@@ -323,9 +280,68 @@ const stagedEvents: FlowctlEvent[] = [
 ];
 ~~~
 
-Adicionar cópias ao candidate Log e retornar cópias. Com zero promoted IDs, gerar somente completed.
+Acrescentar cópias de stagedEvents ao candidate Event Log, substituir ControlPlaneState uma única vez e retornar cópias defensivas. Com zero promoted IDs, o resultado contém somente task.completed. A Task 2 já termina com a semântica final do Command.
 
-- [ ] Step 5: GREEN, typecheck e regressão
+- [ ] Step 5: GREEN e typecheck
+
+Run: pnpm --filter @flowctl/control-plane test
+Run: pnpm typecheck
+
+Expected: PASS com a suíte anterior, as rejeições, o approval sem Lease e o milestone mínimo completo de completion + readiness.
+
+- [ ] Step 6: Self-review e commit
+
+Confirmar ausência de lookup por assignedWorkerId, ausência de lease.created no approval e inexistência de qualquer commit funcional intermediário sem readiness.
+
+~~~bash
+git add packages/control-plane/src/dispatch.ts packages/control-plane/src/review-approve.ts packages/control-plane/test/control-plane.test.ts
+git commit -m "feat(control-plane): approve reviewed tasks"
+~~~
+
+---
+
+### Task 3: Provar reconciliação global e progressão do DAG
+
+Files:
+- Modify: packages/control-plane/test/control-plane.test.ts
+- Modify: packages/control-plane/src/review-approve.ts somente se os testes revelarem um defeito na implementação completa da Task 2; nesse caso, fazer o ajuste mínimo, sem criar produção adicional para justificar a task
+
+Interfaces:
+- Consumes: o vertical slice completo da Task 2 e as APIs públicas atuais do Control Plane.
+- Produces: provas adversariais de reconciliação global, ordering determinístico, zero/múltiplas promoções e progressão completa do DAG.
+
+- [ ] Step 1: Escrever os testes de expansão e prova
+
+Adicionar testes para:
+
+1. Fixture global A review, B pending depende de A, X pending com dependencies já completas: approval promove B e X, provando que a reconciliação não fica limitada a dependentes diretas.
+2. Approval que não encontra pending elegível produz somente task.completed.
+3. Múltiplos ready Events seguem exatamente a ordem devolvida pelo Core.
+4. Todos os Events compartilham timestamp/Actor/projectId/protocolVersion e têm IDs distintos.
+5. result.events contém apenas o dispatch atual e getEventLogSnapshot acumula.
+6. O E2E explícito usa claim/start/complete/approve para A, B e C no DAG:
+
+~~~text
+        A
+       / \
+      B   C
+       \ /
+        D
+~~~
+
+Verificar A completed -> B/C ready -> D pending, B completed -> C ready -> D pending, C completed -> D ready. Não executar D nem auto-claim.
+
+- [ ] Step 2: Confirmar RED
+
+Run: pnpm --filter @flowctl/control-plane test -- --test-name-pattern='readiness|DAG|approval'
+
+Expected: PASS se a implementação geral da Task 2 estiver correta. Se algum teste falhar, o resultado é um finding concreto sobre a Task 2 e autoriza somente o ajuste mínimo necessário no handler existente.
+
+- [ ] Step 3: Corrigir apenas defeitos comprovados, se houver
+
+Não adicionar readiness, traversal ou nova abstração nesta task. Se houver defeito, reproduzi-lo com o teste correspondente, aplicar a menor correção em review-approve.ts e repetir o teste focal, typecheck e suíte completa.
+
+- [ ] Step 4: GREEN, typecheck e regressão
 
 Run: pnpm --filter @flowctl/control-plane test
 Run: pnpm typecheck
@@ -333,13 +349,13 @@ Run: pnpm test
 
 Expected: PASS; progressão depende apenas de Commands explícitos e readiness do Core.
 
-- [ ] Step 6: Self-review e commit
+- [ ] Step 5: Self-review e commit somente se houver alteração
 
-Confirmar que packages/core não foi alterado e que os IDs do Core são usados diretamente.
+Confirmar que packages/core não foi alterado e que a Task não introduziu produção adicional. Se os testes já passarem e nenhum arquivo precisar mudar, registrar a auditoria e não criar commit vazio. Se houver correção mínima, usar:
 
 ~~~bash
 git add packages/control-plane/src/review-approve.ts packages/control-plane/test/control-plane.test.ts
-git commit -m "feat(control-plane): propagate readiness after review completion"
+git commit -m "test(review): prove global readiness propagation"
 ~~~
 
 ---
@@ -430,12 +446,16 @@ Expected: PASS sem alterações em packages/core.
 
 Confirmar que packages/control-plane/src/index.ts exporta somente createControlPlane, getTaskGraphSnapshot, dispatchCommand, getEventLogSnapshot e os tipos previstos. review-approve.ts, handlers, staging helpers, ControlPlaneState e activeLeaseByTaskId não são públicos.
 
-- [ ] Step 4: Self-review e commit
+- [ ] Step 4: Self-review e commit condicional
+
+Se a auditoria identificar lacuna real, escrever o teste faltante, confirmar RED quando aplicável, completar a cobertura, rodar a suíte e criar o commit:
 
 ~~~bash
 git add packages/control-plane/test/control-plane.test.ts packages/protocol/test/protocol.test.ts
 git commit -m "test(review): cover completion readiness regression matrix"
 ~~~
+
+Se todos os acceptance tests já estiverem presentes e nenhum arquivo precisar mudar, registrar o resultado da auditoria e não criar commit vazio.
 
 ---
 
@@ -536,8 +556,8 @@ O sucesso permanece { ok: true; events: readonly FlowctlEvent[] }. As rejeiçõe
 ## Estratégia TDD consolidada
 
 1. Task 1 começa com RED de versão, discriminante e payload antigo.
-2. Task 2 começa com RED de dispatch porque o Command ainda é unsupported.
-3. Task 3 começa com RED de readiness e E2E porque approval ainda não chama advanceReadyTasks.
+2. Task 2 começa com RED de dispatch e milestone porque o Command ainda é unsupported e não existe approval completo.
+3. Task 3 adiciona provas de expansão depois do vertical slice; elas devem passar sem produção nova ou revelar um defeito concreto para correção mínima.
 4. Task 4 começa com testes adversariais de atomicidade e cópia defensiva.
 5. Task 5 fecha a matriz de regressão sem remover cobertura anterior.
 6. Cada GREEN é seguido por typecheck, self-review e commit isolado.
@@ -563,6 +583,9 @@ O sucesso permanece { ok: true; events: readonly FlowctlEvent[] }. As rejeiçõe
 
 - [x] Cada seção comportamental da spec tem task.
 - [x] Migração v0.1 -> v0.2 atualiza fixtures no mesmo ciclo e termina verde.
+- [x] Task 2 é um vertical slice completo e não expõe approval sem readiness.
+- [x] Task 3 prova/expande comportamento existente, sem justificar produção artificial.
+- [x] A auditoria repository-wide de referências operacionais v0.1 está incluída.
 - [x] Nenhum arquivo de packages/core está em Files de implementação.
 - [x] Nenhum payload antigo de completed permanece após Task 1.
 - [x] Approval não usa Lease nem assignedWorkerId.
@@ -571,6 +594,7 @@ O sucesso permanece { ok: true; events: readonly FlowctlEvent[] }. As rejeiçõe
 - [x] Event ordering, atomicidade e cópias defensivas têm testes.
 - [x] E2E A -> B/C -> D está coberto.
 - [x] Cada task tem arquivos, interfaces, RED/GREEN e commit.
+- [x] Task 5 não exige commit vazio quando a auditoria não encontra lacunas.
 - [x] Checkout limpo não depende de dist/dist-test stale.
 - [x] Nenhum subsystem fora do escopo foi planejado.
 
