@@ -8,12 +8,24 @@ importers:
 
   .:
     devDependencies:
+      '@flowctl/control-plane':
+        specifier: workspace:*
+        version: link:packages/control-plane
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
+
+  packages/control-plane:
+    dependencies:
+      '@flowctl/core':
+        specifier: workspace:*
+        version: link:../core
+      '@flowctl/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
   packages/core:
     dependencies:

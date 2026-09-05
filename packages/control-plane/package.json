@@ -1,0 +1,26 @@
+{
+  "name": "@flowctl/control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@flowctl/core": "workspace:*",
+    "@flowctl/protocol": "workspace:*"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "prepare:core": "pnpm --filter @flowctl/core build",
+    "prebuild": "pnpm run prepare:core",
+    "pretypecheck": "pnpm run prepare:core",
+    "prebuild:test": "pnpm run prepare:core",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "pnpm run build:test && node --test dist-test/test/*.test.js"
+  }
+}

@@ -8,6 +8,7 @@
     "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
+    "@flowctl/control-plane": "workspace:*",
     "@types/node": "^22.0.0",
     "typescript": "^5.0.0"
   }
