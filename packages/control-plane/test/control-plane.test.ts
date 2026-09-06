@@ -16,6 +16,15 @@ type ControlPlaneCreationResult = ControlPlane.ControlPlaneCreationResult;
 const forgedControlPlane: ControlPlane.ControlPlane = {};
 void forgedControlPlane;
 
+test("exposes only the intended public Control Plane runtime facade", () => {
+  assert.deepEqual(Object.keys(ControlPlane).sort(), [
+    "createControlPlane",
+    "dispatchCommand",
+    "getEventLogSnapshot",
+    "getTaskGraphSnapshot"
+  ]);
+});
+
 const TIMESTAMP = "2026-08-30T00:00:00.000Z";
 
 function makeTask(
