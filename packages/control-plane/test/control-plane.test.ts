@@ -82,7 +82,7 @@ function makeClaimCommand(
 
   return {
     id: overrides.id ?? "C1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId: overrides.projectId ?? "P1",
     actor,
@@ -108,7 +108,7 @@ function makeStartCommand(
 
   return {
     id: overrides.id ?? "S1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId: overrides.projectId ?? "P1",
     actor,
@@ -135,7 +135,7 @@ function makeCompleteCommand(
 
   return {
     id: overrides.id ?? "CO1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId: overrides.projectId ?? "P1",
     actor,
@@ -148,12 +148,26 @@ function makeCompleteCommand(
   };
 }
 
+function makeReviewApprovalCommand(
+  projectId = "P1"
+): Extract<FlowctlCommand, { type: "task.review.approve" }> {
+  return {
+    id: "RA1",
+    protocolVersion: "0.2",
+    timestamp: TIMESTAMP,
+    projectId,
+    actor: makeActor({ type: "user", id: "U1" }),
+    type: "task.review.approve",
+    payload: { taskId: "A" }
+  };
+}
+
 function makeFailCommand(
   projectId = "P1"
 ): Extract<FlowctlCommand, { type: "task.fail" }> {
   return {
     id: "F1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId,
     actor: makeActor(),
@@ -172,7 +186,7 @@ function makeBlockCommand(
 ): Extract<FlowctlCommand, { type: "task.block" }> {
   return {
     id: "B1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId,
     actor: makeActor(),
@@ -191,7 +205,7 @@ function makeHeartbeatCommand(
 ): Extract<FlowctlCommand, { type: "lease.heartbeat" }> {
   return {
     id: "H1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId,
     actor: makeActor(),
@@ -209,7 +223,7 @@ function makeGraphMutationCommand(
 ): Extract<FlowctlCommand, { type: "graph.mutation.propose" }> {
   return {
     id: "GM1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId,
     actor: makeActor({ type: "user", id: "U1" }),
@@ -239,6 +253,9 @@ function assertCommandPayloadNarrowing(command: FlowctlCommand): void {
       assert.equal(typeof command.payload.taskId, "string");
       assert.equal(typeof command.payload.workerId, "string");
       assert.equal(typeof command.payload.leaseId, "string");
+      return;
+    case "task.review.approve":
+      assert.equal(typeof command.payload.taskId, "string");
       return;
     case "task.fail":
     case "task.block":
@@ -318,10 +335,12 @@ function assertEventPayloadNarrowing(event: FlowctlEvent): void {
     case "task.claimed":
     case "task.started":
     case "task.review_requested":
-    case "task.completed":
       assert.equal(typeof event.payload.taskId, "string");
       assert.equal(typeof event.payload.workerId, "string");
       assert.equal(typeof event.payload.leaseId, "string");
+      return;
+    case "task.completed":
+      assert.equal(typeof event.payload.taskId, "string");
       return;
     case "task.failed":
     case "task.blocked":
@@ -415,6 +434,7 @@ function getLeaseId(
 }
 
 const unsupportedCommands: readonly FlowctlCommand[] = [
+  makeReviewApprovalCommand(),
   makeFailCommand(),
   makeBlockCommand(),
   makeHeartbeatCommand(),
@@ -442,6 +462,7 @@ for (const command of unsupportedCommands) {
 }
 
 const foreignUnsupportedCommands: readonly FlowctlCommand[] = [
+  makeReviewApprovalCommand("OTHER"),
   makeFailCommand("OTHER"),
   makeBlockCommand("OTHER"),
   makeHeartbeatCommand("OTHER"),
@@ -838,7 +859,7 @@ test("starts only with the active Lease and emits task.started", () => {
     });
     assert.deepEqual(result.events[0].actor, command.actor);
     assert.equal(result.events[0].projectId, "P1");
-    assert.equal(result.events[0].protocolVersion, "0.1");
+    assert.equal(result.events[0].protocolVersion, "0.2");
     assert.equal(result.events[0].timestamp, TIMESTAMP);
   }
   assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A?.status, "running");

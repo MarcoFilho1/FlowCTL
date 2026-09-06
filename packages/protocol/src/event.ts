@@ -19,7 +19,7 @@ export type FlowctlEvent =
   | (EventEnvelope & { type: "task.claimed"; payload: { taskId: string; workerId: string; leaseId: string } })
   | (EventEnvelope & { type: "task.started"; payload: { taskId: string; workerId: string; leaseId: string } })
   | (EventEnvelope & { type: "task.review_requested"; payload: { taskId: string; workerId: string; leaseId: string } })
-  | (EventEnvelope & { type: "task.completed"; payload: { taskId: string; workerId: string; leaseId: string } })
+  | (EventEnvelope & { type: "task.completed"; payload: { taskId: string } })
   | (EventEnvelope & { type: "task.failed"; payload: { taskId: string; workerId: string; leaseId: string; reason: string } })
   | (EventEnvelope & { type: "task.blocked"; payload: { taskId: string; workerId: string; leaseId: string; reason: string } })
   | (EventEnvelope & { type: "task.cancelled"; payload: { taskId: string; reason?: string } })

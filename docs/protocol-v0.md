@@ -1,4 +1,4 @@
-# FlowCTL Protocol v0
+# FlowCTL Protocol v0.2
 
 `@flowctl/protocol` defines the shared TypeScript contracts for a future
 FlowCTL workflow. It is a declaration package: it performs no semantic
@@ -39,14 +39,19 @@ use an envelope with `id`, `protocolVersion`, `timestamp`, `projectId`, and an
 The envelope `actor` identifies who originated the command or event. A payload
 `workerId` identifies the worker involved in that operation; the two may differ.
 
-One possible future flow is:
+The execution and review contracts distinguish implementation submission from
+final approval:
 
 ```text
-task.claim command -> future Core decision -> task.claimed event
+task.complete -> task.review_requested
+task.review.approve -> task.completed
 ```
 
-The event contract includes `task.review_requested`; it is an event only and
-does not implement review behavior.
+`task.review.approve` carries exactly `{ taskId: string }`. The resulting
+`task.completed` event also carries exactly `{ taskId: string }`; execution
+metadata such as `workerId` and `leaseId` remains on earlier execution events.
+These declarations define contracts only and do not implement approval
+behavior in the Protocol package.
 
 ## Graph mutation proposals
 
@@ -81,7 +86,10 @@ const mutation = {
 ## Versioning and scope
 
 `PROTOCOL_VERSION` is the single exported version source and is currently
-`"0.1"`. Command and event envelopes reference that literal type.
+`"0.2"`. Command and event envelopes reference that literal type. This
+declarative protocol version is independent of package metadata. Protocol v0.2
+does not provide version negotiation, compatibility layers, migration
+frameworks, or runtime schemas.
 
 All protocol timestamps remain typed as `string` and must use RFC 3339 / ISO
 8601 in UTC, for example `2026-08-29T13:42:18.321Z`. The Protocol does not
