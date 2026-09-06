@@ -441,10 +441,6 @@ function getCompletionOrReadyEventTuple(event: FlowctlEvent): readonly [string, 
   return [event.type, event.payload.taskId];
 }
 
-function getCompletionOrReadyTaskId(event: FlowctlEvent): string {
-  return getCompletionOrReadyEventTuple(event)[1];
-}
-
 const unsupportedCommands: readonly FlowctlCommand[] = [
   makeFailCommand(),
   makeBlockCommand(),
@@ -1359,8 +1355,8 @@ test("multiple ready events preserve Core order and approval event metadata", ()
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(
-    result.events.map(getCompletionOrReadyTaskId),
-    ["A", "B", "Z"]
+    result.events.map(getCompletionOrReadyEventTuple),
+    [["task.completed", "A"], ["task.ready", "B"], ["task.ready", "Z"]]
   );
   assert.deepEqual(
     result.events.map((event) => event.id),
@@ -1486,22 +1482,34 @@ for (const taskId of ["A", "toString", "constructor", "__proto__"]) {
 }
 
 for (const failurePoint of ["now", 1, 2, 3] as const) {
-  test(`keeps graph, history and unrelated active Lease unchanged when approval fails at ${failurePoint}`, () => {
+  test(`approval atomic failure at ${failurePoint} preserves graph, history and Lease semantics`, () => {
     const graph = makeReviewGraph();
     graph.rootTaskIds = [...graph.rootTaskIds, "X"];
     graph.tasks.X = makeTask("X", "epic", { status: "ready" });
     let failing = false;
     let approvalEventCalls = 0;
+    const issuedApprovalIds: string[] = [];
+    const stagingFailure = new Error("approval staging failed");
     const options = makeOptions();
     const controlPlane = createReviewFixture(graph, {
       ...options,
       now: () => {
-        if (failing && failurePoint === "now") throw new Error("approval staging failed");
+        if (failing && failurePoint === "now") throw stagingFailure;
         return TIMESTAMP;
       },
       nextEventId: () => {
-        if (failing && ++approvalEventCalls === failurePoint) throw new Error("approval staging failed");
-        return options.nextEventId();
+        if (failing && ++approvalEventCalls === failurePoint) throw stagingFailure;
+        const id = options.nextEventId();
+        if (failing) issuedApprovalIds.push(id);
+        return id;
+      },
+      nextLeaseId: () => {
+        assert.equal(failing, false, "Approval must not allocate a Lease");
+        return options.nextLeaseId();
+      },
+      leaseExpiresAt: (timestamp) => {
+        assert.equal(failing, false, "Approval must not compute Lease expiry");
+        return options.leaseExpiresAt(timestamp);
       }
     });
     const leaseId = getLeaseId(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "X" })));
@@ -1509,42 +1517,154 @@ for (const failurePoint of ["now", 1, 2, 3] as const) {
     const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
     failing = true;
 
-    assert.throws(() => ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand()), /approval staging failed/);
+    assert.throws(() => ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand()),
+      (error) => error === stagingFailure);
+    assert.equal(approvalEventCalls, failurePoint === "now" ? 0 : failurePoint);
+    assert.deepEqual(issuedApprovalIds,
+      failurePoint === 3 ? ["E3", "E4"] : failurePoint === 2 ? ["E3"] : []);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+
+    // Claim checks Lease presence before task readiness; these probes cannot mutate state.
+    for (const taskId of ["A", "B", "C", "D", "X"]) {
+      assert.deepEqual(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId })), {
+        ok: false, code: taskId === "X" ? "TASK_ALREADY_LEASED" : "TASK_NOT_READY",
+        commandId: "C1", taskId
+      });
+    }
+    for (const credentials of [
+      { leaseId: "WRONG", workerId: "W1" },
+      { leaseId, workerId: "OTHER" }
+    ]) {
+      assert.deepEqual(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ taskId: "X", ...credentials })), {
+        ok: false, code: "LEASE_MISMATCH", commandId: "S1", taskId: "X", ...credentials
+      });
+    }
     assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
     assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
     failing = false;
+
+    // A retry must still perform the whole multi-Event approval, without replaying spent IDs.
+    const retry = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand());
+    assert.ok(retry.ok);
+    assert.deepEqual(retry.events.map(getCompletionOrReadyEventTuple),
+      [["task.completed", "A"], ["task.ready", "B"], ["task.ready", "C"]]);
+    assert.equal(retry.events.some((event) => issuedApprovalIds.includes(event.id)), false);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), [...beforeLog, ...retry.events]);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.X, beforeGraph.tasks.X);
     assert.equal(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ taskId: "X", leaseId })).ok, true);
   });
 }
 
-test("approval appends to history, preserves another active Lease and isolates returned Events", () => {
-  const graph = makeReviewGraph();
-  graph.rootTaskIds = [...graph.rootTaskIds, "X"];
-  graph.tasks.X = makeTask("X", "epic", { status: "ready" });
-  const controlPlane = createReviewFixture(graph);
-  const leaseId = getLeaseId(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "X" })));
-  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
-  const command = makeReviewApprovalCommand();
-  const result = ControlPlane.dispatchCommand(controlPlane, command);
-  assert.equal(result.ok, true);
-  if (!result.ok) return;
-  const expectedLog = structuredClone([...beforeLog, ...result.events]);
-  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), expectedLog);
+for (const mutationSource of ["Command/Actor", "result Events", "Event Log snapshot", "Graph snapshot"] as const) {
+  test(`approval defensive mutation isolation for ${mutationSource}`, () => {
+    const graph = makeReviewGraph();
+    graph.tasks.C.acceptanceCriteria = [{ id: "AC-1", description: "original" }];
+    graph.rootTaskIds = [...graph.rootTaskIds, "X"];
+    graph.tasks.X = makeTask("X", "epic", { status: "ready" });
+    const controlPlane = createReviewFixture(graph);
+    const claim = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "X" }));
+    const leaseId = getLeaseId(claim);
+    const expectedClaim = structuredClone(claim);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const expectedBeforeLog = structuredClone(beforeLog);
+    const expectedBeforeGraph = structuredClone(beforeGraph);
+    const actor = makeActor({ type: "user", id: "reviewer" });
+    const command = makeReviewApprovalCommand({ actor });
+    const result = ControlPlane.dispatchCommand(controlPlane, command);
+    assert.ok(result.ok);
+    assert.deepEqual(result.events.map(getCompletionOrReadyEventTuple),
+      [["task.completed", "A"], ["task.ready", "B"], ["task.ready", "C"]]);
+    const expectedEvents = structuredClone(result.events);
+    const expectedLog = structuredClone([...beforeLog, ...result.events]);
+    const expectedGraph = structuredClone(beforeGraph);
+    expectedGraph.tasks.A.status = "completed";
+    expectedGraph.tasks.B.status = "ready";
+    expectedGraph.tasks.C.status = "ready";
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), expectedLog);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), expectedGraph);
 
-  command.actor.id = "mutated-command";
-  command.payload.taskId = "mutated-command";
-  result.events[0].actor.id = "mutated-result";
-  assert.equal(result.events[1].actor.id, "reviewer");
-  for (const event of result.events) {
-    if (event.type === "task.completed" || event.type === "task.ready") event.payload.taskId = "mutated-result";
-  }
-  (result.events as FlowctlEvent[]).pop();
-  const snapshot = ControlPlane.getEventLogSnapshot(controlPlane);
-  snapshot[2].actor.id = "mutated-snapshot";
-  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), expectedLog);
-  assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A.status, "completed");
-  assert.equal(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ taskId: "X", leaseId })).ok, true);
-});
+    switch (mutationSource) {
+      case "Command/Actor":
+        command.actor.id = "mutated-command";
+        command.actor.type = "system";
+        command.payload.taskId = "mutated-command";
+        command.id = "mutated-command";
+        command.projectId = "OTHER";
+        command.timestamp = "2099-01-01T00:00:00.000Z";
+        command.actor = { type: "worker", id: "replacement" };
+        actor.id = "mutated-original-actor";
+        actor.type = "worker";
+        break;
+      case "result Events":
+        result.events[0].actor.id = "mutated-result";
+        result.events[0].actor.type = "system";
+        assert.deepEqual(result.events.slice(1), expectedEvents.slice(1));
+        assert.deepEqual(actor, { type: "user", id: "reviewer" });
+        for (const event of result.events) {
+          event.id = "mutated-result";
+          event.projectId = "OTHER";
+          event.actor.id = "mutated-result";
+          event.actor.type = "system";
+          if (event.type === "task.completed" || event.type === "task.ready") {
+            event.payload.taskId = "mutated-result";
+          }
+        }
+        (result.events as FlowctlEvent[]).splice(0, result.events.length);
+        break;
+      case "Event Log snapshot": {
+        const snapshot = ControlPlane.getEventLogSnapshot(controlPlane);
+        assert.equal(snapshot[0].type, "lease.created");
+        if (snapshot[0].type === "lease.created") {
+          Object.assign(snapshot[0].payload.lease, {
+            id: "OTHER", taskId: "A", workerId: "OTHER",
+            acquiredAt: "changed", expiresAt: "changed", lastHeartbeatAt: "changed"
+          });
+        }
+        for (const event of snapshot) {
+          event.id = "mutated-snapshot";
+          event.actor.id = "mutated-snapshot";
+          event.actor.type = "system";
+          if ("taskId" in event.payload) event.payload.taskId = "mutated-snapshot";
+        }
+        (snapshot as FlowctlEvent[]).splice(0, snapshot.length, ...structuredClone(expectedEvents));
+        break;
+      }
+      case "Graph snapshot": {
+        const snapshot = ControlPlane.getTaskGraphSnapshot(controlPlane);
+        snapshot.projectId = "OTHER";
+        snapshot.rootTaskIds.splice(0, snapshot.rootTaskIds.length, "OTHER");
+        snapshot.tasks.A.status = "failed";
+        snapshot.tasks.A.assignedWorkerId = "OTHER";
+        snapshot.tasks.B.dependencies.push("OTHER");
+        snapshot.tasks.C.acceptanceCriteria[0].description = "mutated-snapshot";
+        snapshot.tasks.C.acceptanceCriteria.push({ id: "AC-2", description: "inserted" });
+        snapshot.tasks.X.updatedAt = "changed";
+        delete snapshot.tasks.D;
+        snapshot.tasks.OTHER = makeTask("OTHER", "epic");
+        break;
+      }
+    }
+
+    if (mutationSource !== "result Events") assert.deepEqual(result.events, expectedEvents);
+    assert.deepEqual(claim, expectedClaim);
+    assert.deepEqual(beforeLog, expectedBeforeLog);
+    assert.deepEqual(beforeGraph, expectedBeforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), expectedLog);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), expectedGraph);
+    for (const taskId of ["A", "D"]) {
+      assert.deepEqual(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId })), {
+        ok: false, code: "TASK_NOT_READY", commandId: "C1", taskId
+      });
+    }
+    assert.equal(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ taskId: "X", leaseId })).ok, true);
+    // Approval must leave newly ready tasks unleased and must not consume Lease IDs.
+    assert.equal(getLeaseId(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "B" }))), "L2");
+    assert.equal(getLeaseId(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "C" }))), "L3");
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane).slice(0, expectedLog.length), expectedLog);
+  });
+}
 
 test("narrows every public command result and emitted event by its discriminant", () => {
   const results: ControlPlane.CommandProcessingResult[] = [];
