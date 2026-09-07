@@ -24,11 +24,13 @@ This repository contains:
   and `task.review.approve` from `review` into `completed`. Approval delegates
   global readiness reconciliation to Core, emits `task.completed` followed by
   any resulting `task.ready` Events, and records protocol Events in an
-  in-memory Event Log.
+  in-memory Event Log. It also exposes a pull-oriented scheduling-policy
+  boundary that only selects ready task IDs; it does not claim tasks, manage
+  leases, assign workers, poll, or execute work.
 
-The following are not implemented: review rejection or rework, Scheduler, real
-Workers or adapters, heartbeat/expiry/recovery, persistence/networking,
-UI/Desktop/Overlay, Planner/LLM/Intent Layer, Verifier, or GraphMutation
-application.
+The following are not implemented: review rejection or rework, a scheduler
+daemon or worker assignment/execution system, real Workers or adapters,
+heartbeat/expiry/recovery, persistence/networking, UI/Desktop/Overlay,
+Planner/LLM/Intent Layer, Verifier, or GraphMutation application.
 
 See [Protocol v0.2](docs/protocol-v0.md) for the public contract.
