@@ -40,6 +40,18 @@ Task 3:
 - Modify README.md only if the current description is stale.
 - No implementation file changes are expected.
 
+## Implementation preflight
+
+Before Task 1, run from the repository root:
+
+  git status --short --branch
+  IMPLEMENTATION_BASE_SHA="$(git rev-parse HEAD)"
+  printf '%s\n' "$IMPLEMENTATION_BASE_SHA"
+
+The controller/ledger must record this exact pre-implementation SHA. Reuse it
+unchanged for the final Protocol/Core boundary comparison in Task 3. Do not
+recalculate it after Task 1 or after any later task.
+
 ## Task 1: Implement the complete pure scheduling policy
 
 **Files:**
@@ -59,12 +71,13 @@ Task 3:
   - limits 1, 2, and larger-than-eligible return at most the requested number;
   - insertion order does not affect output;
   - task.id is not used as the returned identity when it differs from the canonical graph key;
-  - inherited prototype names such as toString, constructor, and __proto__ are not selected unless they are legitimate own enumerable keys;
+  - inherited prototype names such as toString and constructor are not selected;
+  - an inherited __proto__ is not selected, while a legitimate own enumerable __proto__ key is selected when constructed explicitly with Object.defineProperty(tasks, "__proto__", { value: readyTask, enumerable: true, configurable: true, writable: true });
   - Number.MAX_SAFE_INTEGER is valid, while Number.MAX_SAFE_INTEGER + 1 is invalid;
   - negative, fractional, NaN, Infinity, and -Infinity limits throw RangeError;
   - the graph and its tasks are not mutated;
   - mutating the returned array does not affect a later call;
-  - fields such as dependencies, parentId, level, assignedWorkerId, Worker, and Lease do not affect eligibility.
+  - real Task fields such as dependencies, parentId, level, and assignedWorkerId do not affect eligibility; do not add Worker or Lease properties to Task fixtures, because those concepts are not part of the TaskGraph input.
 - Run the focused RED command from the repository root:
   pnpm --filter @flowctl/control-plane build:test
   node --test packages/control-plane/dist-test/test/scheduler.test.js
@@ -169,13 +182,11 @@ Task 3:
 
 ### Scope and artifact checks
 
-- Before Task 1, record and preserve the implementation baseline in the task notes:
-  IMPLEMENTATION_BASE_SHA="$(git rev-parse HEAD)"
-- In the final validation shell session, set IMPLEMENTATION_BASE_SHA to that exact recorded pre-Task-1 SHA and verify the frozen packages remain untouched:
+- In the final validation shell session, set IMPLEMENTATION_BASE_SHA to the exact pre-Task-1 SHA recorded by the implementation preflight and verify the frozen packages remain untouched:
   git diff --name-only "$IMPLEMENTATION_BASE_SHA"..HEAD -- packages/protocol packages/core
   The command must print nothing. Do not replace the recorded pre-Task-1 SHA with a post-task SHA, because that would make the comparison vacuous.
 - Also verify production dependencies:
-  node --input-type=module -e 'const pkg = JSON.parse(require("node:fs").readFileSync("packages/control-plane/package.json", "utf8")); const deps = Object.keys(pkg.dependencies ?? {}).sort(); const expected = ["@flowctl/core", "@flowctl/protocol"]; if (JSON.stringify(deps) !== JSON.stringify(expected)) throw new Error("Unexpected production dependencies: " + deps.join(", ")); console.log("production dependencies passed");'
+  node --input-type=module -e 'import { readFileSync } from "node:fs"; const pkg = JSON.parse(readFileSync("packages/control-plane/package.json", "utf8")); const deps = Object.keys(pkg.dependencies ?? {}).sort(); const expected = ["@flowctl/core", "@flowctl/protocol"]; if (JSON.stringify(deps) !== JSON.stringify(expected)) throw new Error("Unexpected production dependencies: " + deps.join(", ")); console.log("production dependencies passed");'
 - Verify no operational SDD artifacts are tracked:
   git ls-files | grep -E '(^|/)\.superpowers/|task-[0-9]+-report|final-fix-report|review-.*\.diff|progress\.md' || true
 - Verify public facade exports and inspect that no internal state helper is exported.
