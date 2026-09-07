@@ -39,7 +39,7 @@ test("exports the complete public protocol surface", () => {
   const command = {} as FlowctlCommand;
   const event = {} as FlowctlEvent;
 
-  assert.equal(PROTOCOL_VERSION, "0.1");
+  assert.equal(PROTOCOL_VERSION, "0.2");
   assert.ok(project && task && graph && worker && lease && mutation && command && event);
 });
 
@@ -50,6 +50,7 @@ function commandType(command: FlowctlCommand): string {
       return command.type;
     case "task.start":
     case "task.complete":
+    case "task.review.approve":
     case "task.fail":
     case "task.block":
     case "lease.heartbeat":
@@ -65,7 +66,6 @@ function eventType(event: FlowctlEvent): string {
     case "task.claimed":
     case "task.started":
     case "task.review_requested":
-    case "task.completed":
     case "task.failed":
     case "task.blocked":
     case "task.cancelled":
@@ -76,6 +76,9 @@ function eventType(event: FlowctlEvent): string {
     case "graph.mutation.proposed":
     case "graph.mutation.approved":
     case "graph.mutation.rejected":
+      return event.type;
+    case "task.completed":
+      assert.equal(typeof event.payload.taskId, "string");
       return event.type;
   }
 }
@@ -137,7 +140,7 @@ test("commands and events narrow by their discriminant", () => {
   };
   const command: FlowctlCommand = {
     id: "C1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: "2026-08-28T00:00:00.000Z",
     projectId: "P1",
     actor,
@@ -146,7 +149,7 @@ test("commands and events narrow by their discriminant", () => {
   };
   const proposed: FlowctlEvent = {
     id: "EV1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: "2026-08-28T00:00:00.000Z",
     projectId: "P1",
     actor: { type: "system", id: "core" },
@@ -159,11 +162,38 @@ test("commands and events narrow by their discriminant", () => {
     type: "graph.mutation.approved",
     payload: { mutation }
   };
+  const approval: FlowctlCommand = {
+    id: "C-REVIEW-1",
+    protocolVersion: "0.2",
+    timestamp: "2026-09-05T00:00:00.000Z",
+    projectId: "P1",
+    actor,
+    type: "task.review.approve",
+    payload: { taskId: "A" }
+  };
+  const completed: FlowctlEvent = {
+    id: "EV-COMPLETED-1",
+    protocolVersion: "0.2",
+    timestamp: "2026-09-05T00:00:00.000Z",
+    projectId: "P1",
+    actor,
+    type: "task.completed",
+    payload: { taskId: "A" }
+  };
 
-  assert.equal(PROTOCOL_VERSION, "0.1");
+  const legacyCompleted: FlowctlEvent = {
+    ...completed,
+    // @ts-expect-error v0.2 does not accept execution metadata on completed.
+    payload: { taskId: "A", workerId: "W1", leaseId: "L1" }
+  };
+
+  void legacyCompleted;
+  assert.equal(PROTOCOL_VERSION, "0.2");
   assert.equal(commandType(command), "graph.mutation.propose");
+  assert.equal(commandType(approval), "task.review.approve");
   assert.equal(eventType(proposed), "graph.mutation.proposed");
   assert.equal(eventType(approved), "graph.mutation.approved");
+  assert.equal(eventType(completed), "task.completed");
 });
 
 test("represents all mutation operations and the limited update patch", () => {

@@ -16,6 +16,15 @@ type ControlPlaneCreationResult = ControlPlane.ControlPlaneCreationResult;
 const forgedControlPlane: ControlPlane.ControlPlane = {};
 void forgedControlPlane;
 
+test("exposes only the intended public Control Plane runtime facade", () => {
+  assert.deepEqual(Object.keys(ControlPlane).sort(), [
+    "createControlPlane",
+    "dispatchCommand",
+    "getEventLogSnapshot",
+    "getTaskGraphSnapshot"
+  ]);
+});
+
 const TIMESTAMP = "2026-08-30T00:00:00.000Z";
 
 function makeTask(
@@ -82,7 +91,7 @@ function makeClaimCommand(
 
   return {
     id: overrides.id ?? "C1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId: overrides.projectId ?? "P1",
     actor,
@@ -108,7 +117,7 @@ function makeStartCommand(
 
   return {
     id: overrides.id ?? "S1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId: overrides.projectId ?? "P1",
     actor,
@@ -135,7 +144,7 @@ function makeCompleteCommand(
 
   return {
     id: overrides.id ?? "CO1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId: overrides.projectId ?? "P1",
     actor,
@@ -148,12 +157,26 @@ function makeCompleteCommand(
   };
 }
 
+function makeReviewApprovalCommand(
+  overrides: { id?: string; projectId?: string; taskId?: string; actor?: Actor } = {}
+): Extract<FlowctlCommand, { type: "task.review.approve" }> {
+  return {
+    id: overrides.id ?? "RA1",
+    protocolVersion: "0.2",
+    timestamp: TIMESTAMP,
+    projectId: overrides.projectId ?? "P1",
+    actor: overrides.actor ?? makeActor({ type: "user", id: "reviewer" }),
+    type: "task.review.approve",
+    payload: { taskId: overrides.taskId ?? "A" }
+  };
+}
+
 function makeFailCommand(
   projectId = "P1"
 ): Extract<FlowctlCommand, { type: "task.fail" }> {
   return {
     id: "F1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId,
     actor: makeActor(),
@@ -172,7 +195,7 @@ function makeBlockCommand(
 ): Extract<FlowctlCommand, { type: "task.block" }> {
   return {
     id: "B1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId,
     actor: makeActor(),
@@ -191,7 +214,7 @@ function makeHeartbeatCommand(
 ): Extract<FlowctlCommand, { type: "lease.heartbeat" }> {
   return {
     id: "H1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId,
     actor: makeActor(),
@@ -209,7 +232,7 @@ function makeGraphMutationCommand(
 ): Extract<FlowctlCommand, { type: "graph.mutation.propose" }> {
   return {
     id: "GM1",
-    protocolVersion: "0.1",
+    protocolVersion: "0.2",
     timestamp: TIMESTAMP,
     projectId,
     actor: makeActor({ type: "user", id: "U1" }),
@@ -239,6 +262,9 @@ function assertCommandPayloadNarrowing(command: FlowctlCommand): void {
       assert.equal(typeof command.payload.taskId, "string");
       assert.equal(typeof command.payload.workerId, "string");
       assert.equal(typeof command.payload.leaseId, "string");
+      return;
+    case "task.review.approve":
+      assert.equal(typeof command.payload.taskId, "string");
       return;
     case "task.fail":
     case "task.block":
@@ -318,10 +344,12 @@ function assertEventPayloadNarrowing(event: FlowctlEvent): void {
     case "task.claimed":
     case "task.started":
     case "task.review_requested":
-    case "task.completed":
       assert.equal(typeof event.payload.taskId, "string");
       assert.equal(typeof event.payload.workerId, "string");
       assert.equal(typeof event.payload.leaseId, "string");
+      return;
+    case "task.completed":
+      assert.equal(typeof event.payload.taskId, "string");
       return;
     case "task.failed":
     case "task.blocked":
@@ -414,6 +442,14 @@ function getLeaseId(
   return result.events[0].payload.lease.id;
 }
 
+function getCompletionOrReadyEventTuple(event: FlowctlEvent): readonly [string, string] {
+  if (event.type !== "task.completed" && event.type !== "task.ready") {
+    throw new Error(`Expected a completion or readiness Event, received ${event.type}.`);
+  }
+
+  return [event.type, event.payload.taskId];
+}
+
 const unsupportedCommands: readonly FlowctlCommand[] = [
   makeFailCommand(),
   makeBlockCommand(),
@@ -442,6 +478,7 @@ for (const command of unsupportedCommands) {
 }
 
 const foreignUnsupportedCommands: readonly FlowctlCommand[] = [
+  makeReviewApprovalCommand({ projectId: "OTHER" }),
   makeFailCommand("OTHER"),
   makeBlockCommand("OTHER"),
   makeHeartbeatCommand("OTHER"),
@@ -838,7 +875,7 @@ test("starts only with the active Lease and emits task.started", () => {
     });
     assert.deepEqual(result.events[0].actor, command.actor);
     assert.equal(result.events[0].projectId, "P1");
-    assert.equal(result.events[0].protocolVersion, "0.1");
+    assert.equal(result.events[0].protocolVersion, "0.2");
     assert.equal(result.events[0].timestamp, TIMESTAMP);
   }
   assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A?.status, "running");
@@ -1124,6 +1161,519 @@ test("rejects complete outside running before Lease validation", () => {
   assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
   assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
 });
+
+function makeReviewGraph(): TaskGraph {
+  return {
+    projectId: "P1",
+    rootTaskIds: ["A"],
+    // Deliberately insert C before B: event order must come from Core.
+    tasks: {
+      A: makeTask("A", "epic", { status: "review", assignedWorkerId: "W1" }),
+      C: makeTask("C", "subtask", { parentId: "B", dependencies: ["A"] }),
+      B: makeTask("B", "task", { parentId: "A", dependencies: ["A"] }),
+      D: makeTask("D", "atomic", { parentId: "C", dependencies: ["B", "C"] })
+    }
+  };
+}
+
+function createReviewFixture(
+  graph: TaskGraph = makeReviewGraph(),
+  options: ControlPlane.ControlPlaneOptions = makeOptions()
+): ControlPlane.ControlPlane {
+  const creation = ControlPlane.createControlPlane(graph, options);
+  assert.equal(creation.ok, true);
+  if (!creation.ok) throw new Error("Expected a valid review approval fixture.");
+  return creation.controlPlane;
+}
+
+for (const taskId of ["MISSING", "toString", "constructor", "__proto__"]) {
+  test(`rejects approval for absent own task key ${taskId} without mutation or staging`, () => {
+    const controlPlane = createReviewFixture(makeReviewGraph(), {
+      ...makeOptions(),
+      now: () => { throw new Error("Rejections must not stage"); }
+    });
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const result = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand({ taskId }));
+
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+    assert.deepEqual(result, { ok: false, code: "TASK_NOT_FOUND", commandId: "RA1", taskId });
+  });
+}
+
+for (const status of ["pending", "ready", "claimed", "running", "blocked", "completed", "failed", "cancelled"] as const) {
+  test(`rejects approval from ${status} to completed before staging`, () => {
+    const graph = makeReviewGraph();
+    graph.tasks.A.status = status;
+    const controlPlane = createReviewFixture(graph, {
+      ...makeOptions(),
+      now: () => { throw new Error("Rejections must not stage"); }
+    });
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const result = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand());
+
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+    assert.deepEqual(result, {
+      ok: false, code: "INVALID_TASK_TRANSITION", commandId: "RA1",
+      taskId: "A", from: status, to: "completed"
+    });
+  });
+}
+
+test("rejects approval from another project before task lookup", () => {
+  const controlPlane = createReviewFixture();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  const result = ControlPlane.dispatchCommand(
+    controlPlane, makeReviewApprovalCommand({ projectId: "OTHER", taskId: "MISSING" })
+  );
+
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  assert.deepEqual(result, {
+    ok: false, code: "PROJECT_MISMATCH", commandId: "RA1",
+    commandProjectId: "OTHER", controlPlaneProjectId: "P1"
+  });
+});
+
+test("approves A and immediately promotes B/C while D stays pending using one timestamp", () => {
+  const approvedAt = "2026-09-06T12:00:00.000Z";
+  let clockCalls = 0;
+  const controlPlane = createReviewFixture(makeReviewGraph(), {
+    ...makeOptions(),
+    now: () => {
+      assert.equal(++clockCalls, 1);
+      return approvedAt;
+    },
+    nextLeaseId: () => { throw new Error("Approval must not create a Lease"); },
+    leaseExpiresAt: () => { throw new Error("Approval must not inspect Lease expiry"); }
+  });
+  const result = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand());
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.events, [
+    { id: "E1", protocolVersion: "0.2", timestamp: approvedAt, projectId: "P1",
+      actor: { type: "user", id: "reviewer" }, type: "task.completed", payload: { taskId: "A" } },
+    { id: "E2", protocolVersion: "0.2", timestamp: approvedAt, projectId: "P1",
+      actor: { type: "user", id: "reviewer" }, type: "task.ready", payload: { taskId: "B" } },
+    { id: "E3", protocolVersion: "0.2", timestamp: approvedAt, projectId: "P1",
+      actor: { type: "user", id: "reviewer" }, type: "task.ready", payload: { taskId: "C" } }
+  ]);
+  const graph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  assert.deepEqual([graph.tasks.A.status, graph.tasks.B.status, graph.tasks.C.status, graph.tasks.D.status],
+    ["completed", "ready", "ready", "pending"]);
+  assert.deepEqual([graph.tasks.A.updatedAt, graph.tasks.B.updatedAt, graph.tasks.C.updatedAt, graph.tasks.D.updatedAt],
+    [approvedAt, approvedAt, approvedAt, TIMESTAMP]);
+  assert.equal(graph.tasks.A.assignedWorkerId, "W1");
+  assert.equal(clockCalls, 1);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), result.events);
+});
+
+test("approval reconciles global readiness beyond A descendants", () => {
+  const graph: TaskGraph = {
+    projectId: "P1",
+    rootTaskIds: ["A", "X", "Y"],
+    tasks: {
+      A: makeTask("A", "epic", { status: "review" }),
+      X: makeTask("X", "epic", { dependencies: ["Y"] }),
+      Y: makeTask("Y", "epic", { status: "completed" }),
+      B: makeTask("B", "task", { parentId: "A", dependencies: ["A"] })
+    }
+  };
+  const controlPlane = createReviewFixture(graph);
+
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeReviewApprovalCommand()
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.events.map(getCompletionOrReadyEventTuple),
+    [
+      ["task.completed", "A"],
+      ["task.ready", "B"],
+      ["task.ready", "X"]
+    ]
+  );
+  const snapshot = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  assert.deepEqual(
+    [snapshot.tasks.A.status, snapshot.tasks.B.status, snapshot.tasks.X.status],
+    ["completed", "ready", "ready"]
+  );
+});
+
+test("approval with zero promotions emits only task.completed", () => {
+  const controlPlane = createReviewFixture({
+    projectId: "P1",
+    rootTaskIds: ["A", "X", "Y"],
+    tasks: {
+      A: makeTask("A", "epic", { status: "review" }),
+      X: makeTask("X", "epic", { dependencies: ["A", "Y"] }),
+      Y: makeTask("Y", "epic", { status: "failed" })
+    }
+  });
+
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeReviewApprovalCommand()
+  );
+
+  assert.deepEqual(result, {
+    ok: true,
+    events: [{
+      id: "E1",
+      protocolVersion: "0.2",
+      timestamp: TIMESTAMP,
+      projectId: "P1",
+      actor: { type: "user", id: "reviewer" },
+      type: "task.completed",
+      payload: { taskId: "A" }
+    }]
+  });
+  assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.X.status, "pending");
+});
+
+test("multiple ready events preserve Core order and approval event metadata", () => {
+  const approvedAt = "2026-09-06T13:00:00.000Z";
+  const actor: Actor = { type: "user", id: "adversarial-reviewer" };
+  const graph: TaskGraph = {
+    projectId: "P1",
+    rootTaskIds: ["A", "Z", "B"],
+    tasks: {
+      Z: makeTask("Z", "epic", { dependencies: ["A"] }),
+      A: makeTask("A", "epic", { status: "review" }),
+      B: makeTask("B", "epic", { dependencies: ["A"] })
+    }
+  };
+  const controlPlane = createReviewFixture(graph, {
+    ...makeOptions(),
+    now: () => approvedAt
+  });
+
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeReviewApprovalCommand({ actor })
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.events.map(getCompletionOrReadyEventTuple),
+    [["task.completed", "A"], ["task.ready", "B"], ["task.ready", "Z"]]
+  );
+  assert.deepEqual(
+    result.events.map((event) => event.id),
+    ["E1", "E2", "E3"]
+  );
+  for (const event of result.events) {
+    assert.equal(event.timestamp, approvedAt);
+    assert.deepEqual(event.actor, actor);
+    assert.equal(event.projectId, "P1");
+    assert.equal(event.protocolVersion, "0.2");
+  }
+});
+
+test("explicit claim start complete approve DAG progression ends with D ready only", () => {
+  const graph: TaskGraph = {
+    projectId: "P1",
+    rootTaskIds: ["A"],
+    tasks: {
+      A: makeTask("A", "epic", { status: "ready" }),
+      B: makeTask("B", "task", { parentId: "A", dependencies: ["A"] }),
+      C: makeTask("C", "subtask", { parentId: "B", dependencies: ["A"] }),
+      D: makeTask("D", "atomic", { parentId: "C", dependencies: ["B", "C"] })
+    }
+  };
+  const controlPlane = createReviewFixture(graph);
+
+  const claimA = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "A" }));
+  const leaseA = getLeaseId(claimA);
+  assert.equal(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ taskId: "A", leaseId: leaseA })).ok, true);
+  assert.equal(ControlPlane.dispatchCommand(controlPlane, makeCompleteCommand({ taskId: "A", leaseId: leaseA })).ok, true);
+  const approveA = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand({ taskId: "A" }));
+  assert.deepEqual(
+    approveA.ok && approveA.events.map(getCompletionOrReadyEventTuple),
+    [["task.completed", "A"], ["task.ready", "B"], ["task.ready", "C"]]
+  );
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks).map(([id, task]) => [id, task.status])),
+    { A: "completed", B: "ready", C: "ready", D: "pending" }
+  );
+
+  const historyAfterA = ControlPlane.getEventLogSnapshot(controlPlane);
+  assert.equal(approveA.ok && approveA.events.length, 3);
+  assert.equal(historyAfterA.length, 7);
+
+  const claimB = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ id: "CB", taskId: "B", workerId: "WB", actor: { type: "worker", id: "WB" } }));
+  const leaseB = getLeaseId(claimB);
+  assert.equal(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ id: "SB", taskId: "B", workerId: "WB", leaseId: leaseB, actor: { type: "worker", id: "WB" } })).ok, true);
+  assert.equal(ControlPlane.dispatchCommand(controlPlane, makeCompleteCommand({ id: "COB", taskId: "B", workerId: "WB", leaseId: leaseB, actor: { type: "worker", id: "WB" } })).ok, true);
+  const approveB = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand({ id: "RAB", taskId: "B" }));
+  assert.deepEqual(
+    approveB.ok && approveB.events.map(getCompletionOrReadyEventTuple),
+    [["task.completed", "B"]]
+  );
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks).map(([id, task]) => [id, task.status])),
+    { A: "completed", B: "completed", C: "ready", D: "pending" }
+  );
+
+  const historyAfterB = ControlPlane.getEventLogSnapshot(controlPlane);
+  assert.equal(approveB.ok && approveB.events.length, 1);
+  assert.equal(historyAfterB.length, 12);
+
+  const claimC = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ id: "CC", taskId: "C", workerId: "WC", actor: { type: "worker", id: "WC" } }));
+  const leaseC = getLeaseId(claimC);
+  assert.equal(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ id: "SC", taskId: "C", workerId: "WC", leaseId: leaseC, actor: { type: "worker", id: "WC" } })).ok, true);
+  assert.equal(ControlPlane.dispatchCommand(controlPlane, makeCompleteCommand({ id: "COC", taskId: "C", workerId: "WC", leaseId: leaseC, actor: { type: "worker", id: "WC" } })).ok, true);
+  const approveC = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand({ id: "RAC", taskId: "C" }));
+  assert.deepEqual(
+    approveC.ok && approveC.events.map(getCompletionOrReadyEventTuple),
+    [["task.completed", "C"], ["task.ready", "D"]]
+  );
+
+  const finalGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(finalGraph.tasks).map(([id, task]) => [id, task.status])),
+    { A: "completed", B: "completed", C: "completed", D: "ready" }
+  );
+  const finalHistory = ControlPlane.getEventLogSnapshot(controlPlane);
+  assert.equal(approveC.ok && approveC.events.length, 2);
+  assert.equal(finalHistory.length, 18);
+  assert.deepEqual(finalHistory.slice(0, historyAfterA.length), historyAfterA);
+  assert.deepEqual(finalHistory.slice(0, historyAfterB.length), historyAfterB);
+  assert.deepEqual(
+    finalHistory.flatMap((event) =>
+      (event.type === "task.completed" || event.type === "task.ready") && event.payload.taskId === "D"
+        ? [event.type]
+        : []
+    ),
+    ["task.ready"]
+  );
+  assert.equal(
+    finalHistory.some(
+      (event) => event.type === "task.claimed" && event.payload.taskId === "D"
+    ),
+    false
+  );
+  assert.equal(
+    finalHistory.some(
+      (event) => event.type === "task.started" && event.payload.taskId === "D"
+    ),
+    false
+  );
+});
+
+for (const taskId of ["A", "toString", "constructor", "__proto__"]) {
+  test(`approves canonical own key ${taskId} with no Lease or promotions and worker Actor provenance`, () => {
+    const controlPlane = createReviewFixture({
+      projectId: "P1", rootTaskIds: [taskId],
+      tasks: { [taskId]: makeTask(taskId, "epic", { status: "review" }) }
+    });
+    const result = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand({
+      taskId, actor: { type: "worker", id: "unassigned-reviewer" }
+    }));
+
+    assert.deepEqual(result, { ok: true, events: [{
+      id: "E1", protocolVersion: "0.2", timestamp: TIMESTAMP, projectId: "P1",
+      actor: { type: "worker", id: "unassigned-reviewer" },
+      type: "task.completed", payload: { taskId }
+    }] });
+    assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks[taskId].status, "completed");
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), result.ok ? result.events : []);
+  });
+}
+
+for (const failurePoint of ["now", 1, 2, 3] as const) {
+  test(`approval atomic failure at ${failurePoint} preserves graph, history and Lease semantics`, () => {
+    const graph = makeReviewGraph();
+    graph.rootTaskIds = [...graph.rootTaskIds, "X"];
+    graph.tasks.X = makeTask("X", "epic", { status: "ready" });
+    let failing = false;
+    let approvalEventCalls = 0;
+    const issuedApprovalIds: string[] = [];
+    const stagingFailure = new Error("approval staging failed");
+    const options = makeOptions();
+    const controlPlane = createReviewFixture(graph, {
+      ...options,
+      now: () => {
+        if (failing && failurePoint === "now") throw stagingFailure;
+        return TIMESTAMP;
+      },
+      nextEventId: () => {
+        if (failing && ++approvalEventCalls === failurePoint) throw stagingFailure;
+        const id = options.nextEventId();
+        if (failing) issuedApprovalIds.push(id);
+        return id;
+      },
+      nextLeaseId: () => {
+        assert.equal(failing, false, "Approval must not allocate a Lease");
+        return options.nextLeaseId();
+      },
+      leaseExpiresAt: (timestamp) => {
+        assert.equal(failing, false, "Approval must not compute Lease expiry");
+        return options.leaseExpiresAt(timestamp);
+      }
+    });
+    const leaseId = getLeaseId(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "X" })));
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    failing = true;
+
+    assert.throws(() => ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand()),
+      (error) => error === stagingFailure);
+    assert.equal(approvalEventCalls, failurePoint === "now" ? 0 : failurePoint);
+    assert.deepEqual(issuedApprovalIds,
+      failurePoint === 3 ? ["E3", "E4"] : failurePoint === 2 ? ["E3"] : []);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+
+    // Claim checks Lease presence before task readiness; these probes cannot mutate state.
+    for (const taskId of ["A", "B", "C", "D", "X"]) {
+      assert.deepEqual(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId })), {
+        ok: false, code: taskId === "X" ? "TASK_ALREADY_LEASED" : "TASK_NOT_READY",
+        commandId: "C1", taskId
+      });
+    }
+    for (const credentials of [
+      { leaseId: "WRONG", workerId: "W1" },
+      { leaseId, workerId: "OTHER" }
+    ]) {
+      assert.deepEqual(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ taskId: "X", ...credentials })), {
+        ok: false, code: "LEASE_MISMATCH", commandId: "S1", taskId: "X", ...credentials
+      });
+    }
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+    failing = false;
+
+    // A retry must still perform the whole multi-Event approval, without replaying spent IDs.
+    const retry = ControlPlane.dispatchCommand(controlPlane, makeReviewApprovalCommand());
+    assert.ok(retry.ok);
+    assert.deepEqual(retry.events.map(getCompletionOrReadyEventTuple),
+      [["task.completed", "A"], ["task.ready", "B"], ["task.ready", "C"]]);
+    assert.equal(retry.events.some((event) => issuedApprovalIds.includes(event.id)), false);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), [...beforeLog, ...retry.events]);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.X, beforeGraph.tasks.X);
+    assert.equal(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ taskId: "X", leaseId })).ok, true);
+  });
+}
+
+for (const mutationSource of ["Command/Actor", "result Events", "Event Log snapshot", "Graph snapshot"] as const) {
+  test(`approval defensive mutation isolation for ${mutationSource}`, () => {
+    const graph = makeReviewGraph();
+    graph.tasks.C.acceptanceCriteria = [{ id: "AC-1", description: "original" }];
+    graph.rootTaskIds = [...graph.rootTaskIds, "X"];
+    graph.tasks.X = makeTask("X", "epic", { status: "ready" });
+    const controlPlane = createReviewFixture(graph);
+    const claim = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "X" }));
+    const leaseId = getLeaseId(claim);
+    const expectedClaim = structuredClone(claim);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const expectedBeforeLog = structuredClone(beforeLog);
+    const expectedBeforeGraph = structuredClone(beforeGraph);
+    const actor = makeActor({ type: "user", id: "reviewer" });
+    const command = makeReviewApprovalCommand({ actor });
+    const result = ControlPlane.dispatchCommand(controlPlane, command);
+    assert.ok(result.ok);
+    assert.deepEqual(result.events.map(getCompletionOrReadyEventTuple),
+      [["task.completed", "A"], ["task.ready", "B"], ["task.ready", "C"]]);
+    const expectedEvents = structuredClone(result.events);
+    const expectedLog = structuredClone([...beforeLog, ...result.events]);
+    const expectedGraph = structuredClone(beforeGraph);
+    expectedGraph.tasks.A.status = "completed";
+    expectedGraph.tasks.B.status = "ready";
+    expectedGraph.tasks.C.status = "ready";
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), expectedLog);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), expectedGraph);
+
+    switch (mutationSource) {
+      case "Command/Actor":
+        command.actor.id = "mutated-command";
+        command.actor.type = "system";
+        command.payload.taskId = "mutated-command";
+        command.id = "mutated-command";
+        command.projectId = "OTHER";
+        command.timestamp = "2099-01-01T00:00:00.000Z";
+        command.actor = { type: "worker", id: "replacement" };
+        actor.id = "mutated-original-actor";
+        actor.type = "worker";
+        break;
+      case "result Events":
+        result.events[0].actor.id = "mutated-result";
+        result.events[0].actor.type = "system";
+        assert.deepEqual(result.events.slice(1), expectedEvents.slice(1));
+        assert.deepEqual(actor, { type: "user", id: "reviewer" });
+        for (const event of result.events) {
+          event.id = "mutated-result";
+          event.projectId = "OTHER";
+          event.actor.id = "mutated-result";
+          event.actor.type = "system";
+          if (event.type === "task.completed" || event.type === "task.ready") {
+            event.payload.taskId = "mutated-result";
+          }
+        }
+        (result.events as FlowctlEvent[]).splice(0, result.events.length);
+        break;
+      case "Event Log snapshot": {
+        const snapshot = ControlPlane.getEventLogSnapshot(controlPlane);
+        assert.equal(snapshot[0].type, "lease.created");
+        if (snapshot[0].type === "lease.created") {
+          Object.assign(snapshot[0].payload.lease, {
+            id: "OTHER", taskId: "A", workerId: "OTHER",
+            acquiredAt: "changed", expiresAt: "changed", lastHeartbeatAt: "changed"
+          });
+        }
+        for (const event of snapshot) {
+          event.id = "mutated-snapshot";
+          event.actor.id = "mutated-snapshot";
+          event.actor.type = "system";
+          if ("taskId" in event.payload) event.payload.taskId = "mutated-snapshot";
+        }
+        (snapshot as FlowctlEvent[]).splice(0, snapshot.length, ...structuredClone(expectedEvents));
+        break;
+      }
+      case "Graph snapshot": {
+        const snapshot = ControlPlane.getTaskGraphSnapshot(controlPlane);
+        snapshot.projectId = "OTHER";
+        snapshot.rootTaskIds.splice(0, snapshot.rootTaskIds.length, "OTHER");
+        snapshot.tasks.A.status = "failed";
+        snapshot.tasks.A.assignedWorkerId = "OTHER";
+        snapshot.tasks.B.dependencies.push("OTHER");
+        snapshot.tasks.C.acceptanceCriteria[0].description = "mutated-snapshot";
+        snapshot.tasks.C.acceptanceCriteria.push({ id: "AC-2", description: "inserted" });
+        snapshot.tasks.X.updatedAt = "changed";
+        delete snapshot.tasks.D;
+        snapshot.tasks.OTHER = makeTask("OTHER", "epic");
+        break;
+      }
+    }
+
+    if (mutationSource !== "result Events") assert.deepEqual(result.events, expectedEvents);
+    assert.deepEqual(claim, expectedClaim);
+    assert.deepEqual(beforeLog, expectedBeforeLog);
+    assert.deepEqual(beforeGraph, expectedBeforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), expectedLog);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), expectedGraph);
+    for (const taskId of ["A", "D"]) {
+      assert.deepEqual(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId })), {
+        ok: false, code: "TASK_NOT_READY", commandId: "C1", taskId
+      });
+    }
+    assert.equal(ControlPlane.dispatchCommand(controlPlane, makeStartCommand({ taskId: "X", leaseId })).ok, true);
+    // Approval must leave newly ready tasks unleased and must not consume Lease IDs.
+    assert.equal(getLeaseId(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "B" }))), "L2");
+    assert.equal(getLeaseId(ControlPlane.dispatchCommand(controlPlane, makeClaimCommand({ taskId: "C" }))), "L3");
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane).slice(0, expectedLog.length), expectedLog);
+  });
+}
 
 test("narrows every public command result and emitted event by its discriminant", () => {
   const results: ControlPlane.CommandProcessingResult[] = [];

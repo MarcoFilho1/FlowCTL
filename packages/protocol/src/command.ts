@@ -14,6 +14,7 @@ export type FlowctlCommand =
   | (CommandEnvelope & { type: "task.claim"; payload: { taskId: string; workerId: string } })
   | (CommandEnvelope & { type: "task.start"; payload: { taskId: string; workerId: string; leaseId: string } })
   | (CommandEnvelope & { type: "task.complete"; payload: { taskId: string; workerId: string; leaseId: string } })
+  | (CommandEnvelope & { type: "task.review.approve"; payload: { taskId: string } })
   | (CommandEnvelope & { type: "task.fail"; payload: { taskId: string; workerId: string; leaseId: string; reason: string } })
   | (CommandEnvelope & { type: "task.block"; payload: { taskId: string; workerId: string; leaseId: string; reason: string } })
   | (CommandEnvelope & { type: "lease.heartbeat"; payload: { leaseId: string; taskId: string; workerId: string } })
