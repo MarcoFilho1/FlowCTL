@@ -25,7 +25,8 @@ test("exposes only the intended public Control Plane runtime facade", () => {
     "createControlPlane",
     "dispatchCommand",
     "getEventLogSnapshot",
-    "getTaskGraphSnapshot"
+    "getTaskGraphSnapshot",
+    "selectReadyTaskIds"
   ]);
 });
 
