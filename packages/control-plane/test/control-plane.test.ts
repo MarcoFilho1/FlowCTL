@@ -12,6 +12,10 @@ import type {
 
 type ControlPlaneCreationResult = ControlPlane.ControlPlaneCreationResult;
 
+test("exports the scheduling selector through the public facade", () => {
+  assert.equal(typeof ControlPlane.selectReadyTaskIds, "function");
+});
+
 // @ts-expect-error ControlPlane is an opaque branded handle.
 const forgedControlPlane: ControlPlane.ControlPlane = {};
 void forgedControlPlane;
@@ -653,6 +657,50 @@ test("claims ready A with one active Lease and ordered Events", () => {
     assert.equal(dispatch.events[1].payload.leaseId, dispatch.events[0].payload.lease.id);
   }
   assert.equal(ControlPlane.getTaskGraphSnapshot(result.controlPlane).tasks.A?.status, "claimed");
+});
+
+test("does not let a stale scheduling selection bypass Control Plane authority", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const selectedTaskIds = ControlPlane.selectReadyTaskIds(
+    ControlPlane.getTaskGraphSnapshot(controlPlane)
+  );
+
+  assert.deepEqual(selectedTaskIds, ["A"]);
+  const selectedTaskId = selectedTaskIds[0];
+  if (selectedTaskId === undefined) {
+    throw new Error("Expected the ready task to be selected.");
+  }
+
+  const accepted = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeClaimCommand({ taskId: selectedTaskId })
+  );
+  assert.equal(accepted.ok, true);
+  assert.equal(
+    ControlPlane.getTaskGraphSnapshot(controlPlane).tasks[selectedTaskId]?.status,
+    "claimed"
+  );
+  assert.deepEqual(
+    ControlPlane.selectReadyTaskIds(ControlPlane.getTaskGraphSnapshot(controlPlane)),
+    []
+  );
+
+  const staleClaim = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeClaimCommand({
+      id: "C2",
+      taskId: selectedTaskId,
+      actor: { type: "worker", id: "W2" },
+      workerId: "W2"
+    })
+  );
+
+  assert.deepEqual(staleClaim, {
+    ok: false,
+    code: "TASK_ALREADY_LEASED",
+    commandId: "C2",
+    taskId: selectedTaskId
+  });
 });
 
 test("rejects claims for missing tasks without mutating state", () => {
