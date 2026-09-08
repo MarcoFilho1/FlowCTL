@@ -1,6 +1,6 @@
 :root {
-  color: #f5f7fa;
-  background: #10151c;
+  color: #e7edf5;
+  background: #0b1017;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -10,13 +10,166 @@ body {
 
 main {
   min-height: 100vh;
-  display: grid;
-  place-content: center;
-  gap: 0.5rem;
+  box-sizing: border-box;
   padding: 2rem;
 }
 
 h1,
+h2,
 p {
   margin: 0;
+}
+
+.playground-shell {
+  display: grid;
+  gap: 1.25rem;
+  margin: 0 auto;
+  max-width: 1240px;
+}
+
+.playground-header,
+.graph-panel,
+.task-inspector,
+.reserved-panels {
+  border: 1px solid #273647;
+  background: #111a25;
+}
+
+.playground-header {
+  padding: 1.25rem;
+}
+
+.eyebrow {
+  color: #7faccb;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.playground-layout {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+}
+
+.graph-panel {
+  min-width: 0;
+}
+
+.panel-heading,
+.task-inspector,
+.reserved-panels {
+  padding: 1rem;
+}
+
+.panel-heading p,
+.reserved-panels p {
+  color: #9dafc2;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.graph-canvas {
+  height: 540px;
+  overflow: auto;
+  position: relative;
+}
+
+.graph-edges,
+.graph-nodes {
+  height: 540px;
+  left: 0;
+  min-width: 920px;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.graph-edges {
+  pointer-events: none;
+}
+
+.graph-edges line {
+  stroke: #6b9dc0;
+  stroke-width: 2;
+}
+
+.graph-edges marker path {
+  fill: #6b9dc0;
+}
+
+.task-node {
+  align-items: flex-start;
+  background: #172535;
+  border: 2px solid #5e7489;
+  box-sizing: border-box;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 0.25rem;
+  min-height: 112px;
+  padding: 0.75rem;
+  position: absolute;
+  text-align: left;
+  width: 200px;
+}
+
+.task-node:hover,
+.task-node:focus-visible,
+.task-node[aria-pressed="true"] {
+  border-color: #8fd3ff;
+  outline: 2px solid #8fd3ff;
+  outline-offset: 2px;
+}
+
+.task-node-id {
+  color: #b9dcf5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+
+.task-node-title {
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.task-node-status,
+.task-node-dependencies {
+  font-size: 0.75rem;
+}
+
+.status-ready { border-left-color: #55c38a; }
+.status-pending { border-left-color: #d0a452; }
+.status-claimed { border-left-color: #9f86ed; }
+.status-running { border-left-color: #62b7e8; }
+.status-blocked, .status-failed { border-left-color: #e66c6c; }
+.status-review { border-left-color: #e5c65a; }
+.status-completed { border-left-color: #76ce91; }
+.status-cancelled { border-left-color: #91a1b1; }
+
+.task-inspector h2 {
+  margin-bottom: 1rem;
+}
+
+.task-inspector dl {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.task-inspector dt {
+  color: #9dafc2;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.task-inspector dd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 820px) {
+  main { padding: 1rem; }
+  .playground-layout { grid-template-columns: 1fr; }
 }
