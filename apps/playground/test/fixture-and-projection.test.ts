@@ -17,6 +17,12 @@ test("official fixture is accepted by the public Control Plane and uses canonica
   const result = createControlPlane(graph, createDemoControlPlaneOptions());
 
   expect(result.ok).toBe(true);
+  expect(graph.rootTaskIds).toEqual(["A"]);
+  expect(graph.tasks.A).toMatchObject({ id: "A", level: "epic" });
+  expect(graph.tasks.A.parentId).toBeUndefined();
+  expect(graph.tasks.B).toMatchObject({ id: "B", parentId: "A", level: "task" });
+  expect(graph.tasks.C).toMatchObject({ id: "C", parentId: "B", level: "subtask" });
+  expect(graph.tasks.D).toMatchObject({ id: "D", parentId: "C", level: "atomic" });
   expect(Object.keys(graph.tasks).sort()).toEqual(["A", "B", "C", "D"]);
   expect(Object.entries(graph.tasks).map(([key, task]) => [key, task.id])).toEqual([
     ["A", "A"],
