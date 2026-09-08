@@ -65,6 +65,8 @@ Task ownership is cumulative only where explicitly stated below. `App.tsx` and `
 
 The repository currently has no frontend dependency convention. Task 1 must inspect current compatible React/Vite/Vitest/testing-library package metadata before editing `apps/playground/package.json`; it must record the selected compatible versions in that package and the generated lockfile rather than inventing versions in this plan. Runtime dependencies are limited to `@flowctl/control-plane`, `@flowctl/protocol`, `react`, and `react-dom`. Build/test dependencies are limited to the Vite React plugin, Vite, React type packages, Vitest, the DOM environment, and `@testing-library/react`.
 
+The public type strategy is fixed before implementation: `ControlPlane`, `CommandProcessingResult`, `FlowctlCommand`, `FlowctlEvent`, `TaskGraph`, `Task`, and `TaskStatus` are imported only from their public façades, as currently exported by Control Plane or Protocol. If an annotation is not publicly exported, derive it locally from a public function such as `ReturnType<typeof getTaskGraphSnapshot>` or omit the annotation. Do not change an upstream package merely to improve Playground typing.
+
 ## Task 1: Scaffold the executable Playground and workspace lifecycle
 
 **Files:**
@@ -83,9 +85,21 @@ The repository currently has no frontend dependency convention. Task 1 must insp
 
 - `@flowctl/playground` is a private ESM workspace package.
 - Scripts are explicit and compatible with the existing lifecycle: `dev`, `test`, `typecheck`, and `build`.
-- `dev` starts Vite after preparing the existing Control Plane build boundary.
-- `test` runs Vitest in one-shot mode with a DOM environment; `typecheck` uses strict TypeScript; `build` typechecks and runs the Vite production build.
+- `predev`, `pretest`, `pretypecheck`, and `prebuild` each invoke one local `prepare:flowctl` script, which runs `pnpm --filter @flowctl/control-plane build`. The existing Control Plane lifecycle then runs its `prepare:core` build, and Core runs its `prepare:protocol` build. This is the single workspace dependency preparation boundary for the app.
+- `dev` starts Vite only after `prepare:flowctl` succeeds; `test` runs Vitest in one-shot mode with a DOM environment only after that preparation; `typecheck` runs strict TypeScript only after that preparation; `build` runs strict TypeScript and the Vite production build only after that preparation.
 - The root `dev` script delegates to `@flowctl/playground`; root recursive scripts continue to discover the new workspace package.
+
+The app package scripts must have this lifecycle shape (with the package's selected tool commands in the final values):
+
+```text
+prepare:flowctl  = pnpm --filter @flowctl/control-plane build
+predev           = prepare:flowctl; dev = vite
+pretest          = prepare:flowctl; test = vitest run
+pretypecheck     = prepare:flowctl; typecheck = tsc -p tsconfig.json --noEmit
+prebuild         = prepare:flowctl; build = tsc -p tsconfig.json --noEmit && vite build
+```
+
+The existing Control Plane `prebuild` invokes `prepare:core`, and Core `prebuild` invokes `prepare:protocol`. Thus every Playground command prepares the real package-export chain before Vite, TypeScript, or Vitest resolves it. Root `pnpm test`, `pnpm typecheck`, and `pnpm build` are recursive workspace commands; their correctness must not be attributed to recursion alone, because the Playground lifecycle scripts provide the explicit artifact guarantee.
 
 **Setup sequence (not a fabricated RED):**
 
@@ -109,9 +123,9 @@ pnpm --filter @flowctl/playground typecheck
 pnpm --filter @flowctl/playground build
 ```
 
-Confirm that the root build includes the app, the app emits a Vite production bundle, no package script reads another package’s `src`, and no stale `dist` workaround or alias was introduced.
+The filtered app commands must work before any manual package build because each app lifecycle script prepares `@flowctl/control-plane`, which prepares `@flowctl/core`, which prepares `@flowctl/protocol`. The root commands use pnpm recursive workspace execution, but do not rely on recursion alone to create artifacts. Confirm that the root build includes the app, the app emits a Vite production bundle, no package script reads another package’s `src`, and no stale `dist` workaround or alias was introduced.
 
-**Review gate:** Fresh subagent review checks workspace discovery, dependency scope, strict TS/Vite configuration, root lifecycle preservation, and absence of Protocol/Core/Control Plane changes. Correct findings before advancing.
+**Review gate:** Fresh subagent review checks workspace discovery, dependency scope, strict TS/Vite configuration, root lifecycle preservation, the clean-checkout chain `Playground → Control Plane → Core → Protocol` for test/typecheck/build/dev, and absence of Protocol/Core/Control Plane changes. It must verify that the Playground test resolves public package exports with no pre-existing `dist`. Correct findings before advancing.
 
 **Commit:** `feat(playground): scaffold browser playground`
 
@@ -136,7 +150,7 @@ export const DEMO_ACTOR = { type: "user", id: "playground" } as const;
 
 export function createDemoTaskGraph(): TaskGraph;
 export const DEMO_NODE_POSITIONS: Readonly<Record<string, DemoNodePosition>>;
-export function createDemoControlPlane(): ControlPlane;
+export function createDemoControlPlaneOptions(): ControlPlaneOptions;
 
 export type VisualNode = Readonly<{
   taskId: string;
@@ -163,22 +177,25 @@ export function taskGraphToNodes(
 ): readonly VisualNode[];
 export function taskGraphToEdges(graph: TaskGraph): readonly VisualEdge[];
 export function statusToPresentation(status: TaskStatus): StatusPresentation;
+export function getMaterializedReadyTaskIds(graph: TaskGraph): readonly string[];
 ```
 
-`createDemoControlPlane` supplies deterministic `ControlPlaneOptions` and treats rejection of the official fixture as an invariant/programming error at this demo boundary. It must not change Control Plane behavior or add a second state authority. The fixture uses the exact hierarchy `A epic -> B task -> C subtask -> D atomic`, dependencies `A: []`, `B: [A]`, `C: [A]`, `D: [B,C]`, and statuses A ready with B/C/D pending.
+`createDemoControlPlaneOptions` creates fresh closure-owned Event/Lease/time counters for one future demo runtime; it is not a module-level singleton. The fixture uses the exact hierarchy `A epic -> B task -> C subtask -> D atomic`, dependencies `A: []`, `B: [A]`, `C: [A]`, `D: [B,C]`, and statuses A ready with B/C/D pending.
 
 **RED:** Add tests that fail because the modules and functions do not yet exist. The tests must prove:
 
 - the official fixture is accepted by `createControlPlane`;
+- fresh calls to `createDemoControlPlaneOptions` do not share counters;
 - canonical own graph keys are A, B, C, and D and `task.id` matches each key;
 - `taskGraphToNodes` returns all four nodes at their fixed positions and preserves explicit statuses;
 - `taskGraphToEdges` returns exactly A→B, A→C, B→D, and C→D, never a parent edge;
 - the output ordering is deterministic and independent of object insertion order;
-- `statusToPresentation` is exhaustive across pending, ready, claimed, running, blocked, review, completed, failed, and cancelled, with visible text and a non-color signal.
+- `statusToPresentation` is exhaustive across pending, ready, claimed, running, blocked, review, completed, failed, and cancelled, with visible text and a non-color signal;
+- `getMaterializedReadyTaskIds` returns only tasks whose snapshot status is `ready`, using own graph keys and no dependency/readiness recomputation.
 
 **Expected failure:** Vitest cannot resolve the missing fixture/projection modules or the assertions fail because no projection exists.
 
-**GREEN:** Implement only the deterministic fixture and pure presentation functions. Use own canonical `graph.tasks` keys, a locale-independent comparator, and dependency arrays as the sole edge source. Do not add command dispatch, React state, scheduler behavior, or Lease logic in this task.
+**GREEN:** Implement the deterministic fixture options, pure projections, and status presentation. Use own canonical `graph.tasks` keys, a locale-independent comparator, and dependency arrays as the sole edge source. `getMaterializedReadyTaskIds` reads materialized status only; it is not a second readiness authority. Do not add command dispatch, React state, scheduler selection, or Lease storage in this task.
 
 **Verification:**
 
@@ -261,12 +278,10 @@ pnpm --filter @flowctl/playground build
 **Shared interfaces:**
 
 ```ts
-export type CommandCounter = { nextCommandId(): string; reset(): void };
-
-export function createClaimCommand(taskId: string, id: string): FlowctlCommand;
-export function createStartCommand(taskId: string, leaseId: string, id: string): FlowctlCommand;
-export function createCompleteCommand(taskId: string, leaseId: string, id: string): FlowctlCommand;
-export function createReviewApproveCommand(taskId: string, id: string): FlowctlCommand;
+export function createClaimCommand(taskId: string, commandId: string): FlowctlCommand;
+export function createStartCommand(taskId: string, leaseId: string, commandId: string): FlowctlCommand;
+export function createCompleteCommand(taskId: string, leaseId: string, commandId: string): FlowctlCommand;
+export function createReviewApproveCommand(taskId: string, commandId: string): FlowctlCommand;
 
 export function getLeaseIdForTask(
   events: readonly FlowctlEvent[],
@@ -276,32 +291,38 @@ export function getLeaseIdForTask(
 export type PlaygroundSnapshot = Readonly<{
   graph: TaskGraph;
   events: readonly FlowctlEvent[];
-  candidates: readonly string[];
+  readyTaskIds: readonly string[];
+  candidateTaskIds: readonly string[];
   lastResult: CommandProcessingResult | null;
 }>;
 
+export type DemoRuntime = Readonly<{
+  controlPlane: ControlPlane;
+  nextCommandId(): string;
+}>;
+
+export function createDemoRuntime(): DemoRuntime;
+
 export function getPlaygroundSnapshot(
-  controlPlane: ControlPlane,
+  runtime: DemoRuntime,
   schedulerLimit: number,
   lastResult: CommandProcessingResult | null
 ): PlaygroundSnapshot;
 
 export function dispatchAndSync(
-  controlPlane: ControlPlane,
+  runtime: DemoRuntime,
   command: FlowctlCommand,
   schedulerLimit: number
 ): { result: CommandProcessingResult; snapshot: PlaygroundSnapshot };
-
-export function createFreshDemoControlPlane(): ControlPlane;
 ```
 
-The runtime is a thin synchronous orchestration layer. `App` keeps the returned opaque `ControlPlane` in `useRef`; React state stores only selection, scheduler limit, last result, and a revision/snapshot projection. `getPlaygroundSnapshot` calls `getTaskGraphSnapshot`, `getEventLogSnapshot`, and `selectReadyTaskIds` in that order. `dispatchAndSync` calls public `dispatchCommand`, then obtains a new projection. Reset replaces the ref handle with `createFreshDemoControlPlane`, resets counters and selection, and never rewinds an existing handle.
+The runtime is a thin synchronous orchestration layer. `createDemoRuntime` is the one factory for a fresh Control Plane and all closure-owned demo counters: the Control Plane option counters come from `createDemoControlPlaneOptions`, and command IDs are owned by the runtime closure. There are no module-level mutable counters. `App` keeps the returned runtime handle in `useRef`; its nested opaque `ControlPlane` is never inspected, cloned, placed in state, or reconstructed. React state stores only the raw scheduler input, selection, last result, and a revision/snapshot projection. Reset discards the old ref value and assigns a new `createDemoRuntime()` result, isolating old/new counters and state.
 
-`getLeaseIdForTask` reads only public `lease.created` Events and applies deterministic latest-event semantics for the requested task. It is a presentation/command-plumbing projection, not an active Lease store. Start and Complete obtain their IDs from that helper immediately before factory construction.
+`getPlaygroundSnapshot` calls `getTaskGraphSnapshot`, `getEventLogSnapshot`, `getMaterializedReadyTaskIds`, and `selectReadyTaskIds` in that order. `readyTaskIds` is the direct status projection; `candidateTaskIds` is the result of the scheduling policy. `dispatchAndSync` calls public `dispatchCommand`, then obtains a new projection. `getLeaseIdForTask` reads only public `lease.created` Events and applies deterministic latest-event semantics for the requested task. It is a presentation/command-plumbing projection, not an active Lease store. Start and Complete obtain their IDs from that helper immediately before factory construction.
 
 **RED:** Add tests that fail because the factory, runtime, Event Log, and controls do not exist. Prove:
 
-- each factory emits the exact supported Protocol command shape, deterministic ID, project, timestamp, Actor, and demo worker values;
+- each factory emits exactly the existing public `FlowctlCommand` shape for its discriminant, with no convenience fields invented by the Playground; deterministic IDs and any required envelope values come from the real Protocol contract and existing Control Plane options;
 - Claim → Start → Complete → Review Approve produces the expected result Events and graph statuses through public dispatch;
 - `CommandProcessingResult.events` represents only the current dispatch while `getEventLogSnapshot` represents accumulated history;
 - Event Log renders real Event type, ID, timestamp, Actor, task, worker, and Lease fields where present;
@@ -314,7 +335,7 @@ The runtime is a thin synchronous orchestration layer. `App` keeps the returned 
 
 **Expected failure:** Missing factory/runtime APIs and UI controls leave the lifecycle tests unresolved; boundary mutation assertions fail because no clone-safe UI path exists.
 
-**GREEN:** Implement the four factories, public-snapshot runtime, Lease-ID extraction, and synchronous App refresh flow. Use one refresh path after every command; do not duplicate dispatch/snapshot logic across buttons. Render rejected results without adding fake unsupported controls. Use `structuredClone` only at the app projection boundary if needed to prevent UI mutation; never inspect or clone the opaque ControlPlane handle.
+**GREEN:** Implement the four factories against the actual public Protocol definitions, the single `createDemoRuntime` factory, public-snapshot runtime, Lease-ID extraction, and synchronous App refresh flow. Use one refresh path after every command; do not duplicate dispatch/snapshot logic across buttons. Render rejected results without adding fake unsupported controls. Use `structuredClone` only at the app projection boundary if needed to prevent UI mutation; never inspect or clone the opaque ControlPlane handle.
 
 **Verification:**
 
@@ -344,19 +365,21 @@ pnpm build
 ```ts
 export interface SchedulerPanelProps {
   readyTaskIds: readonly string[];
-  limit: number;
-  onLimitChange: (limit: number) => void;
+  candidateTaskIds: readonly string[];
+  rawLimitInput: string;
+  schedulerError: string | null;
+  onRawLimitInputChange: (value: string) => void;
 }
 ```
 
-The panel owns only the UI limit. It calls the existing `selectReadyTaskIds(graph, { limit })` through the runtime projection. The UI initial limit is 2 for the demo, explicitly distinct from the policy API default of 1. Invalid limits are rejected at the input boundary and shown as a simple message. The panel labels ready candidates separately from selected candidates.
+The panel owns only the visual `rawLimitInput` string and displays two distinct lists: `readyTaskIds` comes from the snapshot status projection, while `candidateTaskIds` comes from `selectReadyTaskIds(graph, { limit })`. The UI initial value is `"2"`, explicitly distinct from the policy API default of 1. On each input change, parse the raw string only enough to pass a number to the existing policy; an empty string becomes an invalid numeric value, and decimal, negative, unsafe, or oversized values are allowed to reach the policy boundary. Catch the policy's `RangeError`, show its simple message, and clear candidates for that render. Do not duplicate the policy's semantic validation rules in the UI. HTML `min`/`step` may improve affordance but are not authority.
 
 **RED:** Add integration/component tests that fail because the panel and final flow are absent. Prove:
 
-- initial candidates show A and the default limit is 2 without mutating the graph or Event Log;
-- after approving A, B and C are both ready and both are selected at limit 2;
-- after B completes, C remains ready and D remains pending;
-- after C completes, D becomes ready and is selectable;
+- initial ready tasks show A, selected candidates show A, and the default limit is 2 without mutating the graph or Event Log;
+- after approving A, ready tasks show B and C and both are selected at limit 2;
+- after B is approved into completed, C remains ready and D remains pending;
+- after C is approved into completed, D becomes ready and is selectable;
 - changing the limit changes selection only, never task status or Lease history;
 - a rejected command result is visible without a permanent invalid/unsupported command button;
 - unsupported Protocol commands have no controls in the rendered UI;
@@ -364,7 +387,7 @@ The panel owns only the UI limit. It calls the existing `selectReadyTaskIds(grap
 
 **Expected failure:** No scheduler panel exists, candidates are not projected with the configured limit, and the full DAG progression cannot be observed in the UI.
 
-**GREEN:** Add the panel and complete the composition. Keep readiness exclusively in Core through Control Plane snapshots and selection exclusively in the existing scheduling policy. Use the approved fixture-specific positions and the dark technical visual direction without marketing gradients, 3D effects, or elaborate animation. Update README only with concise, factual Playground status and run instructions if needed; do not document future features as present.
+**GREEN:** Add the panel and complete the composition. Keep readiness exclusively in Core through the materialized status in Control Plane snapshots and selection exclusively in the existing scheduling policy. Use the approved fixture-specific positions and the dark technical visual direction without marketing gradients, 3D effects, or elaborate animation. Update README only with concise, factual Playground status and run instructions if needed; do not document future features as present.
 
 **Verification:**
 
@@ -384,7 +407,7 @@ The Playground does not need to expose an application API for production use; th
 3. Claim A, start A, complete A, approve review; observe the status sequence and Event Log ordering.
 4. Observe B and C become ready, and scheduler selection returns B/C without claiming either task.
 5. Claim/start/complete/approve B and C in separate flows; observe D become ready only after both dependencies are approved into completed.
-6. Trigger one rejected command through a real stale/duplicate interaction path and verify the result panel; verify no unsupported controls are present.
+6. Verify no unsupported controls are present.
 7. Press Reset and verify the initial graph, empty Event Log, cleared result, selection reset, and deterministic first IDs.
 
 **Review gate:** Fresh subagent performs the full spec checklist, verifies the app contains no out-of-scope infrastructure, checks documentation accuracy, and reviews the final diff for stale-dist dependence and protected-package changes. Resolve all findings before final validation.
@@ -404,19 +427,29 @@ pnpm typecheck
 pnpm build
 ```
 
-For fresh-checkout validation, create an archive checkout in a temporary directory from the final commit, explicitly ensure the archive contains no pre-existing `dist`, `dist-test`, or `node_modules`, then run:
+For fresh-checkout validation, create an archive checkout in a temporary directory from the final commit, assert that the archive contains no pre-existing `dist`, `dist-test`, or `node_modules`, then run the normal lifecycle without manually building a dependency first:
 
 ```bash
+CLEAN_CHECKOUT="$(mktemp -d)"
+mkdir -p "$CLEAN_CHECKOUT"
 git archive HEAD | tar -x -C "$CLEAN_CHECKOUT"
+test ! -e "$CLEAN_CHECKOUT/packages/protocol/dist"
+test ! -e "$CLEAN_CHECKOUT/packages/protocol/dist-test"
+test ! -e "$CLEAN_CHECKOUT/packages/core/dist"
+test ! -e "$CLEAN_CHECKOUT/packages/core/dist-test"
+test ! -e "$CLEAN_CHECKOUT/packages/control-plane/dist"
+test ! -e "$CLEAN_CHECKOUT/packages/control-plane/dist-test"
+test ! -e "$CLEAN_CHECKOUT/apps/playground/dist"
+test ! -e "$CLEAN_CHECKOUT/apps/playground/dist-test"
+test ! -e "$CLEAN_CHECKOUT/node_modules"
 cd "$CLEAN_CHECKOUT"
-find . -type d \( -name dist -o -name dist-test -o -name node_modules \) -prune -exec rm -rf {} +
 pnpm install --frozen-lockfile
 pnpm test
 pnpm typecheck
 pnpm build
 ```
 
-The clean archive `pnpm build` must compile workspace packages and the Vite browser bundle from source. After the normal build, verify the browser package by opening the Vite production output through the normal dev/preview path and repeat the manual smoke. No automated browser dependency is added.
+The app lifecycle scripts make each root command prepare the same dependency chain: Playground lifecycle → Control Plane build → Core build → Protocol build → requested app test/typecheck/build. After installation in the archive, run `pnpm dev` separately for the manual interaction smoke; do not describe that dev server as production-bundle evidence. The automated evidence is the Vite production build from `pnpm build`; no preview lifecycle or automated browser dependency is added.
 
 The final review records:
 
@@ -444,9 +477,21 @@ Each commit is made by its task subagent only after its RED/GREEN/refactor cycle
 - [ ] Task 3 tests graph, SVG dependency edges, keyboard selection, and inspector content.
 - [ ] Task 4 tests all four supported lifecycle Commands, result-vs-history separation, defensive boundaries, Lease extraction, and Reset.
 - [ ] Task 5 tests scheduler limit 2, DAG progression, rejected results, unsupported-control absence, documentation, and manual browser flow.
+- [ ] Every app lifecycle command prepares the public package-export chain without relying on recursive execution alone or pre-existing `dist`.
 - [ ] Candidate state is always rebuilt from public Control Plane snapshots; the opaque handle is never cloned or inspected.
 - [ ] No app code imports private modules or mutates domain structures.
+- [ ] Command factories satisfy the actual existing Protocol discriminants and add no convenience fields.
+- [ ] All app annotations use public upstream types or local derivations from public functions.
+- [ ] The Scheduler panel shows materialized ready tasks separately from policy-selected candidates.
+- [ ] Raw scheduler input can represent empty, fractional, negative, unsafe, and oversized values; semantic validation remains in `selectReadyTaskIds`.
+- [ ] Rejection is tested without requiring an invalid UI control.
+- [ ] All deterministic counters are closure-owned per runtime and Reset creates a fresh runtime.
+- [ ] There is one demo runtime factory, not duplicate Control Plane factories.
+- [ ] Lease IDs are projected only from public Events and no local authoritative Lease map exists.
+- [ ] Archive validation asserts artifact absence before install instead of removing artifacts.
+- [ ] Production build evidence and manual dev interaction evidence are reported separately.
 - [ ] No Protocol/Core/Control Plane source or contract changes are planned.
 - [ ] No scheduler automation, workers, adapters, leases management, transport, persistence, UI package, or desktop integration is planned.
 - [ ] Fresh archive validation proves that no stale build artifact is required.
+- [ ] No implementation, branch creation, dependency installation, or lockfile change occurs during this planning-only revision.
 - [ ] No blocking architectural ambiguity remains before execution.
