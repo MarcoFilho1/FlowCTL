@@ -30,13 +30,22 @@ p {
 .playground-header,
 .graph-panel,
 .task-inspector,
-.reserved-panels {
+.command-controls,
+.command-result,
+.event-log {
   border: 1px solid #273647;
   background: #111a25;
 }
 
 .playground-header {
   padding: 1.25rem;
+}
+
+.header-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .eyebrow {
@@ -58,15 +67,89 @@ p {
 
 .panel-heading,
 .task-inspector,
-.reserved-panels {
+.command-controls,
+.command-result {
   padding: 1rem;
 }
 
 .panel-heading p,
-.reserved-panels p {
+.empty-state {
   color: #9dafc2;
   font-size: 0.875rem;
   margin-top: 0.25rem;
+}
+
+.playground-sidebar {
+  display: grid;
+  gap: 1rem;
+}
+
+button {
+  font: inherit;
+}
+
+.reset-button,
+.command-controls button {
+  background: #19344a;
+  border: 1px solid #5f9bc3;
+  color: #e7edf5;
+  cursor: pointer;
+  padding: 0.55rem 0.8rem;
+}
+
+.command-controls h2,
+.command-result h2 {
+  margin-bottom: 0.75rem;
+}
+
+.command-result [role="status"] {
+  color: #76ce91;
+}
+
+.command-result [role="alert"] {
+  color: #f08a8a;
+}
+
+.event-log .empty-state {
+  padding: 0 1rem 1rem;
+}
+
+.event-list {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0 1rem 1rem;
+}
+
+.event-entry {
+  background: #0d151f;
+  border-left: 3px solid #6b9dc0;
+  padding: 0.75rem;
+}
+
+.event-entry strong,
+.event-entry dd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.event-entry dl {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 0.65rem 0 0;
+}
+
+.event-entry dt {
+  color: #9dafc2;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.event-entry dd {
+  font-size: 0.78rem;
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
 }
 
 .graph-canvas {
