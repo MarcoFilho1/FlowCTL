@@ -289,10 +289,10 @@ test("Reset restores the fixture, clears projections, and restarts deterministic
   expect(screen.getAllByText("Pending")).toHaveLength(3);
   expect(screen.getByRole("region", { name: "Event Log" }).textContent).toContain("No Events yet");
   expect(screen.queryByRole("status")).toBeNull();
-  expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByRole("button", { name: "Claim A" })).toBeTruthy();
-  expect((screen.getByRole("spinbutton", { name: "Scheduler limit" }) as HTMLInputElement).value)
-    .toBe("2");
+  const resetSchedulerLimit = screen.getByRole("spinbutton", { name: "Scheduler limit" });
+  expect((resetSchedulerLimit as HTMLInputElement).value).toBe("2");
+  expect(screen.queryByRole("alert")).toBeNull();
   expect(getSchedulerTaskIds("Ready tasks")).toEqual(["A"]);
   expect(getSchedulerTaskIds("Scheduler candidates")).toEqual(["A"]);
 
