@@ -273,9 +273,19 @@ test("Reset restores the fixture, clears projections, and restarts deterministic
   fireEvent.click(screen.getByRole("button", { name: "Claim A" }));
   expect(screen.getByRole("region", { name: "Event Log" }).textContent).toContain("demo-event-2");
 
+  fireEvent.click(screen.getByRole("button", { name: /Task C:/ }));
+  expect(screen.getByRole("complementary", { name: "Task inspector" }).textContent).toContain("C");
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Scheduler limit" }), {
+    target: { value: "-1" }
+  });
+  expect(screen.getByRole("alert").textContent).toBe("limit must be a non-negative safe integer");
+
   fireEvent.click(screen.getByRole("button", { name: "Reset" }));
 
   expect(screen.getByRole("button", { name: /Task A:/ }).textContent).toContain("Ready");
+  expect(screen.getByRole("button", { name: /Task A:/ }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: /Task C:/ }).getAttribute("aria-pressed")).toBe("false");
+  expect(screen.getByRole("complementary", { name: "Task inspector" }).textContent).toContain("A");
   expect(screen.getAllByText("Pending")).toHaveLength(3);
   expect(screen.getByRole("region", { name: "Event Log" }).textContent).toContain("No Events yet");
   expect(screen.queryByRole("status")).toBeNull();
