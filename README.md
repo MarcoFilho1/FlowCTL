@@ -8,7 +8,8 @@ Claude ─────┼──→ FlowCTL Core ──→ Desktop / Overlay
 OpenCode ───┘
 ```
 
-**Status:** Protocol v0.2, Core v0, and Control Plane v0
+**Status:** Protocol v0.2, Core v0, Control Plane v0, and Developer Graph
+Playground v0
 
 This repository contains:
 
@@ -27,10 +28,18 @@ This repository contains:
   in-memory Event Log. It also exposes a pull-oriented scheduling-policy
   boundary that only selects ready task IDs; it does not claim tasks, manage
   leases, assign workers, poll, or execute work.
+- `@flowctl/playground` — browser-only developer harness for the deterministic
+  A → B/C → D graph. It exposes task inspection, the supported lifecycle,
+  materialized ready tasks, scheduling-policy candidates, public Events, and
+  Reset without adding scheduler automation or another domain authority.
 
 The following are not implemented: review rejection or rework, a scheduler
 daemon or worker assignment/execution system, real Workers or adapters,
-heartbeat/expiry/recovery, persistence/networking, UI/Desktop/Overlay,
+heartbeat/expiry/recovery, persistence/networking, Desktop/Overlay,
 Planner/LLM/Intent Layer, Verifier, or GraphMutation application.
+
+Run `pnpm install --frozen-lockfile`, then `pnpm dev`, and open the Vite URL
+printed in the terminal. Use `pnpm test`, `pnpm typecheck`, and `pnpm build`
+for repository-wide validation.
 
 See [Protocol v0.2](docs/protocol-v0.md) for the public contract.
