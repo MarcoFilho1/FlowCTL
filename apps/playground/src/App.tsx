@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { CommandResult } from "./components/CommandResult.js";
 import { EventLog } from "./components/EventLog.js";
 import { GraphCanvas } from "./components/GraphCanvas.js";
+import { SchedulerPanel } from "./components/SchedulerPanel.js";
 import { TaskInspector } from "./components/TaskInspector.js";
 import {
   createClaimCommand,
@@ -19,7 +20,7 @@ import type { DemoRuntime } from "./demo/runtime.js";
 import { taskGraphToEdges, taskGraphToNodes } from "./model/graph-projection.js";
 import { getLeaseIdForTask } from "./model/lease-projection.js";
 
-const TASK_4_SCHEDULER_LIMIT = 1;
+const INITIAL_RAW_LIMIT_INPUT = "2";
 
 export function App() {
   const runtimeRef = useRef<DemoRuntime | null>(null);
@@ -28,8 +29,10 @@ export function App() {
   }
 
   const [snapshot, setSnapshot] = useState(() =>
-    getPlaygroundSnapshot(runtimeRef.current!, TASK_4_SCHEDULER_LIMIT, null)
+    getPlaygroundSnapshot(runtimeRef.current!, Number(INITIAL_RAW_LIMIT_INPUT), null)
   );
+  const [rawLimitInput, setRawLimitInput] = useState(INITIAL_RAW_LIMIT_INPUT);
+  const [schedulerError, setSchedulerError] = useState<string | null>(null);
   const graph = snapshot.graph;
   const nodes = useMemo(() => taskGraphToNodes(graph, DEMO_NODE_POSITIONS), [graph]);
   const edges = useMemo(() => taskGraphToEdges(graph), [graph]);
@@ -55,7 +58,34 @@ export function App() {
             : null;
 
     if (command) {
-      setSnapshot(dispatchAndSync(runtime, command, TASK_4_SCHEDULER_LIMIT).snapshot);
+      const schedulerLimit = schedulerError === null ? parseRawLimit(rawLimitInput) : 0;
+      const nextSnapshot = dispatchAndSync(runtime, command, schedulerLimit).snapshot;
+      setSnapshot(
+        schedulerError === null
+          ? nextSnapshot
+          : { ...nextSnapshot, candidateTaskIds: [] }
+      );
+    }
+  }
+
+  function changeSchedulerLimit(value: string) {
+    setRawLimitInput(value);
+
+    try {
+      const nextSnapshot = getPlaygroundSnapshot(
+        runtimeRef.current!,
+        parseRawLimit(value),
+        snapshot.lastResult
+      );
+      setSnapshot(nextSnapshot);
+      setSchedulerError(null);
+    } catch (error) {
+      if (!(error instanceof RangeError)) {
+        throw error;
+      }
+
+      setSnapshot((current) => ({ ...current, candidateTaskIds: [] }));
+      setSchedulerError(error.message);
     }
   }
 
@@ -63,7 +93,9 @@ export function App() {
     const runtime = createDemoRuntime();
     runtimeRef.current = runtime;
     setSelectedTaskId("A");
-    setSnapshot(getPlaygroundSnapshot(runtime, TASK_4_SCHEDULER_LIMIT, null));
+    setRawLimitInput(INITIAL_RAW_LIMIT_INPUT);
+    setSchedulerError(null);
+    setSnapshot(getPlaygroundSnapshot(runtime, Number(INITIAL_RAW_LIMIT_INPUT), null));
   }
 
   const actionLabel = getActionLabel(selectedTask?.status, selectedTask?.id, snapshot.events);
@@ -92,6 +124,13 @@ export function App() {
         </section>
         <div className="playground-sidebar">
           <TaskInspector task={selectedTask} />
+          <SchedulerPanel
+            candidateTaskIds={snapshot.candidateTaskIds}
+            onRawLimitInputChange={changeSchedulerLimit}
+            rawLimitInput={rawLimitInput}
+            readyTaskIds={snapshot.readyTaskIds}
+            schedulerError={schedulerError}
+          />
           <section className="command-controls">
             <h2>Command</h2>
             {actionLabel ? (
@@ -106,6 +145,10 @@ export function App() {
       <EventLog events={snapshot.events} />
     </main>
   );
+}
+
+function parseRawLimit(rawLimitInput: string): number {
+  return rawLimitInput === "" ? Number.NaN : Number(rawLimitInput);
 }
 
 function getActionLabel(

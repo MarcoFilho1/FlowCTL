@@ -111,6 +111,95 @@ test("runtime exercises claim, start, complete, and review approval through publ
   expect(approved.snapshot.events).toHaveLength(7);
 });
 
+test("runtime materializes the complete A to B/C to D progression at scheduler limit 2", () => {
+  const runtime = createDemoRuntime();
+
+  function approve(taskId: string) {
+    const claimed = dispatchAndSync(
+      runtime,
+      createClaimCommand(taskId, runtime.nextCommandId()),
+      2
+    );
+    const leaseId = getLeaseIdForTask(claimed.snapshot.events, taskId);
+    if (!leaseId) {
+      throw new Error(`Expected a Lease for ${taskId}.`);
+    }
+    dispatchAndSync(runtime, createStartCommand(taskId, leaseId, runtime.nextCommandId()), 2);
+    dispatchAndSync(runtime, createCompleteCommand(taskId, leaseId, runtime.nextCommandId()), 2);
+    return dispatchAndSync(runtime, createReviewApproveCommand(taskId, runtime.nextCommandId()), 2);
+  }
+
+  const initial = getPlaygroundSnapshot(runtime, 2, null);
+  expect(initial.readyTaskIds).toEqual(["A"]);
+  expect(initial.candidateTaskIds).toEqual(["A"]);
+
+  const afterA = approve("A").snapshot;
+  expect(afterA.readyTaskIds).toEqual(["B", "C"]);
+  expect(afterA.candidateTaskIds).toEqual(["B", "C"]);
+
+  const afterB = approve("B").snapshot;
+  expect(afterB.graph.tasks.B.status).toBe("completed");
+  expect(afterB.graph.tasks.C.status).toBe("ready");
+  expect(afterB.graph.tasks.D.status).toBe("pending");
+  expect(afterB.readyTaskIds).toEqual(["C"]);
+  expect(afterB.candidateTaskIds).toEqual(["C"]);
+
+  const afterC = approve("C").snapshot;
+  expect(afterC.graph.tasks.C.status).toBe("completed");
+  expect(afterC.graph.tasks.D.status).toBe("ready");
+  expect(afterC.readyTaskIds).toEqual(["D"]);
+  expect(afterC.candidateTaskIds).toEqual(["D"]);
+  expect(afterC.events.map((event) => event.type)).toEqual([
+    "lease.created",
+    "task.claimed",
+    "task.started",
+    "task.review_requested",
+    "task.completed",
+    "task.ready",
+    "task.ready",
+    "lease.created",
+    "task.claimed",
+    "task.started",
+    "task.review_requested",
+    "task.completed",
+    "lease.created",
+    "task.claimed",
+    "task.started",
+    "task.review_requested",
+    "task.completed",
+    "task.ready"
+  ]);
+});
+
+test("changing scheduler limits changes only candidates, never tasks, Events, or Lease history", () => {
+  const runtime = createDemoRuntime();
+  const claimed = dispatchAndSync(
+    runtime,
+    createClaimCommand("A", runtime.nextCommandId()),
+    2
+  );
+  const leaseId = getLeaseIdForTask(claimed.snapshot.events, "A");
+  if (!leaseId) {
+    throw new Error("Expected a Lease for A.");
+  }
+  dispatchAndSync(runtime, createStartCommand("A", leaseId, runtime.nextCommandId()), 2);
+  dispatchAndSync(runtime, createCompleteCommand("A", leaseId, runtime.nextCommandId()), 2);
+  const approved = dispatchAndSync(
+    runtime,
+    createReviewApproveCommand("A", runtime.nextCommandId()),
+    2
+  );
+  const before = getPlaygroundSnapshot(runtime, 2, approved.result);
+  const limited = getPlaygroundSnapshot(runtime, 1, approved.result);
+
+  expect(before.candidateTaskIds).toEqual(["B", "C"]);
+  expect(limited.candidateTaskIds).toEqual(["B"]);
+  expect(limited.graph).toEqual(before.graph);
+  expect(limited.readyTaskIds).toEqual(["B", "C"]);
+  expect(limited.events).toEqual(before.events);
+  expect(getLeaseIdForTask(limited.events, "A")).toBe("demo-lease-1");
+});
+
 test("rejected dispatches return a failure without mutating graph or accumulated history", () => {
   const runtime = createDemoRuntime();
   const before = getPlaygroundSnapshot(runtime, 1, null);

@@ -1,9 +1,23 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { selectReadyTaskIds } from "@flowctl/control-plane";
 import { PROTOCOL_VERSION } from "@flowctl/protocol";
 import { App } from "../src/App.js";
 import { CommandResult } from "../src/components/CommandResult.js";
 import { EventLog } from "../src/components/EventLog.js";
+
+function getSchedulerTaskIds(listName: "Ready tasks" | "Scheduler candidates") {
+  return within(screen.getByRole("list", { name: listName }))
+    .queryAllByRole("listitem")
+    .map((item) => item.textContent);
+}
+
+function approveTask(taskId: string) {
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(`Task ${taskId}:`) }));
+  fireEvent.click(screen.getByRole("button", { name: `Claim ${taskId}` }));
+  fireEvent.click(screen.getByRole("button", { name: `Start ${taskId}` }));
+  fireEvent.click(screen.getByRole("button", { name: `Complete ${taskId}` }));
+  fireEvent.click(screen.getByRole("button", { name: `Approve Review ${taskId}` }));
+}
 
 test("renders the dependency graph with accessible task nodes and visible statuses", () => {
   render(<App />);
@@ -112,6 +126,48 @@ test("Command Result distinguishes accepted Event types from rejected failure co
     />
   );
   expect(screen.getByRole("alert").textContent).toContain("TASK_NOT_READY");
+  expect(screen.queryByRole("button")).toBeNull();
+});
+
+test("Scheduler separates materialized ready tasks from policy candidates at limit 2", () => {
+  render(<App />);
+
+  expect(screen.getByRole("region", { name: "Scheduler" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Ready tasks" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Scheduler candidates" })).toBeTruthy();
+  expect(getSchedulerTaskIds("Ready tasks")).toEqual(["A"]);
+  expect(getSchedulerTaskIds("Scheduler candidates")).toEqual(["A"]);
+
+  const limitInput = screen.getByRole("spinbutton", { name: "Scheduler limit" });
+  expect((limitInput as HTMLInputElement).value).toBe("2");
+  fireEvent.change(limitInput, { target: { value: "0" } });
+
+  expect(getSchedulerTaskIds("Ready tasks")).toEqual(["A"]);
+  expect(getSchedulerTaskIds("Scheduler candidates")).toEqual([]);
+  expect(screen.getByRole("button", { name: /Task A:/ }).textContent).toContain("Ready");
+  expect(screen.getByRole("region", { name: "Event Log" }).textContent).toContain("No Events yet");
+});
+
+test("Scheduler delegates invalid raw limits to policy RangeError without changing runtime state", () => {
+  render(<App />);
+
+  const limitInput = screen.getByRole("spinbutton", { name: "Scheduler limit" });
+  for (const rawLimit of ["", "1.5", "-1", "9007199254740992"]) {
+    fireEvent.change(limitInput, { target: { value: rawLimit } });
+    expect(screen.getByRole("alert").textContent).toBe(
+      "limit must be a non-negative safe integer"
+    );
+    expect(getSchedulerTaskIds("Ready tasks")).toEqual(["A"]);
+    expect(getSchedulerTaskIds("Scheduler candidates")).toEqual([]);
+    expect(screen.getByRole("button", { name: /Task A:/ }).textContent).toContain("Ready");
+    expect(screen.getByRole("region", { name: "Event Log" }).textContent).toContain(
+      "No Events yet"
+    );
+  }
+
+  fireEvent.change(limitInput, { target: { value: "2" } });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(getSchedulerTaskIds("Scheduler candidates")).toEqual(["A"]);
 });
 
 test("App gates lifecycle actions by status and renders current result separately from Event Log", () => {
@@ -143,6 +199,75 @@ test("App gates lifecycle actions by status and renders current result separatel
   expect(screen.getByRole("button", { name: /Task C:/ }).textContent).toContain("Ready");
 });
 
+test("App completes A through B and C to D with ordered Events and no unsupported controls", () => {
+  render(<App />);
+
+  for (const unsupportedAction of [
+    /Fail /,
+    /Block /,
+    /Heartbeat/,
+    /Graph Mutation/
+  ]) {
+    expect(screen.queryByRole("button", { name: unsupportedAction })).toBeNull();
+  }
+
+  approveTask("A");
+  expect(getSchedulerTaskIds("Ready tasks")).toEqual(["B", "C"]);
+  expect(getSchedulerTaskIds("Scheduler candidates")).toEqual(["B", "C"]);
+  const eventCountBeforeLimitChange = within(
+    screen.getByRole("region", { name: "Event Log" })
+  ).getAllByRole("listitem").length;
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Scheduler limit" }), {
+    target: { value: "1" }
+  });
+  expect(getSchedulerTaskIds("Ready tasks")).toEqual(["B", "C"]);
+  expect(getSchedulerTaskIds("Scheduler candidates")).toEqual(["B"]);
+  expect(screen.getByRole("button", { name: /Task B:/ }).textContent).toContain("Ready");
+  expect(screen.getByRole("button", { name: /Task C:/ }).textContent).toContain("Ready");
+  expect(within(screen.getByRole("region", { name: "Event Log" })).getAllByRole("listitem"))
+    .toHaveLength(eventCountBeforeLimitChange);
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Scheduler limit" }), {
+    target: { value: "2" }
+  });
+
+  approveTask("B");
+  expect(screen.getByRole("button", { name: /Task B:/ }).textContent).toContain("Completed");
+  expect(screen.getByRole("button", { name: /Task C:/ }).textContent).toContain("Ready");
+  expect(screen.getByRole("button", { name: /Task D:/ }).textContent).toContain("Pending");
+  expect(getSchedulerTaskIds("Ready tasks")).toEqual(["C"]);
+  expect(getSchedulerTaskIds("Scheduler candidates")).toEqual(["C"]);
+
+  approveTask("C");
+  expect(screen.getByRole("button", { name: /Task C:/ }).textContent).toContain("Completed");
+  expect(screen.getByRole("button", { name: /Task D:/ }).textContent).toContain("Ready");
+  expect(getSchedulerTaskIds("Ready tasks")).toEqual(["D"]);
+  expect(getSchedulerTaskIds("Scheduler candidates")).toEqual(["D"]);
+
+  const eventTypes = within(screen.getByRole("region", { name: "Event Log" }))
+    .getAllByRole("listitem")
+    .map((item) => item.querySelector("strong")?.textContent);
+  expect(eventTypes).toEqual([
+    "lease.created",
+    "task.claimed",
+    "task.started",
+    "task.review_requested",
+    "task.completed",
+    "task.ready",
+    "task.ready",
+    "lease.created",
+    "task.claimed",
+    "task.started",
+    "task.review_requested",
+    "task.completed",
+    "lease.created",
+    "task.claimed",
+    "task.started",
+    "task.review_requested",
+    "task.completed",
+    "task.ready"
+  ]);
+});
+
 test("Reset restores the fixture, clears projections, and restarts deterministic IDs", () => {
   render(<App />);
   fireEvent.click(screen.getByRole("button", { name: "Claim A" }));
@@ -156,6 +281,10 @@ test("Reset restores the fixture, clears projections, and restarts deterministic
   expect(screen.queryByRole("status")).toBeNull();
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByRole("button", { name: "Claim A" })).toBeTruthy();
+  expect((screen.getByRole("spinbutton", { name: "Scheduler limit" }) as HTMLInputElement).value)
+    .toBe("2");
+  expect(getSchedulerTaskIds("Ready tasks")).toEqual(["A"]);
+  expect(getSchedulerTaskIds("Scheduler candidates")).toEqual(["A"]);
 
   fireEvent.click(screen.getByRole("button", { name: "Claim A" }));
   expect(screen.getByRole("region", { name: "Event Log" }).textContent).toContain("demo-event-1");
