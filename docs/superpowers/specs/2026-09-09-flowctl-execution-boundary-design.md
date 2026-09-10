@@ -119,13 +119,13 @@ The public semantic surface is:
 createExecutionCoordinator(options)
   → valid coordinator OR INVALID_WORKSPACE
 
-coordinator.executeTask(taskId)
+coordinator.executeTask(taskId, { signal? })
   → Promise<ExecutionAttemptResult>
 ~~~
 
 Options contain a public ControlPlane handle, one workerId, one AgentAdapter, one explicit workspacePath, an Actor for generated Commands, a deterministic Command ID generator, and a timestamp provider.
 
-executeNext is not part of #6a. The exact exported type spelling may follow repository conventions, but the semantic distinctions in this specification are mandatory.
+executeTask(taskId, options?) receives the caller-provided AbortSignal, when present, and forwards it unchanged to ExecutionInput. The Coordinator does not create an AbortController or a timeout manager. executeNext is not part of #6a. The exact exported type spelling may follow repository conventions, but the semantic distinctions in this specification are mandatory.
 
 ## 9. Scheduling separation
 
@@ -163,7 +163,7 @@ dispatch task.complete OR task.fail
 return structured attempt result
 ~~~
 
-Only taskId, leaseId, and workerId are retained as ephemeral attempt context. The Coordinator has no authoritative Lease map.
+Only taskId, leaseId, and workerId are retained as ephemeral attempt context. The Coordinator has no authoritative Lease map. Once claim and start have succeeded, every unsuccessful orchestration exit MUST attempt task.fail with the accepted Lease identity whenever the lifecycle permits it. This includes a returned Adapter failure, an Adapter throw or rejected Promise, and a rejected task.complete.
 
 ## 11. AgentAdapter
 
@@ -237,7 +237,7 @@ The first graph snapshot is used only to obtain the Control Plane project identi
 
 After an accepted claim, the Coordinator obtains a fresh snapshot through getTaskGraphSnapshot and copies the canonical Task from it. That fresh Task is the Adapter boundary.
 
-If an accepted claim cannot be followed by a canonical Task in a valid Control Plane snapshot, this is an invariant/programming error, not a new domain result and not a reason to access private state.
+If an accepted claim cannot be followed by a canonical Task in a valid Control Plane snapshot, this is a Control Plane/public-contract invariant violation, not a normal AgentAdapter failure and not a reason to access private state. It is reported as invariant_error; the Coordinator does not fabricate Task data or a Lease identity. If the violation occurs after an admitted start and a trusted Lease identity is already available, the normal task.fail finalization attempt still applies before returning the invariant result.
 
 ## 17. Claim and Lease
 
@@ -249,7 +249,7 @@ claimResult.events → lease.created → payload.lease.id
 
 The Coordinator verifies taskId and workerId against the extracted Lease. It never reads activeLeaseByTaskId, ControlPlaneState, CoreState, or assignedWorkerId.
 
-An accepted claim without a matching lease.created Event is a Control Plane invariant violation.
+An accepted claim without a matching lease.created Event is a Control Plane/public-contract invariant violation. The normal Control Plane contract makes this path unreachable, and tests must defend that premise. It is not a normal AgentAdapter failure: the Coordinator MUST NOT access private Lease state, fabricate a leaseId, create a release Command, or silently map the condition to execution_failed. If surfaced, it is reported as invariant_error and the busy gate is released. Without a trusted Lease identity, no task.fail recovery attempt is possible or permitted.
 
 ## 18. Start semantics
 
@@ -267,13 +267,15 @@ AgentAdapter.execute()
 
 The Adapter MUST NOT start before task.start succeeds. task.started means FlowCTL began an admitted execution attempt; it does not assert that a provider process has executed instructions.
 
+The Coordinator forwards an optional caller-provided signal from executeTask(taskId, { signal }) to ExecutionInput.signal. No internal AbortController, timeout manager, cancellation UI, or Control Plane cancellation Command is introduced.
+
 ## 19. Start rejection
 
 After this Coordinator has accepted its claim, a rejected task.start is not silently returned. The Coordinator dispatches task.fail with the accepted Lease identity. The Control Plane decides whether the claimed Task and Lease still permit finalization.
 
 The result distinguishes start rejected and finalization accepted from start rejected and finalization rejected. Adapter call count is zero in both cases.
 
-If finalization is rejected, the Coordinator reports both failures and does not mutate state directly.
+If finalization is rejected, the Coordinator reports both failures and does not mutate state directly. The busy gate is still released.
 
 ## 20. Success mapping
 
@@ -291,7 +293,7 @@ Task = review
 
 Success MUST NOT map directly to completed. The Coordinator MUST NOT dispatch task.review.approve or infer review approval.
 
-If task.complete is rejected, the result reports completion-submission failure. No retry or approval is attempted.
+If task.complete is rejected, the Coordinator MUST immediately attempt task.fail with the same taskId, workerId, and leaseId. The result distinguishes completion rejected with failure finalization accepted from completion rejected with failure finalization rejected. No retry or approval is attempted.
 
 ## 21. Failure mapping
 
@@ -308,6 +310,8 @@ Task = failed
 ~~~
 
 The failure Command contains taskId, configured workerId, extracted leaseId, and a mapped reason string. The Coordinator must not leave an admitted attempt silently in claimed or running.
+
+An Adapter throw or rejected Promise is caught and normalized to an ExecutionResult failure before this same mapping. A normalized message is short and sanitized; the full stack, provider secrets, prompt, and chain-of-thought are not exposed by default.
 
 ## 22. Control Plane failure support
 
@@ -371,6 +375,8 @@ Adapter failed + task.fail rejected
 
 The second result contains the original Adapter failure and the finalization rejection. It never removes a Lease directly or claims recovery. The authoritative resulting state is obtained from the public Control Plane snapshot.
 
+Adapter failure reasons and Coordinator/finalization reasons are distinct concepts. A returned Adapter failure preserves its provider-neutral reason in the execution result. A thrown/rejected Adapter is normalized as execution_failed and maps to a deterministic task.fail reason such as adapter_exception. A rejected task.complete maps to a deterministic task.fail reason such as execution_completion_rejected. A rejected task.start after claim maps to execution_start_rejected. These values use the existing Protocol reason string and do not create a new Protocol enum.
+
 ## 26. Coordinator result union
 
 The result must represent at least these variants:
@@ -378,14 +384,17 @@ The result must represent at least these variants:
 ~~~text
 worker_busy
 admission_rejected
-start_rejected with finalization result
+start_rejected_finalized
+start_rejected_unfinalized
 submitted_for_review
-completion_rejected
+completion_rejected_finalized
+completion_rejected_unfinalized
 execution_failed_finalized
 execution_failed_unfinalized
+invariant_error
 ~~~
 
-Each variant includes taskId and the relevant Command or Adapter result. The result is a discriminated union, not a boolean.
+Each variant includes taskId and the relevant Command or Adapter result. completion_rejected_finalized and completion_rejected_unfinalized contain both the task.complete rejection and the task.fail result. execution_failed_finalized and execution_failed_unfinalized contain the normalized Adapter failure and the task.fail result. start_rejected_finalized and start_rejected_unfinalized contain the start rejection and the task.fail result. invariant_error is reserved for a Control Plane/public-contract invariant violation and may include a finalization result when the violation occurs after accepted start with a trusted Lease identity. The result is a discriminated union, not a boolean.
 
 ## 27. Current-dispatch Events
 
@@ -400,7 +409,19 @@ fail     → [task.failed]
 
 getEventLogSnapshot remains the API for accumulated history. No historical Event is returned as if produced by the current Command.
 
-## 28. Async and determinism boundaries
+## 28. Busy gate and async boundaries
+
+The Coordinator's in-flight/busy state is ephemeral orchestration state, not Worker domain state. It is acquired before the first Command and released on every exit path with semantics equivalent to:
+
+~~~text
+acquire busy gate
+try
+  attempt
+finally
+  release busy gate
+~~~
+
+The gate is released after admission rejection, start rejection, successful submission to review, execution failure finalized, execution failure unfinalized, completion rejection, completion finalization failure, Adapter throw/rejection, and invariant/programming error. A subsequent executeTask call is then allowed.
 
 Control Plane and Core remain synchronous and deterministic. ExecutionCoordinator.executeTask and AgentAdapter.execute are asynchronous. External nondeterminism begins at AgentAdapter.execute.
 
@@ -408,7 +429,7 @@ Command order, FakeAdapter outcomes, Lease extraction, result classification, re
 
 ## 29. FakeAdapter
 
-FakeAdapter supports deterministic success and execution failure, records call count and input, and allows tests to assert ordering relative to Control Plane Events.
+FakeAdapter supports deterministic success, returned failure, and thrown/rejected failure, records call count and input, and allows tests to assert ordering relative to Control Plane Events. A table-driven test proves that all retained failed reasons use the same finalization semantics.
 
 It does not call a process, network, provider, token, or private package state. Mutation of its received input cannot alter the Control Plane.
 
@@ -432,15 +453,21 @@ It must not import ControlPlaneState, CoreState internals, activeLeaseByTaskId, 
 
 These are boundary constraints, not provider behavior implemented in #6a.
 
-## 32. Testing strategy
+## 32. Adapter exception normalization
+
+AgentAdapter implementations are not assumed to be total. The Coordinator wraps the awaited Adapter call in try/catch. A thrown exception or rejected Promise is normalized to an execution failure and then follows task.fail exactly like a returned failed result.
+
+The normalized message is short and sanitized. It does not expose a full stack by default, provider secrets, prompts, or chain-of-thought. The original exception is not allowed to escape after accepted start before finalization has been attempted.
+
+## 33. Testing strategy
 
 Control Plane tests cover task.fail from claimed and running, exact task.failed payload, Lease cleanup, invalid project/task/lifecycle/Lease, rejection atomicity, existing dispatch precedence, and own-key lookup.
 
-Execution tests cover admission rejection with zero Adapter calls, public Lease extraction, fresh Task snapshot, start-before-Adapter ordering, success to review, no auto approval, failure to failed, Lease removal, start-rejection finalization, visible finalization failure, defensive input, concurrent-call rejection, and workspace validation.
+Execution tests cover admission rejection with zero Adapter calls, public Lease extraction, fresh Task snapshot, start-before-Adapter ordering, success to review, no auto approval, returned Adapter failure to failed, Adapter throw/rejected Promise to failed, Lease removal, start-rejection finalization, completion rejection followed by task.fail, visible finalization failure, defensive input, concurrent-call rejection, busy-gate release after every exit path, AbortSignal forwarding, all retained failed reasons using identical finalization semantics, and workspace validation.
 
 The required black-box proof is that after failed execution is finalized, a new claim does not observe the old Lease, without exposing the Lease map.
 
-## 33. CI
+## 34. CI
 
 The existing workflow remains sufficient:
 
@@ -453,7 +480,7 @@ pnpm build
 
 CI requires no Codex installation, provider authentication, network, secrets, child process, or real workspace.
 
-## 34. Protocol, Core, and Playground freeze
+## 35. Protocol, Core, and Playground freeze
 
 Expected diffs:
 
@@ -465,7 +492,7 @@ apps/playground/** = unchanged
 
 No Protocol version bump, new field, Command, Event, Core transition, Worker UI, or Playground execution control is permitted by this specification.
 
-## 35. Out of scope
+## 36. Out of scope
 
 The following are explicitly excluded:
 
@@ -476,13 +503,13 @@ The following are explicitly excluded:
 - real-agent smoke;
 - Worker Registry, worker pool, multiple workers, or concurrency greater than one;
 - scheduler daemon, polling, automatic claim, queue, and executeNext loop;
-- lease.release, heartbeat, expiry, retry, requeue, reassignment, and recovery;
+- lease.release, heartbeat, expiry, retry, requeue, reassignment, and post-failure recovery beyond terminal task.fail finalization;
 - persistence, Event Store, database, REST, HTTP, WebSocket, and SSE;
 - UI, desktop, overlay, and Playground changes;
 - Planner, LLM, Intent, Clarification Layer, GraphMutation application, and multi-repository orchestration;
 - review approval, review rejection, and rework.
 
-## 36. Risks and rulings
+## 37. Risks and rulings
 
 The main risk is failure after claim/start. It is resolved in #6a by adding existing task.fail support and terminal failure semantics. There is no Lease release or retry workaround.
 
@@ -490,7 +517,7 @@ Start rejection after an accepted claim attempts task.fail. If that finalization
 
 The absence of ProcessRunner is intentional: #6a proves orchestration and finalization through FakeAdapter; #6b proves provider process integration.
 
-## 37. Preliminary acceptance criteria
+## 38. Preliminary acceptance criteria
 
 Success:
 
@@ -527,13 +554,47 @@ FakeAdapter calls = 0
 
 All rejected Commands leave Core state, active Lease state, and Event Log unchanged.
 
-## 38. #6b handoff
+Adapter exception:
+
+~~~text
+READY
+↓ claim
+↓ start
+↓ Adapter throws or rejects
+↓ task.fail
+↓ FAILED
+↓ no active Lease
+~~~
+
+Completion rejection:
+
+~~~text
+READY
+↓ claim
+↓ start
+↓ Adapter succeeds
+↓ task.complete rejected
+↓ task.fail attempted
+↓ finalized as FAILED OR unresolved finalization result
+~~~
+
+Busy gate:
+
+~~~text
+any attempt exit path
+↓
+Coordinator busy gate released
+↓
+next executeTask may proceed
+~~~
+
+## 39. #6b handoff
 
 After #6a, #6b may add @flowctl/adapter-codex on top of the provider-neutral execution contract. It will own Codex CLI arguments, ProcessRunner integration, JSONL parsing, bounded output, sandbox/auth configuration, and manual smoke.
 
 It will still use the Coordinator and Control Plane Commands and will not bypass admission or lifecycle authority.
 
-## 39. Final self-review
+## 40. Final self-review
 
 The scope was checked for:
 
@@ -543,6 +604,11 @@ The scope was checked for:
 - Adapter only after accepted start;
 - success ending in review;
 - failure finalized through task.fail;
+- completion rejection also finalized through task.fail;
+- Adapter throw/rejection cannot bypass task.fail;
+- busy gate released on every exit path;
+- invariant failures do not access private state;
+- AbortSignal has an explicit caller-to-Adapter path;
 - atomic Lease removal on accepted failure;
 - synchronous Control Plane and asynchronous execution;
 - unchanged Playground;
