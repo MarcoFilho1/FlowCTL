@@ -64,6 +64,29 @@ pnpm --filter @flowctl/control-plane build
 
 Execution tests import the execution source facade through ../src/index.js, the public Control Plane through @flowctl/control-plane, and Protocol through @flowctl/protocol. The execution package builds Control Plane before its own test build, so tests do not depend on stale output.
 
+Before the first implementation task starts in a feature worktree, capture the
+approved-plan commit immediately and keep it immutable for the whole run:
+
+```bash
+git rev-parse HEAD
+IMPLEMENTATION_BASE_SHA="$(git rev-parse HEAD)"
+readonly IMPLEMENTATION_BASE_SHA
+```
+
+When the future PR is being inspected, capture the then-current remote base in
+a separate variable:
+
+```bash
+PR_BASE_SHA="$(git rev-parse origin/main)"
+readonly PR_BASE_SHA
+```
+
+Use `IMPLEMENTATION_BASE_SHA` for implementation-only diffs, protected-path
+checks, and the SDD scope review. Use `PR_BASE_SHA` only for the complete PR
+diff, which may include the approved spec, spec hardenings, plan, and
+implementation. Never redefine `IMPLEMENTATION_BASE_SHA` from `origin/main`
+at a later milestone.
+
 ## Public interfaces fixed before dependent tasks
 
 Task 2 defines these names and signatures; later tasks use them unchanged:
@@ -122,19 +145,26 @@ type ExecutionCoordinatorCreationResult =
     };
 ```
 
-ExecutionAttemptResult is a flat discriminated union with exactly these semantic variants:
+ExecutionAttemptResult is a flat discriminated union with exactly these semantic variants. In the implementation, use local aliases for the public Control Plane result shapes:
+
+```ts
+type CommandSuccess = Extract<CommandProcessingResult, { ok: true }>;
+type CommandFailure = Extract<CommandProcessingResult, { ok: false }>;
+```
+
+The public result variants carry these fields:
 
 ```text
-worker_busy
-admission_rejected
-start_rejected_finalized
-start_rejected_unfinalized
-submitted_for_review
-completion_rejected_finalized
-completion_rejected_unfinalized
-execution_failed_finalized
-execution_failed_unfinalized
-invariant_error
+worker_busy { taskId }
+admission_rejected { taskId, rejection: CommandFailure }
+start_rejected_finalized { taskId, startRejection: CommandFailure, finalization: CommandSuccess }
+start_rejected_unfinalized { taskId, startRejection: CommandFailure, finalization: CommandFailure }
+submitted_for_review { taskId, completion: CommandSuccess }
+completion_rejected_finalized { taskId, completionRejection: CommandFailure, finalization: CommandSuccess }
+completion_rejected_unfinalized { taskId, completionRejection: CommandFailure, finalization: CommandFailure }
+execution_failed_finalized { taskId, execution: failed ExecutionResult, finalization: CommandSuccess }
+execution_failed_unfinalized { taskId, execution: failed ExecutionResult, finalization: CommandFailure }
+invariant_error { taskId, stage, message, finalization?: CommandSuccess | CommandFailure }
 ```
 
 Command-bearing variants use narrowed public CommandProcessingResult values. invariant_error carries taskId, stage, message, and an optional finalization result. Missing Lease identity has no finalization result; trusted Lease paths carry finalized or rejected finalization context.
@@ -145,11 +175,13 @@ Command-bearing variants use narrowed public CommandProcessingResult values. inv
 
 - Create: packages/control-plane/src/fail.ts
 - Modify: packages/control-plane/src/dispatch.ts
+- Inspect first: packages/control-plane/src/state.ts and packages/control-plane/test/support/
+- Create if no existing equivalent: packages/control-plane/src/test-support.ts
 - Test: packages/control-plane/test/control-plane.test.ts
 
 **Interfaces:**
 
-- Consumes: existing task.fail Command, applyTaskTransition, isTaskTransitionAllowed, recreateCoreState, getCanonicalTask, active Lease state, copy helpers, and neighboring handler patterns.
+- Consumes: existing task.fail Command, applyTaskTransition, isTaskTransitionAllowed, recreateCoreState, getCanonicalTask, active Lease state, copy helpers, neighboring handler patterns, and any existing internal test seam discovered during inspection.
 - Produces: internal dispatchFailCommand(controlPlane, command); dispatchCommand routes task.fail; accepted failure returns the existing CommandProcessingResult success shape with one task.failed Event.
 
 - [ ] **Step 1: Write the failing tests**
@@ -196,7 +228,16 @@ test("fails a running task with the exact task.failed payload", () => {
 });
 ```
 
-Also add rejection and atomicity tests for foreign project, missing task, own-key IDs toString/constructor/__proto__, invalid lifecycle from ready, missing Lease, wrong Lease ID, and wrong Worker ID. For every rejection assert unchanged graph snapshot and unchanged Event Log.
+The claim-after-failure assertion above proves terminal lifecycle behavior only; it is not the Lease-cleanup proof. First inspect the existing package test seam. If none exists, add the smallest test-only/internal helper, without changing the package root exports, that can answer `getActiveLeaseSnapshotForTest(controlPlane, taskId): Lease | undefined` by reading the internal state. It must return a defensive Lease copy or `undefined`, never the Map itself. Then add explicit assertions:
+
+```ts
+assert.ok(getActiveLeaseSnapshotForTest(controlPlane, "A"));
+const accepted = ControlPlane.dispatchCommand(controlPlane, makeFailCommand({ leaseId }));
+assert.equal(accepted.ok, true);
+assert.equal(getActiveLeaseSnapshotForTest(controlPlane, "A"), undefined);
+```
+
+Add a rejected `task.fail` case that records the Lease snapshot before dispatch and asserts the same Lease identity remains present afterward. Also add rejection and atomicity tests for foreign project, missing task, own-key IDs `toString`/`constructor`/`__proto__`, invalid lifecycle from ready, missing Lease, wrong Lease ID, and wrong Worker ID. For every rejection assert unchanged graph snapshot, unchanged Event Log, and unchanged active Lease where applicable.
 
 - [ ] **Step 2: Run the focused tests to verify RED**
 
@@ -352,19 +393,20 @@ git add packages/execution pnpm-lock.yaml
 git commit -m "feat(execution): add provider-neutral execution contracts"
 ```
 
-## Task 3: Coordinator admission, Lease extraction, fresh snapshot, and success
+## Task 3: Coordinator admission, Lease extraction, start rejection finalization, and success
 
 **Files:**
 
 - Create: packages/execution/src/coordinator.ts
 - Modify: packages/execution/src/index.ts
+- Create: packages/execution/src/test-support.ts
 - Create: packages/execution/test/support/fake-adapter.ts
 - Create: packages/execution/test/coordinator.test.ts
 
 **Interfaces:**
 
 - Consumes: Task 1 task.fail support; Task 2 contracts and workspace helper; public getTaskGraphSnapshot and dispatchCommand; public Protocol PROTOCOL_VERSION, Actor, FlowctlCommand, and FlowctlEvent.
-- Produces: createExecutionCoordinator(options), executeTask(taskId, options?), public Lease extraction, defensive fresh Task input, start ordering, submitted_for_review, and the baseline returned execution_failed -> task.fail path.
+- Produces: createExecutionCoordinator(options), executeTask(taskId, options?), public Lease extraction, defensive fresh Task input, start ordering, start-rejection finalization, submitted_for_review, and the baseline returned execution_failed -> task.fail path.
 
 - [ ] **Step 1: Write RED tests**
 
@@ -427,6 +469,47 @@ test("returned execution failure finalizes the admitted Task", async () => {
 });
 ```
 
+Add two start-rejection tests using a source-test-only `ControlPlaneOperations`
+gateway introduced in this task: the gateway intercepts only the `task.start`
+Command and returns a valid public-shaped `CommandProcessingResult` failure,
+while delegating `task.claim` and `task.fail` to the real Control Plane. The
+underlying Control Plane therefore remains `claimed` with its trusted Lease
+when the synthetic start rejection is returned. Assert:
+
+```text
+task.start rejected -> real task.fail accepted -> start_rejected_finalized
+task.start rejected -> synthetic task.fail rejection -> start_rejected_unfinalized
+```
+
+The gateway is not a fake authority: it has exactly the public
+`getTaskGraphSnapshot` and `dispatchCommand` function signatures, performs no
+private-state mutation, returns no private state, and is not re-exported from
+`src/index.ts` or package exports. It exists only to make a public-contract
+rejection possible without destroying the claimed Task before the Coordinator
+can attempt finalization.
+
+Define the source-test-only gateway with these exact public function
+signatures; its default implementation delegates both operations directly to
+the real package functions:
+
+```ts
+export interface ControlPlaneOperations {
+  getTaskGraphSnapshot: typeof getTaskGraphSnapshot;
+  dispatchCommand: typeof dispatchCommand;
+}
+
+export function createExecutionCoordinatorForTest(
+  options: ExecutionCoordinatorOptions,
+  operations: ControlPlaneOperations
+): ExecutionCoordinatorCreationResult;
+```
+
+The Task 3 start-rejection fixture supplies an operations object that delegates
+`task.claim` and `task.fail` to the real Control Plane and intercepts only
+`task.start` with a synthetic failure. A second fixture intercepts `task.fail`
+as well. This source-only helper is test infrastructure, is not a fake
+authority, and is not exported by the package facade.
+
 - [ ] **Step 2: Run RED**
 
 ```bash
@@ -435,7 +518,7 @@ pnpm --filter @flowctl/execution test
 
 Expected: FAIL because the factory and Coordinator orchestration do not yet exist.
 
-- [ ] **Step 3: Implement the minimal success path**
+- [ ] **Step 3: Implement the minimal admitted path and start finalization**
 
 Implement the factory with workspace validation and the Coordinator with this exact sequence:
 
@@ -447,7 +530,9 @@ public graph snapshot -> projectId
 -> fresh public graph snapshot
 -> canonical own-key Task lookup
 -> task.start
--> if rejected: return start rejection for Task 4 finalization
+-> if rejected: task.fail with reason execution_start_rejected
+-> accepted task.fail: start_rejected_finalized
+-> rejected task.fail: start_rejected_unfinalized
 -> defensive ExecutionInput
 -> Adapter.execute
 -> on succeeded: task.complete
@@ -458,6 +543,14 @@ public graph snapshot -> projectId
 ```
 
 Use Object.hasOwn for Task lookup. Construct Commands with PROTOCOL_VERSION, configured Actor, now(), nextCommandId(), graph projectId, workerId, and extracted leaseId. Never use Event Log history, assignedWorkerId, private Lease state, CoreState, or a pre-claim Task reference.
+
+Implement the internal `finalizeFailure` primitive in this task, because
+`ExecutionAttemptResult` already contains the two frozen start-rejection
+variants. It creates and dispatches the existing `task.fail` Command through
+the injected public operations and maps the result to
+`start_rejected_finalized` or `start_rejected_unfinalized`. Task 4 may
+generalize/refactor this same primitive; it must not introduce a temporary
+`start_rejected` result variant or leave an unhandled branch for a later task.
 
 Production source imports only public Control Plane functions:
 
@@ -480,7 +573,7 @@ Expected: all admission, Lease, snapshot, ordering, and success tests pass; dist
 
 - [ ] **Step 5: Add focused regressions**
 
-Prove stale/non-ready/already-leased admission has zero Adapter calls; the Adapter sees claimed status and a fresh Task snapshot; mutation of Task arrays cannot affect future snapshots; mutation of returned Events cannot affect Event Log history; and no review approval Command is dispatched.
+Prove stale/non-ready/already-leased admission has zero Adapter calls; the Adapter sees claimed status and a fresh Task snapshot; mutation of Task arrays cannot affect future snapshots; mutation of returned Events cannot affect Event Log history; no review approval Command is dispatched; and both start-rejection finalization variants are returned with no Adapter call.
 
 ```bash
 pnpm --filter @flowctl/execution test
@@ -499,16 +592,16 @@ git commit -m "feat(execution): orchestrate admitted task success"
 
 - Modify: packages/execution/src/coordinator.ts
 - Modify: packages/execution/src/types.ts
-- Create: packages/execution/src/test-support.ts
+- Modify: packages/execution/src/test-support.ts
 - Modify: packages/execution/test/support/fake-adapter.ts
 - Modify: packages/execution/test/coordinator.test.ts
 
 **Interfaces:**
 
-- Consumes: task.fail support, fixed result unions, and Task 3 admission/start/success flow.
-- Produces: generalized returned-failure, throw/rejection, start-rejection, and completion-rejection finalization with visible finalized/unfinalized variants; a minimal source-test Control Plane operations seam.
+- Consumes: task.fail support, fixed result unions, Task 3 admission/start/success flow, and its source-test-only public-operation gateway.
+- Produces: generalized returned-failure, throw/rejection, start-rejection, and completion-rejection finalization with visible finalized/unfinalized variants; a precise source-test Control Plane operations seam that uses the real Control Plane for every non-intercepted Command.
 
-- [ ] **Step 1: Extend FakeAdapter deterministically**
+- [ ] **Step 1: Extend FakeAdapter and make the public-operation seam precise**
 
 Support:
 
@@ -519,9 +612,10 @@ type FakeAdapterMode =
   | { kind: "reject"; error: Error };
 ```
 
-Retain call recording. A test-only beforeResolve callback may simulate an external public Control Plane mutation; it is not part of AgentAdapter.
+Retain call recording. Do not use a callback that pre-finalizes the Task as a
+completion-rejection mechanism.
 
-Create test-support.ts with this minimal source-test-only seam:
+Define or refine the source-test-only seam from Task 3 as:
 
 ```ts
 export interface ControlPlaneOperations {
@@ -535,7 +629,37 @@ export function createExecutionCoordinatorForTest(
 ): ExecutionCoordinatorCreationResult;
 ```
 
-It routes Coordinator calls through exactly those public operations. Do not re-export this module from src/index.ts or expose it through package exports.
+The wrapper must intercept only the configured Command types in each test:
+
+```text
+start-rejection test:
+  task.claim -> real dispatchCommand
+  task.start -> synthetic public-shaped rejection, no state mutation
+  task.fail -> real dispatchCommand
+
+completion-rejection/finalized test:
+  task.claim -> real dispatchCommand
+  task.start -> real dispatchCommand
+  task.complete -> synthetic public-shaped rejection, no state mutation
+  task.fail -> real dispatchCommand
+
+completion-rejection/unfinalized test:
+  task.claim -> real dispatchCommand
+  task.start -> real dispatchCommand
+  task.complete -> synthetic public-shaped rejection, no state mutation
+  task.fail -> synthetic public-shaped rejection, no state mutation
+```
+
+All other Commands are delegated to the real `dispatchCommand`, and graph
+snapshots are delegated to the real `getTaskGraphSnapshot`. Synthetic failures
+must be valid `CommandProcessingResult` failure objects with the intercepted
+Command's `commandId` and task identifiers; they return no Events. The seam
+must not mutate a private Control Plane state, inspect or create an active
+Lease map, or act as an alternate authority. It is only a deterministic test
+gateway for public-contract rejection/invariant paths that cannot be produced
+naturally immediately after a real accepted claim. Keep it out of
+`src/index.ts` and package exports; tests may import it only through the source
+path.
 
 - [ ] **Step 2: Write RED tests**
 
@@ -552,9 +676,19 @@ start reject     -> task.fail reason execution_start_rejected
 complete reject  -> task.fail reason execution_completion_rejected
 ```
 
-For completion rejection, the test-only callback dispatches task.fail through the public Control Plane before returning Adapter success. The Coordinator's task.complete then rejects, requiring a second task.fail attempt. Test both completion_rejected_finalized and completion_rejected_unfinalized.
+For completion rejection, the seam returns a synthetic rejection for
+`task.complete` while the real Control Plane remains `running` with its
+trusted Lease. The Coordinator then attempts `task.fail`: delegate that
+Command to the real Control Plane for `completion_rejected_finalized`, and
+intercept it with another synthetic rejection for
+`completion_rejected_unfinalized`. This proves both outcomes without private
+state mutation or a pre-finalizing callback.
 
-Use public snapshots and claim attempts to prove Lease cleanup. Use createExecutionCoordinatorForTest with the minimal ControlPlaneOperations seam to simulate rejected finalization; it carries no private state and is not exported from the package root.
+Use the Control Plane package's Task 1 test-only Lease seam for direct Lease
+cleanup/atomicity proofs; execution tests use only public graph/Event snapshots
+and Command results. Use createExecutionCoordinatorForTest with the precise
+public-operation seam to simulate rejected finalization; it carries no private
+state and is not exported from the package root.
 
 - [ ] **Step 3: Run RED**
 
@@ -626,6 +760,11 @@ git commit -m "feat(execution): finalize execution failures through control plan
 
 - Consumes: all prior Control Plane and execution contracts.
 - Produces: trusted/missing Lease invariant handling, per-instance busy semantics, caller signal forwarding, root public-import wiring, and reproducible final validation.
+
+At the start of implementation, immediately after entering the worktree based
+on the approved plan, capture `IMPLEMENTATION_BASE_SHA` as specified in the
+repository map. Do not replace it with `origin/main` later. Capture
+`PR_BASE_SHA` separately only when inspecting the complete future PR diff.
 
 - [ ] **Step 1: Write RED tests for invariants**
 
@@ -743,7 +882,6 @@ Expected: existing Protocol/Core/Control Plane/Playground tests plus execution t
 - [ ] **Step 9: Verify protected paths and SDD artifacts**
 
 ```bash
-IMPLEMENTATION_BASE_SHA="$(git rev-parse origin/main)"
 git diff --name-only "$IMPLEMENTATION_BASE_SHA"..HEAD -- \
   packages/protocol \
   packages/core \
@@ -778,12 +916,14 @@ Expected: all commands pass without pre-existing dist, dist-test, node_modules, 
 ```bash
 git diff --check
 git status --short --branch
-IMPLEMENTATION_BASE_SHA="$(git rev-parse origin/main)"
 git diff --name-only "$IMPLEMENTATION_BASE_SHA"..HEAD -- packages/protocol packages/core apps/playground
 git diff --stat "$IMPLEMENTATION_BASE_SHA"..HEAD
+PR_BASE_SHA="$(git rev-parse origin/main)"
+readonly PR_BASE_SHA
+git diff --stat "$PR_BASE_SHA"..HEAD
 ```
 
-Expected: clean diff check, clean working tree, empty protected-path diff, and only the planned Control Plane, execution, root integration, and documentation changes.
+Expected: clean diff check, clean working tree, empty protected-path diff relative to the immutable implementation base, and only the planned Control Plane, execution, root integration, and documentation changes. The separate PR diff may also include the approved spec, spec hardenings, and plan.
 
 - [ ] **Step 12: Commit**
 
@@ -803,15 +943,18 @@ git commit -m "test(execution): harden invariants and package integration"
 - Workspace validation: Task 2 and Task 3.
 - Claim, Lease extraction, fresh snapshot, and start ordering: Task 3.
 - Success to review: Task 3.
-- Existing task.fail and Lease cleanup: Task 1.
+- Existing task.fail and direct active-Lease cleanup/atomicity proof: Task 1.
+- Start rejection finalized/unfinalized without a temporary result variant: Task 3.
 - Returned failure reasons: Task 4.
 - Adapter throw/rejection: Task 4.
 - Start and completion rejection finalization: Task 4.
+- Precise public-operation rejection seam with real Control Plane delegation: Tasks 3 and 4.
 - Trusted-Lease invariant: Task 5.
 - Missing-Lease invariant: Task 5.
 - invariant_error context: Tasks 2 and 5.
 - Busy gate and signal forwarding: Task 5.
 - Defensive boundaries: Task 3.
+- Immutable implementation baseline versus separate PR baseline: Repository map and Task 5.
 - Protocol/Core/Playground freeze: Global Constraints and Task 5.
 - Provider-free CI and no ProcessRunner: Global Constraints and Task 5.
 - Clean archive reproducibility: Task 5.
@@ -837,7 +980,7 @@ Later tasks use public CommandProcessingResult narrowing and do not introduce a 
 
 ### Scope confirmation
 
-This is one implementation plan for #6a. It does not implement Codex, any provider, ProcessRunner, process execution, Worker Registry, scheduler, retry/requeue, lease release, persistence, transport, UI, Planner, LLM, or Protocol/Core/Playground changes.
+This is one implementation plan for #6a. It does not implement Codex, any provider, ProcessRunner, process execution, Worker Registry, scheduler, retry/requeue, lease release, persistence, transport, UI, Planner, LLM, or Protocol/Core/Playground changes. The only test-only state observation is the smallest internal Control Plane seam needed to prove active Lease removal and rejection atomicity; it is not a runtime or package-root API.
 
 ## Commits planned
 
