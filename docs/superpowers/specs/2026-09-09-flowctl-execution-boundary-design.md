@@ -107,7 +107,9 @@ adapter
 workspacePath
 ~~~
 
-One Coordinator has at most one in-flight attempt. A concurrent executeTask call returns a worker-busy result before dispatching a Command or invoking the Adapter.
+The configured worker identity is per Coordinator instance, and one Coordinator instance has at most one in-flight attempt. A concurrent executeTask call on that same instance returns a worker-busy result before dispatching a Command or invoking the Adapter.
+
+Creating multiple Coordinator instances with the same workerId is outside the #6a concurrency guarantee. Cross-Coordinator Worker identity and concurrency enforcement are deferred until a Worker Registry or equivalent authority exists.
 
 No Worker Registry, pool, dynamic assignment, discovery, registration, unregister operation, online/offline lifecycle, or Worker status machine is introduced. Protocol Worker remains a serializable domain contract, not a process manager.
 
@@ -249,7 +251,7 @@ claimResult.events → lease.created → payload.lease.id
 
 The Coordinator verifies taskId and workerId against the extracted Lease. It never reads activeLeaseByTaskId, ControlPlaneState, CoreState, or assignedWorkerId.
 
-An accepted claim without a matching lease.created Event is a Control Plane/public-contract invariant violation. The normal Control Plane contract makes this path unreachable, and tests must defend that premise. It is not a normal AgentAdapter failure: the Coordinator MUST NOT access private Lease state, fabricate a leaseId, create a release Command, or silently map the condition to execution_failed. If surfaced, it is reported as invariant_error and the busy gate is released. Without a trusted Lease identity, no task.fail recovery attempt is possible or permitted.
+An accepted claim without a matching lease.created Event is a Control Plane/public-contract invariant violation. The normal Control Plane contract makes this path unreachable, and tests must defend that premise. It is not a normal AgentAdapter failure: the Coordinator MUST NOT access private Lease state, fabricate a leaseId, create a release Command, or silently map the condition to execution_failed. If surfaced, it is reported as invariant_error and the busy gate is released. Without a trusted Lease identity, no task.fail recovery attempt is possible or permitted. With a trusted Lease identity and a Task lifecycle supported by task.fail, the Coordinator MUST attempt task.fail before returning invariant_error; the result carries the finalization outcome.
 
 ## 18. Start semantics
 
@@ -463,7 +465,7 @@ The normalized message is short and sanitized. It does not expose a full stack b
 
 Control Plane tests cover task.fail from claimed and running, exact task.failed payload, Lease cleanup, invalid project/task/lifecycle/Lease, rejection atomicity, existing dispatch precedence, and own-key lookup.
 
-Execution tests cover admission rejection with zero Adapter calls, public Lease extraction, fresh Task snapshot, start-before-Adapter ordering, success to review, no auto approval, returned Adapter failure to failed, Adapter throw/rejected Promise to failed, Lease removal, start-rejection finalization, completion rejection followed by task.fail, visible finalization failure, defensive input, concurrent-call rejection, busy-gate release after every exit path, AbortSignal forwarding, all retained failed reasons using identical finalization semantics, and workspace validation.
+Execution tests cover admission rejection with zero Adapter calls, public Lease extraction, fresh Task snapshot, start-before-Adapter ordering, success to review, no auto approval, returned Adapter failure to failed, Adapter throw/rejected Promise to failed, Lease removal, start-rejection finalization, completion rejection followed by task.fail, visible finalization failure, defensive input, concurrent-call rejection, busy-gate release after every exit path, AbortSignal forwarding, all retained failed reasons using identical finalization semantics, workspace validation, trusted-Lease post-claim invariant followed by task.fail, the same invariant with rejected finalization, missing-Lease invariant with no task.fail, and a second attempt allowed after every error path.
 
 The required black-box proof is that after failed execution is finalized, a new claim does not observe the old Lease, without exposing the Lease map.
 
@@ -501,7 +503,7 @@ The following are explicitly excluded:
 - ProcessRunner and child processes;
 - JSONL, stdout, stderr, sandbox, and provider authentication;
 - real-agent smoke;
-- Worker Registry, worker pool, multiple workers, or concurrency greater than one;
+- Worker Registry, worker pool, multiple workers, global workerId uniqueness, cross-Coordinator exclusivity, or concurrency greater than one per Coordinator instance;
 - scheduler daemon, polling, automatic claim, queue, and executeNext loop;
 - lease.release, heartbeat, expiry, retry, requeue, reassignment, and post-failure recovery beyond terminal task.fail finalization;
 - persistence, Event Store, database, REST, HTTP, WebSocket, and SSE;
@@ -554,6 +556,37 @@ FakeAdapter calls = 0
 
 All rejected Commands leave Core state, active Lease state, and Event Log unchanged.
 
+Trusted-Lease invariant:
+
+~~~text
+claim accepted
+↓ Lease extracted
+↓ post-claim Task snapshot invariant
+↓ task.fail attempted
+↓ FAILED and Lease removed
+OR invariant_error with visible finalization rejection
+~~~
+
+Missing-Lease invariant:
+
+~~~text
+claim accepted
+↓ no trustworthy Lease identity
+↓ invariant_error
+↓ no fabricated recovery and no task.fail
+~~~
+
+Concurrency:
+
+~~~text
+same Coordinator instance
+overlapping executeTask calls
+↓
+second result = worker_busy
+~~~
+
+Multiple Coordinator instances with the same workerId are explicitly outside this guarantee.
+
 Adapter exception:
 
 ~~~text
@@ -601,12 +634,16 @@ The scope was checked for:
 - no Protocol or Core modification;
 - no provider implementation, ProcessRunner, Worker Registry, scheduler daemon, retry, requeue, or Lease release;
 - no direct Lease/Core access;
+- no trusted Lease silently orphaned by a post-claim invariant;
+- missing Lease never causes fabricated recovery;
 - Adapter only after accepted start;
 - success ending in review;
 - failure finalized through task.fail;
 - completion rejection also finalized through task.fail;
 - Adapter throw/rejection cannot bypass task.fail;
 - busy gate released on every exit path;
+- concurrency guarantee is per Coordinator instance only;
+- no global Worker authority was introduced;
 - invariant failures do not access private state;
 - AbortSignal has an explicit caller-to-Adapter path;
 - atomic Lease removal on accepted failure;
