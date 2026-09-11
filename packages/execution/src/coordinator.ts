@@ -2,6 +2,7 @@ import { dispatchCommand, getTaskGraphSnapshot } from "@flowctl/control-plane";
 import { PROTOCOL_VERSION } from "@flowctl/protocol";
 import type { FlowctlCommand, FlowctlEvent } from "@flowctl/protocol";
 import type {
+  ExecuteTaskOptions,
   ExecutionAttemptResult,
   ExecutionCoordinatorCreationResult,
   ExecutionCoordinatorOptions,
@@ -38,124 +39,153 @@ export function createExecutionCoordinatorWithOperations(
   }
 
   const { controlPlane, workerId, adapter, workspacePath, actor, now, nextCommandId } = options;
+  let busy = false;
 
   return {
     ok: true,
     coordinator: {
-      async executeTask(taskId): Promise<ExecutionAttemptResult> {
-        const { projectId } = operations.getTaskGraphSnapshot(controlPlane);
-        const envelope = () => ({
-          id: nextCommandId(),
-          protocolVersion: PROTOCOL_VERSION,
-          timestamp: now(),
-          projectId,
-          actor: { ...actor }
-        });
-        const claimCommand: FlowctlCommand = {
-          ...envelope(),
-          type: "task.claim",
-          payload: { taskId, workerId }
-        };
-        const claim = operations.dispatchCommand(controlPlane, claimCommand);
-        if (!claim.ok) {
-          return { kind: "admission_rejected", taskId, rejection: claim };
-        }
-
-        const leaseEvents = claim.events.filter(
-          (event): event is Extract<FlowctlEvent, { type: "lease.created" }> =>
-            event.type === "lease.created" &&
-            event.projectId === projectId &&
-            event.payload.lease.taskId === taskId &&
-            event.payload.lease.workerId === workerId
-        );
-        if (leaseEvents.length !== 1) {
-          return {
-            kind: "invariant_error",
-            taskId,
-            stage: "lease_extraction",
-            message: "Accepted claim must contain exactly one matching lease.created Event."
-          };
-        }
-        const leaseId = leaseEvents[0].payload.lease.id;
-        const identity = { taskId, workerId, leaseId };
-        const finalizeFailure = (reason: string) => {
-          const command: FlowctlCommand = {
-            ...envelope(),
-            type: "task.fail",
-            payload: { ...identity, reason }
-          };
-          return operations.dispatchCommand(controlPlane, command);
-        };
-
-        const graph = operations.getTaskGraphSnapshot(controlPlane);
-        const task = Object.hasOwn(graph.tasks, taskId) ? graph.tasks[taskId] : undefined;
-        if (task === undefined || task.id !== taskId) {
-          return {
-            kind: "invariant_error",
-            taskId,
-            stage: "post_claim_snapshot",
-            message: "Accepted claim has no canonical Task in the fresh snapshot.",
-            finalization: finalizeFailure("execution_invariant_error")
-          };
-        }
-
-        const startCommand: FlowctlCommand = {
-          ...envelope(),
-          type: "task.start",
-          payload: { ...identity }
-        };
-        const start = operations.dispatchCommand(controlPlane, startCommand);
-        if (!start.ok) {
-          const finalization = finalizeFailure("execution_start_rejected");
-          return finalization.ok
-            ? { kind: "start_rejected_finalized", taskId, startRejection: start, finalization }
-            : { kind: "start_rejected_unfinalized", taskId, startRejection: start, finalization };
-        }
-
-        const input: ExecutionInput = {
-          projectId,
-          ...identity,
-          workspacePath,
-          task: {
-            ...task,
-            dependencies: [...task.dependencies],
-            acceptanceCriteria: task.acceptanceCriteria.map((criterion) => ({ ...criterion }))
-          }
-        };
-        let execution: ExecutionResult;
-        let adapterException = false;
+      async executeTask(taskId, attemptOptions): Promise<ExecutionAttemptResult> {
+        if (busy) return { kind: "worker_busy", taskId };
+        busy = true;
         try {
-          execution = await adapter.execute(input);
-        } catch {
-          adapterException = true;
-          execution = {
-            kind: "failed",
-            reason: "execution_failed",
-            // Arbitrary error messages may contain secrets, prompts, or stacks.
-            message: "Adapter execution failed unexpectedly."
-          };
+          return await runAttempt(taskId, attemptOptions);
+        } finally {
+          busy = false;
         }
-        if (execution.kind === "failed") {
-          const finalization = finalizeFailure(adapterException ? "adapter_exception" : execution.reason);
-          return finalization.ok
-            ? { kind: "execution_failed_finalized", taskId, execution, finalization }
-            : { kind: "execution_failed_unfinalized", taskId, execution, finalization };
-        }
-
-        const completeCommand: FlowctlCommand = {
-          ...envelope(),
-          type: "task.complete",
-          payload: { ...identity }
-        };
-        const completion = operations.dispatchCommand(controlPlane, completeCommand);
-        if (!completion.ok) {
-          const finalization = finalizeFailure("execution_completion_rejected");
-          return finalization.ok
-            ? { kind: "completion_rejected_finalized", taskId, completionRejection: completion, finalization }
-            : { kind: "completion_rejected_unfinalized", taskId, completionRejection: completion, finalization };
-        }
-        return { kind: "submitted_for_review", taskId, completion };
       }
     }
   };
+
+  async function runAttempt(taskId: string, attemptOptions?: ExecuteTaskOptions): Promise<ExecutionAttemptResult> {
+    const { projectId } = operations.getTaskGraphSnapshot(controlPlane);
+    const envelope = () => ({
+      id: nextCommandId(),
+      protocolVersion: PROTOCOL_VERSION,
+      timestamp: now(),
+      projectId,
+      actor: { ...actor }
+    });
+    const claimCommand: FlowctlCommand = {
+      ...envelope(),
+      type: "task.claim",
+      payload: { taskId, workerId }
+    };
+    const claim = operations.dispatchCommand(controlPlane, claimCommand);
+    if (!claim.ok) {
+      return { kind: "admission_rejected", taskId, rejection: claim };
+    }
+
+    const leaseEvents = claim.events.filter(
+      (event): event is Extract<FlowctlEvent, { type: "lease.created" }> =>
+        event.type === "lease.created" &&
+        event.projectId === projectId &&
+        event.payload.lease.taskId === taskId &&
+        event.payload.lease.workerId === workerId
+    );
+    if (leaseEvents.length !== 1) {
+      return {
+        kind: "invariant_error",
+        taskId,
+        stage: "lease_extraction",
+        message: "Accepted claim must contain exactly one matching lease.created Event."
+      };
+    }
+    const leaseId = leaseEvents[0].payload.lease.id;
+    const identity = { taskId, workerId, leaseId };
+    let finalizationAttempted = false;
+    const finalizeFailure = (reason: string) => {
+      finalizationAttempted = true;
+      const command: FlowctlCommand = {
+        ...envelope(),
+        type: "task.fail",
+        payload: { ...identity, reason }
+      };
+      return operations.dispatchCommand(controlPlane, command);
+    };
+
+    let stage: "post_claim_snapshot" | "post_start" = "post_claim_snapshot";
+    try {
+      const graph = operations.getTaskGraphSnapshot(controlPlane);
+      const task = Object.hasOwn(graph.tasks, taskId) ? graph.tasks[taskId] : undefined;
+      if (task === undefined || task.id !== taskId) {
+        return {
+          kind: "invariant_error",
+          taskId,
+          stage: "post_claim_snapshot",
+          message: "Accepted claim has no canonical Task in the fresh snapshot.",
+          finalization: finalizeFailure("execution_invariant_error")
+        };
+      }
+
+      const startCommand: FlowctlCommand = {
+        ...envelope(),
+        type: "task.start",
+        payload: { ...identity }
+      };
+      const start = operations.dispatchCommand(controlPlane, startCommand);
+      if (!start.ok) {
+        const finalization = finalizeFailure("execution_start_rejected");
+        return finalization.ok
+          ? { kind: "start_rejected_finalized", taskId, startRejection: start, finalization }
+          : { kind: "start_rejected_unfinalized", taskId, startRejection: start, finalization };
+      }
+      stage = "post_start";
+
+      const input: ExecutionInput = {
+        projectId,
+        ...identity,
+        workspacePath,
+        signal: attemptOptions?.signal,
+        task: {
+          ...task,
+          dependencies: [...task.dependencies],
+          acceptanceCriteria: task.acceptanceCriteria.map((criterion) => ({ ...criterion }))
+        }
+      };
+      let execution: ExecutionResult;
+      let adapterException = false;
+      try {
+        execution = await adapter.execute(input);
+      } catch {
+        adapterException = true;
+        execution = {
+          kind: "failed",
+          reason: "execution_failed",
+          // Arbitrary error messages may contain secrets, prompts, or stacks.
+          message: "Adapter execution failed unexpectedly."
+        };
+      }
+      if (execution.kind === "failed") {
+        const finalization = finalizeFailure(adapterException ? "adapter_exception" : execution.reason);
+        return finalization.ok
+          ? { kind: "execution_failed_finalized", taskId, execution, finalization }
+          : { kind: "execution_failed_unfinalized", taskId, execution, finalization };
+      }
+
+      const completeCommand: FlowctlCommand = {
+        ...envelope(),
+        type: "task.complete",
+        payload: { ...identity }
+      };
+      const completion = operations.dispatchCommand(controlPlane, completeCommand);
+      if (!completion.ok) {
+        const finalization = finalizeFailure("execution_completion_rejected");
+        return finalization.ok
+          ? { kind: "completion_rejected_finalized", taskId, completionRejection: completion, finalization }
+          : { kind: "completion_rejected_unfinalized", taskId, completionRejection: completion, finalization };
+      }
+      return { kind: "submitted_for_review", taskId, completion };
+    } catch (error) {
+      // A throwing finalization is a programming error, not a public rejection.
+      // Never retry it or misclassify it as an Adapter failure.
+      if (finalizationAttempted) throw error;
+      return {
+        kind: "invariant_error",
+        taskId,
+        stage,
+        message: "Control Plane execution contract failed unexpectedly.",
+        finalization: finalizeFailure("execution_invariant_error")
+      };
+    }
+  }
 }

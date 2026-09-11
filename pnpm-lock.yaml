@@ -11,6 +11,9 @@ importers:
       '@flowctl/control-plane':
         specifier: workspace:*
         version: link:packages/control-plane
+      '@flowctl/execution':
+        specifier: workspace:*
+        version: link:packages/execution
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1

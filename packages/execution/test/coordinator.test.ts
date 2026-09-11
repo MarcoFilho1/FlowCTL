@@ -344,6 +344,254 @@ test("public runtime facade exposes only the coordinator factory", () => {
   assert.deepEqual(Object.keys(Execution), ["createExecutionCoordinator"]);
 });
 
+type SnapshotAnomaly = "absent" | "wrong-id" | "snapshot-throw" | "post-start-copy";
+
+// Alter only the fresh public snapshot; all Commands still reach the real plane.
+function withSnapshotAnomaly(
+  operations: ControlPlaneOperations,
+  anomaly: SnapshotAnomaly
+): ControlPlaneOperations {
+  let snapshots = 0;
+  return {
+    ...operations,
+    getTaskGraphSnapshot(plane) {
+      const graph = operations.getTaskGraphSnapshot(plane);
+      if (++snapshots !== 2) return graph;
+      if (anomaly === "snapshot-throw") throw new Error("public snapshot unavailable");
+      if (anomaly === "absent") delete graph.tasks.A;
+      if (anomaly === "wrong-id") graph.tasks.A.id = "foreign-task";
+      if (anomaly === "post-start-copy") {
+        Object.defineProperty(graph.tasks.A, "dependencies", {
+          enumerable: true,
+          get() { throw new Error("public Task cannot be copied"); }
+        });
+      }
+      return graph;
+    }
+  };
+}
+
+for (const anomaly of ["absent", "wrong-id", "snapshot-throw", "post-start-copy"] as const) {
+  for (const rejectFail of [false, true]) {
+    test(`trusted Lease ${anomaly} invariant carries ${rejectFail ? "rejected" : "accepted"} real finalization`, async (t) => {
+      const { coordinatorOptions, operations, commands, adapter, controlPlane, statesAtRejection, eventsAtRejection } =
+        makeExecutionFixture(t, { reject: rejectFail ? ["task.fail"] : [] });
+      const created = createExecutionCoordinatorForTest(coordinatorOptions, withSnapshotAnomaly(operations, anomaly));
+      assert.ok(created.ok);
+      const result = await created.coordinator.executeTask("A");
+      assert.equal(result.kind, "invariant_error");
+      assert.ok(result.kind === "invariant_error");
+      assert.equal(result.taskId, "A");
+      assert.equal(result.stage, anomaly === "post-start-copy" ? "post_start" : "post_claim_snapshot");
+      assert.ok(result.message.length > 0);
+      assert.ok(result.finalization);
+      assert.equal(result.finalization.ok, !rejectFail);
+      assert.equal(adapter.calls.length, 0);
+      assert.deepEqual(commands.map((command) => command.type), anomaly === "post-start-copy"
+        ? ["task.claim", "task.start", "task.fail"] : ["task.claim", "task.fail"]);
+      const fail = commands.at(-1)!;
+      assert.deepEqual(fail.payload, {
+        taskId: "A", workerId: "W1", leaseId: "L1", reason: "execution_invariant_error"
+      });
+      if (result.finalization.ok) {
+        assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A.status, "failed");
+        assert.equal(result.finalization.events.length, 1);
+        assert.equal(result.finalization.events[0].type, "task.failed");
+        assert.deepEqual(result.finalization.events[0].payload, fail.payload);
+        assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane).map((event) => event.type),
+          anomaly === "post-start-copy" ? ["lease.created", "task.claimed", "task.started", "task.failed"]
+            : ["lease.created", "task.claimed", "task.failed"]);
+      } else {
+        assert.deepEqual(result.finalization, {
+          ok: false, code: "LEASE_MISMATCH", commandId: fail.id,
+          taskId: "A", workerId: "W1", leaseId: "L1"
+        });
+        assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), statesAtRejection[0]);
+        assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), eventsAtRejection[0]);
+        assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A.status,
+          anomaly === "post-start-copy" ? "running" : "claimed");
+        assert.ok(ControlPlane.dispatchCommand(controlPlane, { ...fail, id: "real-invariant-fail" }).ok);
+      }
+    });
+  }
+}
+
+test("busy gate rejects overlap without Commands and remains held until the Adapter settles", async (t) => {
+  const { coordinator, adapter, commands, controlPlane } = makeExecutionFixture(t, { adapterMode: { kind: "deferred" } });
+  const called = adapter.waitUntilCalled();
+  const first = coordinator.executeTask("A");
+  await called;
+  const graph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const events = ControlPlane.getEventLogSnapshot(controlPlane);
+  try {
+    assert.deepEqual(await coordinator.executeTask("A"), { kind: "worker_busy", taskId: "A" });
+    assert.deepEqual(await coordinator.executeTask("B"), { kind: "worker_busy", taskId: "B" });
+    assert.equal(adapter.calls.length, 1);
+    assert.deepEqual(commands.map((command) => command.type), ["task.claim", "task.start"]);
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), graph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), events);
+  } finally {
+    adapter.resolve({ kind: "succeeded" });
+    await first;
+  }
+  assert.equal((await coordinator.executeTask("A")).kind, "admission_rejected");
+});
+
+test("busy gate belongs to one Coordinator even when worker and Control Plane are shared", async (t) => {
+  const { coordinator, coordinatorOptions, adapter, controlPlane } = makeExecutionFixture(t, {
+    adapterMode: { kind: "deferred" },
+    graph: { projectId: "P1", rootTaskIds: ["A", "Q"], tasks: { A: makeTask("A"), Q: makeTask("Q") } }
+  });
+  const otherAdapter = new FakeAdapter({ kind: "deferred" });
+  const other = Execution.createExecutionCoordinator({ ...coordinatorOptions, adapter: otherAdapter });
+  assert.ok(other.ok);
+  const first = coordinator.executeTask("A");
+  await adapter.waitUntilCalled();
+  const second = other.coordinator.executeTask("Q");
+  await otherAdapter.waitUntilCalled();
+  assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.Q.status, "running");
+  adapter.resolve({ kind: "succeeded" });
+  otherAdapter.resolve({ kind: "succeeded" });
+  assert.equal((await first).kind, "submitted_for_review");
+  assert.equal((await second).kind, "submitted_for_review");
+});
+
+for (const preAborted of [false, true]) {
+  test(`caller signal is forwarded unchanged (${preAborted ? "already aborted" : "aborted in flight"})`, async (t) => {
+    const { coordinator, adapter, commands } = makeExecutionFixture(t, { adapterMode: { kind: "deferred" } });
+    const controller = new AbortController();
+    if (preAborted) controller.abort();
+    const attempt = coordinator.executeTask("A", { signal: controller.signal });
+    await adapter.waitUntilCalled();
+    try {
+      assert.strictEqual(adapter.calls[0].signal, controller.signal);
+      if (!preAborted) controller.abort();
+      assert.equal(adapter.calls[0].signal.aborted, true);
+      assert.deepEqual(commands.map((command) => command.type), ["task.claim", "task.start"]);
+    } finally {
+      adapter.resolve({ kind: "succeeded" });
+    }
+    assert.equal((await attempt).kind, "submitted_for_review");
+  });
+}
+
+const exitCases: {
+  name: string;
+  expected: Execution.ExecutionAttemptResult["kind"] | "throws";
+  reject?: FlowctlCommand["type"][];
+  adapterMode?: FakeAdapterMode;
+  deferredResult?: Execution.ExecutionResult;
+  deferredReject?: boolean;
+  anomaly?: SnapshotAnomaly | "missing-lease";
+  throwAt?: "initial-snapshot" | "task.start" | "task.complete" | "task.fail";
+}[] = [
+  { name: "admission rejection", expected: "admission_rejected" },
+  { name: "start rejection finalized", expected: "start_rejected_finalized", reject: ["task.start"] },
+  { name: "start rejection unfinalized", expected: "start_rejected_unfinalized", reject: ["task.start", "task.fail"] },
+  { name: "review submission", expected: "submitted_for_review", adapterMode: { kind: "deferred" }, deferredResult: { kind: "succeeded" } },
+  { name: "failure finalized", expected: "execution_failed_finalized", adapterMode: { kind: "deferred" }, deferredResult: { kind: "failed", reason: "execution_failed", message: "failed" } },
+  { name: "failure unfinalized", expected: "execution_failed_unfinalized", reject: ["task.fail"], adapterMode: { kind: "deferred" }, deferredResult: { kind: "failed", reason: "execution_failed", message: "failed" } },
+  { name: "completion rejection finalized", expected: "completion_rejected_finalized", reject: ["task.complete"] },
+  { name: "completion rejection unfinalized", expected: "completion_rejected_unfinalized", reject: ["task.complete", "task.fail"] },
+  { name: "Adapter throw", expected: "execution_failed_finalized", adapterMode: { kind: "throw", error: new Error("adapter throw") } },
+  { name: "Adapter throw unfinalized", expected: "execution_failed_unfinalized", reject: ["task.fail"], adapterMode: { kind: "throw", error: new Error("adapter throw") } },
+  { name: "Adapter rejection", expected: "execution_failed_finalized", adapterMode: { kind: "deferred" }, deferredReject: true },
+  { name: "Adapter rejection unfinalized", expected: "execution_failed_unfinalized", reject: ["task.fail"], adapterMode: { kind: "deferred" }, deferredReject: true },
+  { name: "missing Lease invariant", expected: "invariant_error", anomaly: "missing-lease" },
+  { name: "trusted Lease invariant finalized", expected: "invariant_error", anomaly: "absent" },
+  { name: "trusted Lease invariant unfinalized", expected: "invariant_error", anomaly: "absent", reject: ["task.fail"] },
+  { name: "snapshot exception", expected: "invariant_error", anomaly: "snapshot-throw" },
+  { name: "post-start invariant finalized", expected: "invariant_error", anomaly: "post-start-copy" },
+  { name: "post-start invariant unfinalized", expected: "invariant_error", anomaly: "post-start-copy", reject: ["task.fail"] },
+  { name: "initial programming error", expected: "throws", throwAt: "initial-snapshot" },
+  { name: "start public-operation exception", expected: "invariant_error", throwAt: "task.start" },
+  { name: "completion public-operation exception", expected: "invariant_error", throwAt: "task.complete" },
+  { name: "finalization programming error", expected: "throws", throwAt: "task.fail", reject: ["task.start"] }
+];
+
+for (const scenario of exitCases) {
+  test(`busy gate releases after ${scenario.name} and guards the subsequent attempt`, async (t) => {
+    const rejected = [...(scenario.reject ?? [])];
+    const { coordinatorOptions, operations, adapter, commands, controlPlane } = makeExecutionFixture(t, {
+      adapterMode: scenario.adapterMode, reject: rejected,
+      graph: { projectId: "P1", rootTaskIds: ["A", "Q"], tasks: { A: makeTask("A"), Q: makeTask("Q") } }
+    });
+    const anomalyOps = scenario.anomaly && scenario.anomaly !== "missing-lease"
+      ? withSnapshotAnomaly(operations, scenario.anomaly) : operations;
+    let initial = true;
+    let throwingCommandCalls = 0;
+    const bug = new Error("injected programming error");
+    const created = createExecutionCoordinatorForTest(coordinatorOptions, {
+      getTaskGraphSnapshot(plane) {
+        if (initial && scenario.throwAt === "initial-snapshot") { initial = false; throw bug; }
+        return anomalyOps.getTaskGraphSnapshot(plane);
+      },
+      dispatchCommand(plane, command) {
+        if ("taskId" in command.payload && command.payload.taskId === "A" && command.type === scenario.throwAt) {
+          throwingCommandCalls++;
+          throw bug;
+        }
+        const result = anomalyOps.dispatchCommand(plane, command);
+        return scenario.anomaly === "missing-lease" && command.type === "task.claim" && command.payload.taskId === "A" && result.ok
+          ? { ok: true, events: [] } : result;
+      }
+    });
+    assert.ok(created.ok);
+    const { coordinator } = created;
+    const first = coordinator.executeTask(scenario.expected === "admission_rejected" ? "missing" : "A");
+    if (scenario.adapterMode?.kind === "deferred") {
+      await adapter.waitUntilCalled();
+      if (scenario.deferredReject) adapter.reject(new Error("adapter rejection"));
+      else adapter.resolve(scenario.deferredResult!);
+    }
+    if (scenario.expected === "throws") await assert.rejects(first, (error) => error === bug);
+    else {
+      const result = await first;
+      assert.equal(result.kind, scenario.expected);
+      if (result.kind === "invariant_error") {
+        assert.equal(result.stage, scenario.anomaly === "missing-lease" ? "lease_extraction"
+          : scenario.anomaly === "post-start-copy" || scenario.throwAt === "task.complete" ? "post_start"
+            : "post_claim_snapshot");
+        if (scenario.anomaly === "missing-lease") {
+          assert.equal(Object.hasOwn(result, "finalization"), false);
+          assert.deepEqual(commands.map((command) => command.type), ["task.claim"]);
+        } else {
+          assert.equal(result.finalization?.ok, !rejected.includes("task.fail"));
+          assert.deepEqual(commands.at(-1)?.payload, {
+            taskId: "A", workerId: "W1", leaseId: "L1", reason: "execution_invariant_error"
+          });
+          if (result.finalization?.ok) {
+            assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A.status, "failed");
+          }
+        }
+      }
+    }
+    if (scenario.throwAt && scenario.throwAt !== "initial-snapshot") assert.equal(throwingCommandCalls, 1);
+
+    rejected.length = 0;
+    adapter.setMode({ kind: "deferred" });
+    const callCount = adapter.calls.length;
+    const next = coordinator.executeTask("Q");
+    // Also observe settlement so a stuck gate fails promptly instead of hanging.
+    const entered = await Promise.race([
+      adapter.waitUntilCalled(callCount + 1).then(() => true), next.then(() => false)
+    ]);
+    assert.equal(entered, true, "subsequent attempt must reach the Adapter");
+    const commandCount = commands.length;
+    try {
+      assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.Q.status, "running");
+      assert.deepEqual(await coordinator.executeTask("Q"), { kind: "worker_busy", taskId: "Q" });
+      assert.equal(commands.length, commandCount);
+      assert.equal(adapter.calls.length, callCount + 1);
+    } finally {
+      adapter.resolve({ kind: "succeeded" });
+      await next;
+    }
+    assert.equal((await next).kind, "submitted_for_review");
+    assert.equal((await coordinator.executeTask("missing")).kind, "admission_rejected");
+  });
+}
+
 test("missing current claim Lease yields an invariant without fabricated finalization", async (t) => {
   const { coordinatorOptions, operations, commands, adapter } = makeExecutionFixture(t);
   const created = createExecutionCoordinatorForTest(coordinatorOptions, {

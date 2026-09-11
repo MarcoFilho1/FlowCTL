@@ -45,10 +45,12 @@ export interface ExecutionCoordinatorOptions {
 }
 
 export interface ExecuteTaskOptions {
+  /** Forwarded unchanged to the Adapter; the Coordinator owns no cancellation policy. */
   signal?: AbortSignal;
 }
 
 export interface ExecutionCoordinator {
+  /** Allows one in-flight attempt per instance; releases the gate on every exit. */
   executeTask(
     taskId: string,
     options?: ExecuteTaskOptions
@@ -117,5 +119,6 @@ export type ExecutionAttemptResult =
       taskId: string;
       stage: InvariantStage;
       message: string;
+      /** Present only when a trusted current-claim Lease permits task.fail recovery. */
       finalization?: CommandSuccess | CommandFailure;
     };
