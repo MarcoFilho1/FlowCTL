@@ -1,3 +1,4 @@
+export { createExecutionCoordinator } from "./coordinator.js";
 export type {
   AgentAdapter,
   ExecuteTaskOptions,
