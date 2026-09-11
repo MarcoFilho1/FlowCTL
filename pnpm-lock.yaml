@@ -70,6 +70,15 @@ importers:
         specifier: workspace:*
         version: link:../protocol
 
+  packages/execution:
+    dependencies:
+      '@flowctl/control-plane':
+        specifier: workspace:*
+        version: link:../control-plane
+      '@flowctl/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/protocol: {}
 
 packages:
