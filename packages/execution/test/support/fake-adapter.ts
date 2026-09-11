@@ -1,16 +1,25 @@
 import type { AgentAdapter, ExecutionInput, ExecutionResult } from "../../src/index.js";
 
+export type FakeAdapterMode =
+  | { kind: "return"; result: ExecutionResult }
+  | { kind: "throw"; error: Error }
+  | { kind: "reject"; error: Error };
+
 export class FakeAdapter implements AgentAdapter {
   readonly calls: ExecutionInput[] = [];
 
   constructor(
-    private readonly result: ExecutionResult = { kind: "succeeded" },
+    private readonly mode: FakeAdapterMode = { kind: "return", result: { kind: "succeeded" } },
     private readonly trace: string[] = []
   ) {}
 
-  async execute(input: ExecutionInput): Promise<ExecutionResult> {
+  execute(input: ExecutionInput): Promise<ExecutionResult> {
     this.trace.push("adapter.execute");
     this.calls.push(input);
-    return this.result;
+    switch (this.mode.kind) {
+      case "return": return Promise.resolve(this.mode.result);
+      case "throw": throw this.mode.error;
+      case "reject": return Promise.reject(this.mode.error);
+    }
   }
 }

@@ -12,7 +12,7 @@ import {
   createExecutionCoordinatorForTest,
   type ControlPlaneOperations
 } from "../src/test-support.js";
-import { FakeAdapter } from "./support/fake-adapter.js";
+import { FakeAdapter, type FakeAdapterMode } from "./support/fake-adapter.js";
 
 const CREATED_AT = "2026-09-10T00:00:00.000Z";
 const NOW = "2026-09-11T00:00:00.000Z";
@@ -33,7 +33,7 @@ function makeTask(id: string, overrides: Partial<Task> = {}): Task {
 }
 
 function makeExecutionFixture(t: TestContext, options: {
-  adapterResult?: Execution.ExecutionResult;
+  adapterMode?: FakeAdapterMode;
   reject?: readonly FlowctlCommand["type"][];
   graph?: TaskGraph;
 } = {}) {
@@ -60,7 +60,8 @@ function makeExecutionFixture(t: TestContext, options: {
   const trace: string[] = [];
   const commands: FlowctlCommand[] = [];
   const statesAtRejection: TaskGraph[] = [];
-  const adapter = new FakeAdapter(options.adapterResult, trace);
+  const eventsAtRejection: ReturnType<typeof ControlPlane.getEventLogSnapshot>[] = [];
+  const adapter = new FakeAdapter(options.adapterMode, trace);
   const coordinatorOptions: Execution.ExecutionCoordinatorOptions = {
     controlPlane,
     workerId: "W1",
@@ -77,14 +78,17 @@ function makeExecutionFixture(t: TestContext, options: {
       commands.push(command);
       if (options.reject?.includes(command.type)) {
         statesAtRejection.push(ControlPlane.getTaskGraphSnapshot(plane));
+        eventsAtRejection.push(ControlPlane.getEventLogSnapshot(plane));
         assert.ok("taskId" in command.payload);
+        assert.ok("workerId" in command.payload);
+        assert.ok("leaseId" in command.payload);
         return {
           ok: false,
           code: "LEASE_MISMATCH",
           commandId: command.id,
           taskId: command.payload.taskId,
-          workerId: "W1",
-          leaseId: "L1"
+          workerId: command.payload.workerId,
+          leaseId: command.payload.leaseId
         };
       }
       return ControlPlane.dispatchCommand(plane, command);
@@ -94,7 +98,7 @@ function makeExecutionFixture(t: TestContext, options: {
   assert.ok(result.ok);
   return {
     coordinator: result.coordinator, coordinatorOptions, operations,
-    adapter, controlPlane, commands, trace, statesAtRejection, workspacePath
+    adapter, controlPlane, commands, trace, statesAtRejection, eventsAtRejection, workspacePath
   };
 }
 
@@ -152,42 +156,135 @@ test("public factory success stops at review and never approves automatically", 
 
 for (const rejectFail of [false, true]) {
   test(`completion rejection is ${rejectFail ? "unfinalized" : "finalized"}`, async (t) => {
-    const { coordinator, controlPlane, adapter, commands } = makeExecutionFixture(t, {
+    const { coordinator, controlPlane, adapter, commands, trace, statesAtRejection, eventsAtRejection } = makeExecutionFixture(t, {
       reject: rejectFail ? ["task.complete", "task.fail"] : ["task.complete"]
     });
     const result = await coordinator.executeTask("A");
     assert.equal(result.kind, rejectFail ? "completion_rejected_unfinalized" : "completion_rejected_finalized");
     assert.ok(result.kind === "completion_rejected_finalized" || result.kind === "completion_rejected_unfinalized");
-    assert.equal(result.completionRejection.commandId, "C3");
+    assert.deepEqual(result.completionRejection, {
+      ok: false, code: "LEASE_MISMATCH", commandId: "C3", taskId: "A", workerId: "W1", leaseId: "L1"
+    });
     assert.equal(result.finalization.ok, !rejectFail);
+    if (result.finalization.ok) {
+      assert.equal(result.finalization.events.length, 1);
+      assert.equal(result.finalization.events[0].type, "task.failed");
+      assert.deepEqual(result.finalization.events[0].payload, {
+        taskId: "A", workerId: "W1", leaseId: "L1", reason: "execution_completion_rejected"
+      });
+    } else {
+      assert.deepEqual(result.finalization, {
+        ok: false, code: "LEASE_MISMATCH", commandId: "C4", taskId: "A", workerId: "W1", leaseId: "L1"
+      });
+    }
     assert.equal(adapter.calls.length, 1);
+    assert.deepEqual(trace, ["task.claim", "task.start", "adapter.execute", "task.complete", "task.fail"]);
+    assert.equal(statesAtRejection.length, rejectFail ? 2 : 1);
+    for (const graph of statesAtRejection) assert.equal(graph.tasks.A.status, "running");
+    for (const events of eventsAtRejection) {
+      assert.deepEqual(events.map((event) => event.type), ["lease.created", "task.claimed", "task.started"]);
+    }
     assert.deepEqual(commands.map((command) => command.type), ["task.claim", "task.start", "task.complete", "task.fail"]);
     assert.deepEqual(commands[3].payload, {
       taskId: "A", workerId: "W1", leaseId: "L1", reason: "execution_completion_rejected"
     });
     assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A.status, rejectFail ? "running" : "failed");
-  });
-
-  test(`returned execution failure is ${rejectFail ? "unfinalized" : "finalized"}`, async (t) => {
-    const execution = { kind: "failed", reason: "execution_failed", message: "fake failure" } as const;
-    const { coordinator, adapter, controlPlane, commands } = makeExecutionFixture(t, {
-      adapterResult: execution, reject: rejectFail ? ["task.fail"] : []
-    });
-    const result = await coordinator.executeTask("A");
-    assert.equal(result.kind, rejectFail ? "execution_failed_unfinalized" : "execution_failed_finalized");
-    assert.ok(result.kind === "execution_failed_finalized" || result.kind === "execution_failed_unfinalized");
-    assert.deepEqual(result.execution, execution);
-    assert.equal(result.finalization.ok, !rejectFail);
-    assert.equal(adapter.calls.length, 1);
-    assert.deepEqual(commands.map((command) => command.type), ["task.claim", "task.start", "task.fail"]);
-    assert.deepEqual(commands[2].payload, {
-      taskId: "A", workerId: "W1", leaseId: "L1", reason: "execution_failed"
-    });
-    assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A.status, rejectFail ? "running" : "failed");
     assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane).map((event) => event.type),
       rejectFail ? ["lease.created", "task.claimed", "task.started"] :
         ["lease.created", "task.claimed", "task.started", "task.failed"]);
+    if (rejectFail) {
+      assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), statesAtRejection[0]);
+      assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), eventsAtRejection[0]);
+      // Real completion after the assertions proves both synthetic rejections retained the trusted Lease.
+      assert.ok(ControlPlane.dispatchCommand(controlPlane, { ...commands[2], id: "real-complete" }).ok);
+    }
   });
+
+  const failureCases: {
+    name: string;
+    mode: FakeAdapterMode;
+    executionReason: string;
+    commandReason: string;
+  }[] = [
+    {
+      name: "returned execution_failed",
+      mode: { kind: "return", result: { kind: "failed", reason: "execution_failed", message: "fake failure" } },
+      executionReason: "execution_failed", commandReason: "execution_failed"
+    },
+    {
+      name: "returned timeout",
+      mode: { kind: "return", result: { kind: "failed", reason: "timeout", message: "fake failure" } },
+      executionReason: "timeout", commandReason: "timeout"
+    },
+    {
+      name: "returned aborted",
+      mode: { kind: "return", result: { kind: "failed", reason: "aborted", message: "fake failure" } },
+      executionReason: "aborted", commandReason: "aborted"
+    },
+    {
+      name: "returned unavailable",
+      mode: { kind: "return", result: { kind: "failed", reason: "unavailable", message: "fake failure" } },
+      executionReason: "unavailable", commandReason: "unavailable"
+    },
+    {
+      name: "synchronous throw",
+      mode: { kind: "throw", error: new Error("secret-token private-prompt private-reasoning\nprovider-stack") },
+      executionReason: "execution_failed", commandReason: "adapter_exception"
+    },
+    {
+      name: "Promise rejection",
+      mode: { kind: "reject", error: new Error("secret-token private-prompt private-reasoning\nprovider-stack") },
+      executionReason: "execution_failed", commandReason: "adapter_exception"
+    }
+  ];
+  for (const scenario of failureCases) {
+    test(`${scenario.name} is ${rejectFail ? "unfinalized" : "finalized"} through task.fail`, async (t) => {
+      const { coordinator, adapter, controlPlane, commands, trace, statesAtRejection, eventsAtRejection } = makeExecutionFixture(t, {
+        adapterMode: scenario.mode, reject: rejectFail ? ["task.fail"] : []
+      });
+      const result = await coordinator.executeTask("A");
+      assert.equal(result.kind, rejectFail ? "execution_failed_unfinalized" : "execution_failed_finalized");
+      assert.ok(result.kind === "execution_failed_finalized" || result.kind === "execution_failed_unfinalized");
+      assert.equal(result.taskId, "A");
+      assert.equal(result.execution.kind, "failed");
+      assert.equal(result.execution.reason, scenario.executionReason);
+      if (scenario.mode.kind === "return") {
+        assert.deepEqual(result.execution, {
+          kind: "failed", reason: scenario.executionReason, message: "fake failure"
+        });
+      } else {
+        assert.ok(result.execution.message.length > 0 && result.execution.message.length <= 120);
+        assert.doesNotMatch(JSON.stringify(result), /secret-token|private-prompt|private-reasoning|provider-stack|\bat\b/);
+      }
+      assert.equal(result.finalization.ok, !rejectFail);
+      if (result.finalization.ok) {
+        assert.equal(result.finalization.events.length, 1);
+        assert.equal(result.finalization.events[0].type, "task.failed");
+        assert.deepEqual(result.finalization.events[0].payload, {
+          taskId: "A", workerId: "W1", leaseId: "L1", reason: scenario.commandReason
+        });
+      } else {
+        assert.deepEqual(result.finalization, {
+          ok: false, code: "LEASE_MISMATCH", commandId: "C3", taskId: "A", workerId: "W1", leaseId: "L1"
+        });
+      }
+      assert.equal(adapter.calls.length, 1);
+      assert.deepEqual(trace, ["task.claim", "task.start", "adapter.execute", "task.fail"]);
+      assert.deepEqual(commands[2], {
+        id: "C3", protocolVersion: PROTOCOL_VERSION, timestamp: NOW, projectId: "P1", actor: ACTOR,
+        type: "task.fail", payload: { taskId: "A", workerId: "W1", leaseId: "L1", reason: scenario.commandReason }
+      });
+      assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A.status, rejectFail ? "running" : "failed");
+      assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane).map((event) => event.type),
+        rejectFail ? ["lease.created", "task.claimed", "task.started"] :
+          ["lease.created", "task.claimed", "task.started", "task.failed"]);
+      if (rejectFail) {
+        assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), statesAtRejection[0]);
+        assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), eventsAtRejection[0]);
+        assert.ok(ControlPlane.dispatchCommand(controlPlane, { ...commands[2], id: "real-fail" }).ok);
+      }
+    });
+  }
 
   test(`rejected start is ${rejectFail ? "unfinalized" : "finalized"} with the real claimed Lease`, async (t) => {
     const { coordinator, adapter, controlPlane, commands, statesAtRejection } = makeExecutionFixture(t, {
@@ -433,7 +530,7 @@ test("Adapter Task and nested arrays are defensive copies of the fresh snapshot"
 for (const failed of [false, true]) {
   test(`returned ${failed ? "failure" : "completion"} Events cannot mutate Event Log history`, async (t) => {
     const { coordinator, controlPlane } = makeExecutionFixture(t, failed ? {
-      adapterResult: { kind: "failed", reason: "execution_failed", message: "fake failure" }
+      adapterMode: { kind: "return", result: { kind: "failed", reason: "execution_failed", message: "fake failure" } }
     } : {});
     const result = await coordinator.executeTask("A");
     assert.ok(result.kind === "submitted_for_review" || result.kind === "execution_failed_finalized");

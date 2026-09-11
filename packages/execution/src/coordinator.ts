@@ -5,7 +5,8 @@ import type {
   ExecutionAttemptResult,
   ExecutionCoordinatorCreationResult,
   ExecutionCoordinatorOptions,
-  ExecutionInput
+  ExecutionInput,
+  ExecutionResult
 } from "./types.js";
 import { validateWorkspacePath } from "./workspace.js";
 
@@ -121,9 +122,21 @@ export function createExecutionCoordinatorWithOperations(
             acceptanceCriteria: task.acceptanceCriteria.map((criterion) => ({ ...criterion }))
           }
         };
-        const execution = await adapter.execute(input);
+        let execution: ExecutionResult;
+        let adapterException = false;
+        try {
+          execution = await adapter.execute(input);
+        } catch {
+          adapterException = true;
+          execution = {
+            kind: "failed",
+            reason: "execution_failed",
+            // Arbitrary error messages may contain secrets, prompts, or stacks.
+            message: "Adapter execution failed unexpectedly."
+          };
+        }
         if (execution.kind === "failed") {
-          const finalization = finalizeFailure(execution.reason);
+          const finalization = finalizeFailure(adapterException ? "adapter_exception" : execution.reason);
           return finalization.ok
             ? { kind: "execution_failed_finalized", taskId, execution, finalization }
             : { kind: "execution_failed_unfinalized", taskId, execution, finalization };
