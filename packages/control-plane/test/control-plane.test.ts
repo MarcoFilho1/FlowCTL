@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import * as ControlPlane from "../src/index.js";
+import { getActiveLeaseSnapshotForTest } from "../src/test-support.js";
 import type {
   Actor,
   FlowctlCommand,
@@ -177,20 +178,30 @@ function makeReviewApprovalCommand(
 }
 
 function makeFailCommand(
-  projectId = "P1"
+  overrides: {
+    id?: string;
+    projectId?: string;
+    taskId?: string;
+    workerId?: string;
+    leaseId?: string;
+    reason?: string;
+    actor?: Actor;
+  } = {}
 ): Extract<FlowctlCommand, { type: "task.fail" }> {
+  const actor = overrides.actor ?? makeActor();
+
   return {
-    id: "F1",
+    id: overrides.id ?? "F1",
     protocolVersion: "0.2",
     timestamp: TIMESTAMP,
-    projectId,
-    actor: makeActor(),
+    projectId: overrides.projectId ?? "P1",
+    actor,
     type: "task.fail",
     payload: {
-      taskId: "A",
-      workerId: "W1",
-      leaseId: "L1",
-      reason: "failure"
+      taskId: overrides.taskId ?? "A",
+      workerId: overrides.workerId ?? actor.id,
+      leaseId: overrides.leaseId ?? "L1",
+      reason: overrides.reason ?? "failure"
     }
   };
 }
@@ -456,7 +467,6 @@ function getCompletionOrReadyEventTuple(event: FlowctlEvent): readonly [string, 
 }
 
 const unsupportedCommands: readonly FlowctlCommand[] = [
-  makeFailCommand(),
   makeBlockCommand(),
   makeHeartbeatCommand(),
   makeGraphMutationCommand()
@@ -484,7 +494,6 @@ for (const command of unsupportedCommands) {
 
 const foreignUnsupportedCommands: readonly FlowctlCommand[] = [
   makeReviewApprovalCommand({ projectId: "OTHER" }),
-  makeFailCommand("OTHER"),
   makeBlockCommand("OTHER"),
   makeHeartbeatCommand("OTHER"),
   makeGraphMutationCommand("OTHER")
@@ -1023,6 +1032,229 @@ test("rejects a lifecycle-invalid start without mutating graph or Event Log", ()
   assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
   assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
 });
+
+test("returns defensive active Lease snapshots for tests", () => {
+  const { controlPlane, leaseId } = makeClaimedControlPlane();
+  const snapshot = getActiveLeaseSnapshotForTest(controlPlane, "A");
+  assert.ok(snapshot);
+
+  snapshot.workerId = "MUTATED";
+
+  assert.deepEqual(getActiveLeaseSnapshotForTest(controlPlane, "A"), {
+    id: leaseId,
+    taskId: "A",
+    workerId: "W1",
+    acquiredAt: TIMESTAMP,
+    expiresAt: "2026-08-30T01:00:00.000Z",
+    lastHeartbeatAt: TIMESTAMP
+  });
+});
+
+test("fails a claimed task and removes its Lease", () => {
+  const { controlPlane, leaseId } = makeClaimedControlPlane();
+  assert.ok(getActiveLeaseSnapshotForTest(controlPlane, "A"));
+
+  const accepted = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeFailCommand({ leaseId, reason: "adapter_failed" })
+  );
+
+  assert.equal(accepted.ok, true);
+  assert.equal(getActiveLeaseSnapshotForTest(controlPlane, "A"), undefined);
+  assert.equal(ControlPlane.getTaskGraphSnapshot(controlPlane).tasks.A?.status, "failed");
+  assert.deepEqual(
+    ControlPlane.getEventLogSnapshot(controlPlane).map((event) => event.type),
+    ["lease.created", "task.claimed", "task.failed"]
+  );
+  const claimAfterFailure = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeClaimCommand({ id: "C-after-fail" })
+  );
+  assert.equal(claimAfterFailure.ok, false);
+  if (!claimAfterFailure.ok) assert.equal(claimAfterFailure.code, "TASK_NOT_READY");
+});
+
+test("fails a running task with the exact task.failed payload", () => {
+  const { controlPlane, leaseId } = makeRunningControlPlane();
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeFailCommand({ id: "F-running", leaseId, reason: "execution_failed" })
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.events[0]?.payload, {
+    taskId: "A",
+    workerId: "W1",
+    leaseId,
+    reason: "execution_failed"
+  });
+  assert.equal(getActiveLeaseSnapshotForTest(controlPlane, "A"), undefined);
+});
+
+test("rejects task.fail from a foreign project without mutation", () => {
+  const { controlPlane, leaseId } = makeClaimedControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  const beforeLease = getActiveLeaseSnapshotForTest(controlPlane, "A");
+
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeFailCommand({ id: "F-foreign", projectId: "OTHER", leaseId })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "PROJECT_MISMATCH",
+    commandId: "F-foreign",
+    commandProjectId: "OTHER",
+    controlPlaneProjectId: "P1"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  assert.deepEqual(getActiveLeaseSnapshotForTest(controlPlane, "A"), beforeLease);
+});
+
+for (const taskId of ["MISSING", "toString", "constructor", "__proto__"]) {
+  test(`rejects task.fail for absent own task key ${taskId} without mutation`, () => {
+    const { controlPlane, leaseId } = makeClaimedControlPlane();
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const beforeLease = getActiveLeaseSnapshotForTest(controlPlane, "A");
+
+    const result = ControlPlane.dispatchCommand(
+      controlPlane,
+      makeFailCommand({ id: `F-${taskId}`, taskId, leaseId })
+    );
+
+    assert.deepEqual(result, {
+      ok: false,
+      code: "TASK_NOT_FOUND",
+      commandId: `F-${taskId}`,
+      taskId
+    });
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+    assert.deepEqual(getActiveLeaseSnapshotForTest(controlPlane, "A"), beforeLease);
+  });
+}
+
+test("rejects task.fail from ready before Lease validation", () => {
+  const { controlPlane } = makeReadyControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+
+  const result = ControlPlane.dispatchCommand(controlPlane, makeFailCommand());
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "INVALID_TASK_TRANSITION",
+    commandId: "F1",
+    taskId: "A",
+    from: "ready",
+    to: "failed"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  assert.equal(getActiveLeaseSnapshotForTest(controlPlane, "A"), undefined);
+});
+
+test("rejects task.fail without an active Lease", () => {
+  const graph = makeMilestoneGraph();
+  graph.tasks.A.status = "claimed";
+  graph.tasks.A.assignedWorkerId = "W1";
+  const created = ControlPlane.createControlPlane(graph, makeOptions());
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(created.controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(created.controlPlane);
+
+  const result = ControlPlane.dispatchCommand(created.controlPlane, makeFailCommand());
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "LEASE_NOT_FOUND",
+    commandId: "F1",
+    leaseId: "L1"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(created.controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(created.controlPlane), beforeLog);
+  assert.equal(getActiveLeaseSnapshotForTest(created.controlPlane, "A"), undefined);
+});
+
+test("rejects task.fail with a wrong Lease ID and preserves the active Lease", () => {
+  const { controlPlane } = makeClaimedControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  const beforeLease = getActiveLeaseSnapshotForTest(controlPlane, "A");
+
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeFailCommand({ id: "F-wrong-lease", leaseId: "WRONG" })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "LEASE_MISMATCH",
+    commandId: "F-wrong-lease",
+    taskId: "A",
+    leaseId: "WRONG",
+    workerId: "W1"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  assert.deepEqual(getActiveLeaseSnapshotForTest(controlPlane, "A"), beforeLease);
+});
+
+test("rejects task.fail with a wrong Worker ID and preserves the active Lease", () => {
+  const { controlPlane, leaseId } = makeClaimedControlPlane();
+  const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+  const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+  const beforeLease = getActiveLeaseSnapshotForTest(controlPlane, "A");
+
+  const result = ControlPlane.dispatchCommand(
+    controlPlane,
+    makeFailCommand({ id: "F-wrong-worker", leaseId, workerId: "W2" })
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    code: "LEASE_MISMATCH",
+    commandId: "F-wrong-worker",
+    taskId: "A",
+    leaseId,
+    workerId: "W2"
+  });
+  assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+  assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+  assert.deepEqual(getActiveLeaseSnapshotForTest(controlPlane, "A"), beforeLease);
+});
+
+for (const failurePoint of ["now", "nextEventId"] as const) {
+  test(`keeps task.fail atomic when ${failurePoint} throws`, () => {
+    const options = makeOptions();
+    const { controlPlane } = makeReadyControlPlane(options);
+    const claim = ControlPlane.dispatchCommand(controlPlane, makeClaimCommand());
+    const leaseId = getLeaseId(claim);
+    const beforeGraph = ControlPlane.getTaskGraphSnapshot(controlPlane);
+    const beforeLog = ControlPlane.getEventLogSnapshot(controlPlane);
+    const beforeLease = getActiveLeaseSnapshotForTest(controlPlane, "A");
+
+    if (failurePoint === "now") {
+      options.now = () => { throw new Error("now failed"); };
+    } else {
+      options.nextEventId = () => { throw new Error("event id failed"); };
+    }
+
+    assert.throws(
+      () => ControlPlane.dispatchCommand(controlPlane, makeFailCommand({ leaseId })),
+      failurePoint === "now" ? /now failed/ : /event id failed/
+    );
+    assert.deepEqual(ControlPlane.getTaskGraphSnapshot(controlPlane), beforeGraph);
+    assert.deepEqual(ControlPlane.getEventLogSnapshot(controlPlane), beforeLog);
+    assert.deepEqual(getActiveLeaseSnapshotForTest(controlPlane, "A"), beforeLease);
+  });
+}
 
 test("completes implementation into review and removes the active Lease", () => {
   const { controlPlane, leaseId } = makeRunningControlPlane();
