@@ -304,12 +304,15 @@ overlay. Pode começar em paralelo com a Fase 3 assim que o `Snapshot` congelar.
 **Pronto quando:** abrindo `claude` em qualquer terminal, o overlay aparece sozinho e acompanha o grafo com menos de 500 ms de atraso.
 
 ### Fase 6: Endurecimento e lançamento do MVP (4 dias)
-- [ ] Overlay usa `window.flowctl.remove(sessionId)` em vez de recarregar a página quando uma aba encerrada expira.
-- [ ] `install-overlay.sh` remove do LaunchServices o registro do build local (`lsregister -u apps/overlay/build/FlowCTL.app`), senão `open -a FlowCTL` pode abrir a cópia de desenvolvimento.
+
+Entraram no MVP a pedido do usuário (out/2026): grafo só de nós da esquerda para a direita, janela fixa arrastável, resumo ao passar o mouse, clique leva à sessão, visual pixel-art (Smooth como opção) e reconstrução do grafo pelo histórico.
+
+- [x] Overlay usa `window.flowctl.remove(sessionId)` em vez de recarregar a página quando uma aba encerrada expira.
+- [x] `install-overlay.sh` remove do LaunchServices o registro do build local (`lsregister -u apps/overlay/build/FlowCTL.app`), senão `open -a FlowCTL` pode abrir a cópia de desenvolvimento.
 - [ ] Teste real do hover no overlay com o mouse (o repasse de mouse foi verificado só por contador).
 - [ ] Teste de ponta a ponta manual com as 8 sessões da Fase 1 (checklist em `docs/qa-mvp.md`).
 - [ ] Duas sessões de `claude` ao mesmo tempo = duas abas.
-- [ ] Reload do mod no meio da sessão: reconstrói o estado pelo `TaskList` (sem nós fantasmas).
+- [x] Reload do mod no meio da sessão e `--resume`: reconstrói o grafo pelo histórico da conversa (`$.session.messages()`), PR #26.
 - [ ] Desempenho: 50 nós e 20 eventos/s sem atrasar o terminal.
 - [ ] Distribuição:
   - `.claude-plugin/marketplace.json` na raiz;
@@ -319,11 +322,7 @@ overlay. Pode começar em paralelo com a Fase 3 assim que o `Snapshot` congelar.
 - [ ] Tag **`v0.1.0`** = MVP.
 
 ### Depois do MVP (não bloqueia)
-- **Clique no nó amarelo leva à sessão**: clicar num nó que pede input/permissão traz para a frente o terminal daquela sessão. Precisa de um spike:
-  - o mod envia no snapshot a identidade do terminal (`TERM_PROGRAM`, tty, `TERM_SESSION_ID`/`ITERM_SESSION_ID`, pid);
-  - o overlay ativa o app e a aba certa (AppleScript no Terminal/iTerm, por tty);
-  - Maestri e VS Code precisam de investigação própria;
-  - o overlay deixa de ser só leitura (passa a receber cliques, mas ainda não comanda o agente).
+- ~~Clique no nó leva à sessão~~: entrou no MVP (PRs #19 e #21). Terminal.app e iTerm2 focam a aba exata; Maestri só é ativado (sem API para focar um terminal específico).
 - Pane `/grafo` no terminal (Box/Text ou `Raster`) para quem não quer o overlay.
 - Clique no nó do overlay → detalhes (description, último erro).
 - Windows/Linux (Tauri ou WPF).
