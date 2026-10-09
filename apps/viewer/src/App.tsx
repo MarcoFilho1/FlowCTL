@@ -1,7 +1,8 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { DevControls, type Replay } from "./DevControls.tsx";
 import { GraphView } from "./GraphView.tsx";
 import { Close, DragZone, Grip, Header, Pager } from "./Header.tsx";
+import { cue } from "./sound.ts";
 import { sessionKey, withoutSubagents, type SessionStore } from "./store.ts";
 
 export function App({
@@ -13,7 +14,7 @@ export function App({
   replays?: readonly Replay[];
   startAt?: number | "end";
 }) {
-  const { sessions: all, active, look, showSubagents } = useSyncExternalStore(store.subscribe, store.getState);
+  const { sessions: all, active, look, showSubagents, sound } = useSyncExternalStore(store.subscribe, store.getState);
   // A session with nothing drawn that is not working (a fresh one gone idle, a
   // stale file restored at launch) would only be an empty tab.
   const sessions = all.filter(
@@ -21,6 +22,15 @@ export function App({
   );
   const chosen = sessions.find((session) => sessionKey(session) === active) ?? sessions[0];
   const current = useMemo(() => (chosen && !showSubagents ? withoutSubagents(chosen) : chosen), [chosen, showSubagents]);
+
+  // A session off screen that starts waiting for the person still chimes.
+  const waitingBefore = useRef(new Set<string>());
+  useEffect(() => {
+    const waiting = new Set(sessions.filter((session) => session.sessionState === "waiting_you").map(sessionKey));
+    const shown = current ? sessionKey(current) : null;
+    if (sound && [...waiting].some((key) => key !== shown && !waitingBefore.current.has(key))) cue("needs", look);
+    waitingBefore.current = waiting;
+  }, [sessions, current, sound, look]);
   return (
     <main className={`app ${replays ? "dev" : "overlay"} look-${look}`}>
       {replays && <DevControls replays={replays} store={store} {...(startAt !== undefined ? { startAt } : {})} />}
@@ -36,7 +46,7 @@ export function App({
       {current ? (
         <>
           {/* Keyed per session: each tab keeps its own orientation and tweens. */}
-          <GraphView key={sessionKey(current)} snapshot={current} look={look} />
+          <GraphView key={sessionKey(current)} snapshot={current} look={look} sound={sound} />
         </>
       ) : (
         <p className="empty">Waiting for a Claude Code session…</p>

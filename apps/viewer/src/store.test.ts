@@ -53,7 +53,7 @@ describe("session store", () => {
     const store = createSessionStore();
     store.push(snapshotOf([], { seq: 9 }));
     store.forget("s1");
-    expect(store.getState()).toEqual({ sessions: [], active: null, look: "pixel", showSubagents: true });
+    expect(store.getState()).toEqual({ sessions: [], active: null, look: "pixel", showSubagents: true, sound: true });
     expect(store.push(snapshotOf([], { seq: 1 }))).toBe(true);
   });
 

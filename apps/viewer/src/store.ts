@@ -13,6 +13,8 @@ export interface SessionsState {
   look: Look;
   /** Draw subagents under their tasks (default) or leave them out. */
   showSubagents: boolean;
+  /** Quiet sound cues for what changes (default on). */
+  sound: boolean;
 }
 
 export interface SessionStore {
@@ -23,6 +25,7 @@ export interface SessionStore {
   forget(key: string): void;
   setLook(look: Look): void;
   setShowSubagents(show: boolean): void;
+  setSound(on: boolean): void;
   getState(): SessionsState;
   subscribe(listener: () => void): () => void;
 }
@@ -64,7 +67,7 @@ const isLive = (snapshot: Snapshot | undefined) =>
 
 export function createSessionStore(now: () => number = () => Date.now()): SessionStore {
   let pickedAt = -Infinity;
-  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true };
+  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
 
@@ -104,6 +107,11 @@ export function createSessionStore(now: () => number = () => Date.now()): Sessio
       state = { ...state, sessions, active };
       emit();
     },
+    setSound(on) {
+      if (typeof on !== "boolean" || state.sound === on) return;
+      state = { ...state, sound: on };
+      emit();
+    },
     setShowSubagents(show) {
       if (typeof show !== "boolean" || state.showSubagents === show) return;
       state = { ...state, showSubagents: show };
@@ -129,6 +137,7 @@ declare global {
       remove(sessionId: string): void;
       setLook(look: Look): void;
       setShowSubagents(show: boolean): void;
+      setSound(on: boolean): void;
     };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
   }
@@ -161,6 +170,7 @@ export function installBridge(store: SessionStore, target: Window = window): voi
     push: (snapshot) => store.push(snapshot),
     remove: (sessionId) => store.forget(sessionId),
     setLook: (look) => store.setLook(look),
-    setShowSubagents: (show) => store.setShowSubagents(show)
+    setShowSubagents: (show) => store.setShowSubagents(show),
+    setSound: (on) => store.setSound(on)
   };
 }
