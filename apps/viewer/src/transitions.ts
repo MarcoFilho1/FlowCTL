@@ -5,6 +5,8 @@
 import type { NodeStatus, Snapshot } from "../../../mod/graph/types.ts";
 
 export interface Transitions {
+  /** Nodes that were not there before: a step the agent just planned or discovered. */
+  added: string[];
   finished: string[];
   started: string[];
   /** From a node that just finished to a node it was holding back. */
@@ -12,7 +14,8 @@ export interface Transitions {
 }
 
 export function transitions(before: ReadonlyMap<string, NodeStatus> | undefined, after: Snapshot): Transitions {
-  if (!before) return { finished: [], started: [], handoffs: [] };
+  if (!before) return { added: [], finished: [], started: [], handoffs: [] };
+  const added = after.nodes.filter((node) => !before.has(node.id)).map((node) => node.id);
   const status = new Map(after.nodes.map((node) => [node.id, node.status]));
   const finished = after.nodes.filter((node) => node.status === "done" && before.has(node.id) && before.get(node.id) !== "done").map((node) => node.id);
   const started = after.nodes
@@ -27,7 +30,7 @@ export function transitions(before: ReadonlyMap<string, NodeStatus> | undefined,
       if (finished.includes(from) && unblocked) handoffs.push([from, node.id]);
     }
   }
-  return { finished, started, handoffs };
+  return { added, finished, started, handoffs };
 }
 
 export function statusesOf(snapshot: Snapshot): Map<string, NodeStatus> {

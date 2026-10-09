@@ -157,15 +157,18 @@ async function findTerminal($: EngineInterface): Promise<TerminalInfo> {
   if (maestri !== undefined) ids["MAESTRI_TERMINAL_ID"] = maestri;
   const app = read(await $.env.get("__CFBundleIdentifier").catch(() => undefined));
   const program = read(await $.env.get("TERM_PROGRAM").catch(() => undefined));
-  // The shell's parent is this Claude Code process, whose tty is the session's.
-  const tty = await $.process
-    .run(["sh", "-c", "ps -o tty= -p $PPID"])
-    .then((run) => run.stdout.trim())
-    .catch(() => "");
+  // The shell's parent is this Claude Code process: its pid, and its tty,
+  // which is the session's.
+  const [pidText = "", tty = ""] = await $.process
+    .run(["sh", "-c", "echo $PPID; ps -o tty= -p $PPID"])
+    .then((run) => run.stdout.trim().split(/\s+/))
+    .catch(() => []);
+  const pid = Number(pidText);
   return {
     ...(app !== undefined ? { app } : {}),
     ...(program !== undefined ? { program } : {}),
     ...(tty !== "" && tty !== "??" ? { tty } : {}),
+    ...(Number.isInteger(pid) && pid > 1 ? { pid } : {}),
     ...(Object.keys(ids).length > 0 ? { ids } : {})
   };
 }

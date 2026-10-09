@@ -12,7 +12,7 @@ export const EFFECT_MS = 1000;
 
 interface Effect {
   key: string;
-  kind: "burst" | "packet";
+  kind: "burst" | "packet" | "appear";
   from: string;
   to?: string;
 }
@@ -121,6 +121,7 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
     const change = transitions(previous.current, snapshot);
     previous.current = statusesOf(snapshot);
     const born: Effect[] = [
+      ...change.added.map((id) => ({ key: `appear:${id}:${snapshot.seq}`, kind: "appear" as const, from: id })),
       ...change.finished.map((id) => ({ key: `burst:${id}:${snapshot.seq}`, kind: "burst" as const, from: id })),
       ...change.handoffs.map(([from, to]) => ({ key: `packet:${from}->${to}:${snapshot.seq}`, kind: "packet" as const, from, to }))
     ];
@@ -140,6 +141,7 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   }
 
   const shapes = new Map(scene.nodes.map((shape) => [shape.id, shape]));
+  const entering = new Set(effects.filter((effect) => effect.kind === "appear").map((effect) => effect.from));
   const sized = (s: number) => ({ width: scene.width * s, height: scene.height * s });
   const moveTo = (next: Point) => {
     lastManual.current = performance.now();
@@ -241,7 +243,8 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
               return (
                 <path
                   key={`${link.kind}:${link.from}->${link.to}`}
-                  className={`link link-${link.kind}${link.inferred ? " inferred" : ""}${live ? " live" : ""}`}
+                  className={`link link-${link.kind}${link.inferred ? " inferred" : ""}${live ? " live" : ""}${entering.has(link.to) ? " entering" : ""}`}
+                  pathLength={entering.has(link.to) ? 1 : undefined}
                   data-link={`${link.from}->${link.to}`}
                   d={pixel && link.kind === "dependency" ? steppedLink(from, to) : linkPath(from, to, link.kind)}
                   {...(link.kind === "dependency" ? { markerEnd: "url(#arrow)" } : {})}
@@ -251,6 +254,7 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
             {scene.nodes.map((shape) => (
               <NodeView
                 pixel={pixel}
+                entering={entering.has(shape.id)}
                 key={shape.id}
                 shape={shape}
                 box={boxes.get(shape.id) ?? circleBox(shape)}
@@ -261,6 +265,7 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
               const from = boxes.get(effect.from);
               if (!from) return null;
               if (effect.kind === "burst") return <Burst key={effect.key} box={from} pixel={pixel} />;
+              if (effect.kind === "appear") return pixel ? <Converge key={effect.key} box={from} /> : null;
               const to = effect.to !== undefined ? boxes.get(effect.to) : undefined;
               if (!to) return null;
               return <Packet key={effect.key} path={pixel ? steppedLink(from, to) : linkPath(from, to, "dependency")} pixel={pixel} />;
@@ -289,8 +294,20 @@ function steppedLink(from: Box, to: Box): string {
   return steppedPath(from.x + from.w, from.y + from.h / 2, to.x, to.y + to.h / 2);
 }
 
-function NodeView({ pixel, ...props }: { pixel: boolean; shape: NodeShape; box: Box; onHover: (on: boolean) => void }) {
-  return pixel ? <PixelNode {...props} /> : <Node {...props} />;
+function NodeView({
+  pixel,
+  entering,
+  ...props
+}: {
+  pixel: boolean;
+  entering: boolean;
+  shape: NodeShape;
+  box: Box;
+  onHover: (on: boolean) => void;
+}) {
+  const node = pixel ? <PixelNode {...props} /> : <Node {...props} />;
+  // A node that just appeared materializes: wrapped so its own transforms stay untouched.
+  return entering ? <g className={pixel ? "entering entering-px" : "entering"}>{node}</g> : node;
 }
 
 /** A node as a pixel-art sprite: outline, body, light and shade, with its status effects. */
@@ -426,6 +443,24 @@ function Packet({ path, pixel }: { path: string; pixel: boolean }) {
     <g className={pixel ? "packet packet-px" : "packet"}>
       {pixel ? <rect x={-2} y={-2} width={4} height={4} /> : <circle r={3} />}
       <animateMotion dur="0.7s" path={path} fill="freeze" calcMode={pixel ? "discrete" : "spline"} {...(pixel ? { keyPoints: "0;0.2;0.4;0.6;0.8;1", keyTimes: "0;0.2;0.4;0.6;0.8;1" } : { keySplines: "0.4 0 0.2 1", keyTimes: "0;1", keyPoints: "0;1" })} />
+    </g>
+  );
+}
+
+/** Pixels gather into a node that just appeared: the burst, played inward. */
+function Converge({ box }: { box: Box }) {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const size = Math.round(box.w / PX);
+  const left = snap(cx - (size * PX) / 2);
+  const top = snap(cy - (size * PX) / 2);
+  return (
+    <g className="converge-px" transform={`translate(${left} ${top}) scale(${PX})`}>
+      {[6, 4, 2].map((gap, ring) =>
+        ringPixels(size, gap).map(([x, y], i) => (
+          <rect key={`${ring}:${i}`} x={x} y={y} width={1} height={1} style={{ animationDelay: `${ring * 0.1}s` }} />
+        ))
+      )}
     </g>
   );
 }

@@ -329,6 +329,33 @@ describe("transitions and the camera", () => {
     }
   });
 
+  test("a node that appears materializes, and the edge into it draws itself", () => {
+    vi.useFakeTimers();
+    try {
+      const one = snapshotOf([task("a", { status: "running" })], { seq: 1, layout: { a: { rank: 0, order: 0 } } });
+      const two = snapshotOf([task("a", { status: "running" }), task("b", { blockedBy: ["a"] })], {
+        seq: 2,
+        layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 } }
+      });
+      const { container, store } = mount(one);
+      expect(container.querySelector(".entering")).toBeNull();
+      act(() => {
+        store.push(two);
+      });
+      expect(container.querySelector('.entering [data-node="b"]')).not.toBeNull();
+      expect(container.querySelector('.entering [data-node="a"]')).toBeNull();
+      expect(container.querySelector('[data-link="a->b"]')?.getAttribute("class")).toContain("entering");
+      expect(container.querySelector(".converge-px")).not.toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(EFFECT_MS + 10);
+      });
+      expect(container.querySelector(".entering")).toBeNull();
+      expect(container.querySelector('[data-node="b"]')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("while the session works the camera follows; at rest it shows the whole graph", () => {
     const wide = (state: "working" | "idle", seq: number) =>
       snapshotOf(
