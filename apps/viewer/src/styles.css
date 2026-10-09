@@ -309,3 +309,20 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
   .converge-px { display: none; }
   .link.entering { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
 }
+
+/* ── An error happened on this node: it blinks red three times, then carries on. ── */
+.flashing .dot, .flashing .px-body, .flashing .px-light, .flashing .px-shade { animation: flash-red 1s steps(1, end) both; }
+.flashing .glow { animation: flash-glow 1s steps(1, end) both; }
+@keyframes flash-red {
+  0%, 33%, 66% { fill: var(--error); }
+  16%, 50%, 83%, 100% { fill: var(--status); }
+}
+@keyframes flash-glow {
+  0%, 33%, 66% { fill: var(--error); opacity: 0.6; }
+  16%, 50%, 83%, 100% { opacity: 0.32; }
+}
+.link-sequence { stroke-dasharray: 3 4; opacity: 0.6; }
+.app.look-pixel .link-sequence { stroke-dasharray: 2 4; }
+@media (prefers-reduced-motion: reduce) {
+  .flashing .dot, .flashing .px-body, .flashing .px-light, .flashing .px-shade { animation: none; fill: var(--error); }
+}

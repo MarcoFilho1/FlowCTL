@@ -4,7 +4,7 @@ import { buildScene, cameraFor, centerOn, circleBox, clampPan, linkPath, type Bo
 import { hoverCard } from "./hover.ts";
 import { BANG, discSprite, PX, ringPixels, snap, steppedPath } from "./pixel.ts";
 import { tellNative, type Look } from "./store.ts";
-import { statusesOf, transitions } from "./transitions.ts";
+import { errorsOf, statusesOf, transitions } from "./transitions.ts";
 import { useTween } from "./useTween.ts";
 
 /** How long a finish burst and a handoff packet stay on screen. */
@@ -12,7 +12,7 @@ export const EFFECT_MS = 1000;
 
 interface Effect {
   key: string;
-  kind: "burst" | "packet" | "appear";
+  kind: "burst" | "packet" | "appear" | "flash";
   from: string;
   to?: string;
 }
@@ -117,11 +117,14 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   // Transition effects: compare each snapshot with the one before.
   const [effects, setEffects] = useState<Effect[]>([]);
   const previous = useRef<ReturnType<typeof statusesOf> | undefined>(undefined);
+  const previousErrors = useRef<ReturnType<typeof errorsOf>>(new Map());
   useEffect(() => {
-    const change = transitions(previous.current, snapshot);
+    const change = transitions(previous.current, snapshot, previousErrors.current);
     previous.current = statusesOf(snapshot);
+    previousErrors.current = errorsOf(snapshot);
     const born: Effect[] = [
       ...change.added.map((id) => ({ key: `appear:${id}:${snapshot.seq}`, kind: "appear" as const, from: id })),
+      ...change.flashed.map((id) => ({ key: `flash:${id}:${snapshot.seq}`, kind: "flash" as const, from: id })),
       ...change.finished.map((id) => ({ key: `burst:${id}:${snapshot.seq}`, kind: "burst" as const, from: id })),
       ...change.handoffs.map(([from, to]) => ({ key: `packet:${from}->${to}:${snapshot.seq}`, kind: "packet" as const, from, to }))
     ];
@@ -142,6 +145,7 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
 
   const shapes = new Map(scene.nodes.map((shape) => [shape.id, shape]));
   const entering = new Set(effects.filter((effect) => effect.kind === "appear").map((effect) => effect.from));
+  const flashing = new Set(effects.filter((effect) => effect.kind === "flash").map((effect) => effect.from));
   const sized = (s: number) => ({ width: scene.width * s, height: scene.height * s });
   const moveTo = (next: Point) => {
     lastManual.current = performance.now();
@@ -246,8 +250,8 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
                   className={`link link-${link.kind}${link.inferred ? " inferred" : ""}${live ? " live" : ""}${entering.has(link.to) ? " entering" : ""}`}
                   pathLength={entering.has(link.to) ? 1 : undefined}
                   data-link={`${link.from}->${link.to}`}
-                  d={pixel && link.kind === "dependency" ? steppedLink(from, to) : linkPath(from, to, link.kind)}
-                  {...(link.kind === "dependency" ? { markerEnd: "url(#arrow)" } : {})}
+                  d={pixel && link.kind !== "agent" ? steppedLink(from, to) : linkPath(from, to, link.kind === "agent" ? "agent" : "dependency")}
+                  {...(link.kind !== "agent" ? { markerEnd: "url(#arrow)" } : {})}
                 />
               );
             })}
@@ -255,6 +259,7 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
               <NodeView
                 pixel={pixel}
                 entering={entering.has(shape.id)}
+                flashing={flashing.has(shape.id)}
                 key={shape.id}
                 shape={shape}
                 box={boxes.get(shape.id) ?? circleBox(shape)}
@@ -297,15 +302,19 @@ function steppedLink(from: Box, to: Box): string {
 function NodeView({
   pixel,
   entering,
+  flashing,
   ...props
 }: {
   pixel: boolean;
   entering: boolean;
+  flashing: boolean;
   shape: NodeShape;
   box: Box;
   onHover: (on: boolean) => void;
 }) {
-  const node = pixel ? <PixelNode {...props} /> : <Node {...props} />;
+  const drawn = pixel ? <PixelNode {...props} /> : <Node {...props} />;
+  // A tool error just happened here: blink red, then back to its own color.
+  const node = flashing ? <g className="flashing">{drawn}</g> : drawn;
   // A node that just appeared materializes: wrapped so its own transforms stay untouched.
   return entering ? <g className={pixel ? "entering entering-px" : "entering"}>{node}</g> : node;
 }

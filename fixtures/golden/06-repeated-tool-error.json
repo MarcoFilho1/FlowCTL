@@ -19,6 +19,10 @@
         "detail": "Exit code 1",
         "since": 1791512879044
       },
+      "lastError": {
+        "detail": "Exit code 1",
+        "at": 1791512879044
+      },
       "blockedBy": []
     }
   ],

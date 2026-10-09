@@ -36,8 +36,11 @@ export interface NodeShape {
 export interface Link {
   from: string;
   to: string;
-  /** A dependency (arrow, `blockedBy`) or a subagent hanging off its task. */
-  kind: "dependency" | "agent";
+  /**
+   * A dependency (arrow, `blockedBy`), a sequence between two requests of the
+   * session (dashed arrow, `after`), or a subagent hanging off its task.
+   */
+  kind: "dependency" | "sequence" | "agent";
   inferred: boolean;
 }
 
@@ -131,6 +134,13 @@ export function buildScene(snapshot: Snapshot): Scene {
       }
     }
   }
+  for (const node of snapshot.nodes) {
+    for (const from of new Set(node.after ?? [])) {
+      if (byId.has(from) && from !== node.id && !node.blockedBy.includes(from)) {
+        links.push({ from, to: node.id, kind: "sequence", inferred: true });
+      }
+    }
+  }
   for (const shape of shapes) {
     if (shape.isSatellite && shape.node.parent !== undefined) {
       links.push({ from: shape.node.parent, to: shape.id, kind: "agent", inferred: false });
@@ -145,7 +155,7 @@ export function buildScene(snapshot: Snapshot): Scene {
  * A dependency leaves its source on the right and enters its target on the
  * left; a subagent's link drops from its task and turns into it.
  */
-export function linkPath(from: Box, to: Box, kind: Link["kind"]): string {
+export function linkPath(from: Box, to: Box, kind: "dependency" | "agent"): string {
   const fy = from.y + from.h / 2;
   const ty = to.y + to.h / 2;
   if (kind === "agent") {

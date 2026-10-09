@@ -271,3 +271,29 @@ test("with no word in common, subagents spread over the running steps", () => {
   const parents = nodes(state).filter((node) => node.kind === "agent").map((node) => node.parent);
   assert.deepEqual(new Set(parents), new Set(["plan:x", "plan:y"]));
 });
+
+test("one session, one graph: a new request's first steps come after the last request's ends", () => {
+  const state = initialState();
+  const plan = (steps: object[]): GraphEvent => ({ t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps }, result: { result: [] } });
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, plan([{ id: "a", title: "A", status: "completed" }, { id: "b", title: "B", status: "completed", blockedBy: ["a"] }, { id: "c", title: "C", status: "completed", blockedBy: ["a"] }]));
+  apply(state, { t: 1, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, plan([{ id: "d", title: "D" }, { id: "e", title: "E", blockedBy: ["d"] }]));
+  const shown = nodes(state);
+  // b and c end request 1; d starts request 2; e depends on d, so it has no sequence link.
+  assert.deepEqual(shown.find((node) => node.id === "plan:d")?.after, ["plan:b", "plan:c"]);
+  assert.equal(shown.find((node) => node.id === "plan:e")?.after, undefined);
+  assert.equal(shown.find((node) => node.id === "plan:a")?.after, undefined);
+});
+
+test("every tool error marks the current node; it stays blue unless errors repeat", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(state, { t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "fix", title: "Fix", status: "in_progress" }] }, result: { result: [] } });
+  apply(state, { t: 5, event: "tool.call", input: { tool: "Bash" }, result: { isError: true, text: "Exit code 1\nboom" } });
+  apply(state, { t: 6, event: "classic.PostToolBatch", input: {} });
+  apply(state, { t: 7, event: "tool.call", input: { tool: "Bash" }, result: {} });
+  const fix = nodes(state).find((node) => node.id === "plan:fix");
+  assert.equal(fix?.status, "running");
+  assert.deepEqual(fix?.lastError, { detail: "Exit code 1", at: 5 });
+});
