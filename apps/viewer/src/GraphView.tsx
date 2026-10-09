@@ -4,6 +4,7 @@ import { buildScene, cameraFor, centerOn, circleBox, clampPan, linkPath, type Bo
 import { hoverCard } from "./hover.ts";
 import { BANG, discSprite, PX, ringPixels, snap, steppedPath } from "./pixel.ts";
 import { tellNative, type Look } from "./store.ts";
+import { cue, cuesFor } from "./sound.ts";
 import { errorsOf, statusesOf, transitions } from "./transitions.ts";
 import { useTween } from "./useTween.ts";
 
@@ -107,7 +108,9 @@ function useGlide(target: Camera, instant: boolean): Camera {
  * to the whole graph when it rests. A finished step bursts and hands off to
  * the step it unblocked with a packet along the edge.
  */
-export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; look?: Look }) {
+const isLive = (state: Snapshot["sessionState"]) => state === "working" || state === "waiting_you";
+
+export function GraphView({ snapshot, look = "pixel", sound = false }: { snapshot: Snapshot; look?: Look; sound?: boolean }) {
   const pixel = look === "pixel";
   const [ref, viewport] = useViewport();
   const scene = useMemo(() => buildScene(snapshot), [snapshot]);
@@ -175,10 +178,20 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   const [effects, setEffects] = useState<Effect[]>([]);
   const previous = useRef<ReturnType<typeof statusesOf> | undefined>(undefined);
   const previousErrors = useRef<ReturnType<typeof errorsOf>>(new Map());
+  const previousState = useRef<Snapshot["sessionState"] | undefined>(undefined);
   useEffect(() => {
-    const change = transitions(previous.current, snapshot, previousErrors.current);
+    const before = previous.current;
+    const change = transitions(before, snapshot, previousErrors.current);
     previous.current = statusesOf(snapshot);
     previousErrors.current = errorsOf(snapshot);
+    const wasLive = previousState.current !== undefined && isLive(previousState.current);
+    previousState.current = snapshot.sessionState;
+    if (sound && before !== undefined) {
+      const wentYellow = snapshot.nodes.some((node) => node.status === "needs_you" && before.get(node.id) !== "needs_you");
+      const finishedSession =
+        wasLive && !isLive(snapshot.sessionState) && snapshot.nodes.length > 0 && snapshot.nodes.every((node) => node.status === "done");
+      for (const which of cuesFor(change, wentYellow, finishedSession)) cue(which, look);
+    }
     const born: Effect[] = [
       ...change.added.map((id) => ({ key: `appear:${id}:${snapshot.seq}`, kind: "appear" as const, from: id })),
       ...change.flashed.map((id) => ({ key: `flash:${id}:${snapshot.seq}`, kind: "flash" as const, from: id })),

@@ -31,6 +31,9 @@ if (requested !== null) {
 const look = params.get("look");
 if (look === "smooth" || look === "pixel") store.setLook(look);
 
+// ?sound=off silences the cues (the overlay's Sound menu does it there).
+if (params.get("sound") === "off") store.setSound(false);
+
 // ?subagents=hide leaves subagents out of the graph.
 if (params.get("subagents") === "hide") store.setShowSubagents(false);
 
