@@ -1,29 +1,16 @@
 import OverlayChecks
 import XCTest
 
-/// The checks of OverlayChecks, one XCTest per group (`swift test` needs Xcode;
-/// `swift run overlay-checks` runs the same checks without it).
+/// Every check of OverlayChecks under XCTest (`swift test` needs Xcode;
+/// `swift run overlay-checks` runs the same checks without it). One test runs
+/// them all, so a new group of checks is covered without being listed here.
 final class CoreTests: XCTestCase {
-    func testHTTP() { run("http") }
-    func testSnapshot() { run("snapshot") }
-    func testSessions() { run("sessions") }
-    func testFiles() { run("files") }
-    func testGeometry() { run("geometry") }
-    func testFocus() { run("focus") }
-    func testLook() { run("look") }
-    func testLiveness() { run("liveness") }
-
-    func testEveryGroupIsCovered() {
-        XCTAssertEqual(Set(OverlayChecks.all.map(\.group)), ["http", "snapshot", "sessions", "files", "geometry", "focus", "look", "liveness"])
-    }
-
-    private func run(_ group: String) {
-        let checks = OverlayChecks.all.filter { $0.group == group }
-        XCTAssertFalse(checks.isEmpty)
-        for check in checks {
+    func testAllChecks() {
+        XCTAssertFalse(OverlayChecks.all.isEmpty)
+        for check in OverlayChecks.all {
             let expect = Expect()
             check.body(expect)
-            for failure in expect.failures { XCTFail("\(check.name): \(failure)") }
+            for failure in expect.failures { XCTFail("\(check.group) · \(check.name): \(failure)") }
         }
     }
 }
