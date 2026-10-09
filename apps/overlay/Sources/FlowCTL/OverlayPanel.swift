@@ -2,16 +2,13 @@ import AppKit
 
 /// The floating panel: no frame, no shadow, no background of its own, so the
 /// graph floats over the screen. It never activates the app (the terminal
-/// keeps focus) and shows on every Space and over full-screen apps. A thin
-/// strip on top holds the close button and is where it is dragged from; its
-/// size is set by the app from what the viewer asks for, not by the person.
+/// keeps focus) and shows on every Space and over full-screen apps. The page
+/// fills it: its top bar holds the close button and the grip the panel is
+/// dragged by, both drawn by the viewer (see PageView). Its size is set by the
+/// person (Size in the menu bar), not by the page.
 final class OverlayPanel: NSPanel {
-    static let stripHeight: CGFloat = 18
-
-    /// Close button, ⌘W: the panel hides, the app keeps running.
+    /// Hides the panel: ⌘W, the viewer's × and closing the window.
     var onHide: (() -> Void)?
-    /// The person dragged the panel somewhere else.
-    var onDragEnded: (() -> Void)?
 
     init(content: NSView) {
         super.init(
@@ -23,8 +20,8 @@ final class OverlayPanel: NSPanel {
         title = "FlowCTL"
         isFloatingPanel = true
         hidesOnDeactivate = false
-        // Key only once the person clicks it (see canBecomeKey), never when it
-        // pops up: a key non-activating panel would take the terminal's typing.
+        // Key only once the person clicks the grip (see canBecomeKey), never when
+        // it pops up: a key non-activating panel would take the terminal's typing.
         becomesKeyOnlyIfNeeded = false
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -39,34 +36,24 @@ final class OverlayPanel: NSPanel {
         root.layer?.backgroundColor = NSColor.clear.cgColor
         contentView = root
 
-        let strip = ControlStrip()
-        strip.onClose = { [weak self] in self?.onHide?() }
-        strip.onDragEnded = { [weak self] in self?.onDragEnded?() }
-        strip.onPress = { [weak self] in self?.allowKey() }
-        strip.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(content)
-        root.addSubview(strip)
         NSLayoutConstraint.activate([
-            strip.topAnchor.constraint(equalTo: root.topAnchor),
-            strip.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            strip.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            strip.heightAnchor.constraint(equalToConstant: Self.stripHeight),
-            content.topAnchor.constraint(equalTo: strip.bottomAnchor),
+            content.topAnchor.constraint(equalTo: root.topAnchor),
             content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             content.bottomAnchor.constraint(equalTo: root.bottomAnchor)
         ])
     }
 
-    /// Set by a click on the strip, cleared when the panel stops being key.
+    /// Set by a click on the grip, cleared when the panel stops being key.
     private var keyAllowed = false
 
     override var canBecomeKey: Bool { keyAllowed }
 
-    /// A click on the strip makes the panel key, so ⌘Q and ⌘W reach it; the
-    /// app still does not activate. A click on the graph does not: it goes
-    /// to the page, and the terminal keeps the keyboard.
+    /// A press on the grip makes the panel key, so ⌘Q and ⌘W reach it; the app
+    /// still does not activate. A click on the graph does not: it goes to the
+    /// page, and the terminal keeps the keyboard.
     func allowKey() {
         guard !isKeyWindow else { return }
         keyAllowed = true
@@ -105,73 +92,4 @@ final class OverlayPanel: NSPanel {
     override func close() {
         if let onHide { onHide() } else { super.close() }
     }
-
-    /// The strip's close button (the debug hooks click it as a person would).
-    var closeButton: NSButton? {
-        contentView?.subviews.compactMap { ($0 as? ControlStrip)?.closeButton }.first
-    }
-}
-
-/// The strip above the page: a close button that is always there (faint
-/// until hovered) and a handle to drag the panel by.
-private final class ControlStrip: NSView {
-    var onClose: (() -> Void)?
-    var onDragEnded: (() -> Void)?
-    /// Any press on the strip, before it drags.
-    var onPress: (() -> Void)?
-    let closeButton = NSButton()
-
-    private var isHovered = false { didSet { refresh() } }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        layer?.cornerRadius = 6
-
-        closeButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Hide panel")
-        closeButton.imagePosition = .imageOnly
-        closeButton.isBordered = false
-        closeButton.contentTintColor = .secondaryLabelColor
-        closeButton.toolTip = "Hide panel (⌘W)"
-        closeButton.setAccessibilityLabel("Hide panel")
-        closeButton.target = self
-        closeButton.action = #selector(closeClicked)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(closeButton)
-        NSLayoutConstraint.activate([
-            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
-            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 14),
-            closeButton.heightAnchor.constraint(equalToConstant: 14)
-        ])
-        refresh()
-    }
-
-    required init?(coder: NSCoder) { fatalError("not used") }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-
-    override func mouseDown(with event: NSEvent) {
-        onPress?()
-        window?.performDrag(with: event)
-        onDragEnded?()
-    }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .openHand)
-    }
-
-    private func refresh() {
-        closeButton.alphaValue = isHovered ? 1 : 0.55
-        layer?.backgroundColor = isHovered ? NSColor.labelColor.withAlphaComponent(0.08).cgColor : NSColor.clear.cgColor
-    }
-
-    @objc private func closeClicked() { onClose?() }
 }
