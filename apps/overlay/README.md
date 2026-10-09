@@ -33,8 +33,11 @@ It can always be closed:
   have clicked the window);
 - the **menu bar item** (the graph icon; a yellow warning while a session waits
   on you) has **Show/Hide Panel**, **Opacity**, **Size** (Small 280×180,
-  Medium 360×220, Large 480×300), **Look** (Pixel, the default, or Smooth), **Sound** (on by default: the viewer's short synthesised sounds for graph
-  events, sent to it as `window.flowctl.setSound(on)` on every load), **Show Subagents** (on by default:
+  Medium 360×220, Large 480×300), **Look** (Pixel, the default, or Smooth), **Sound** (a submenu, one choice checked: **Off**, **Same as Look** (the
+  default), **Clean** or **8-bit**. Off sends `setSound(false)`; the others send
+  `setSound(true)` and `setSoundStyle('look' | 'smooth' | 'pixel')`, on every
+  load, after the look and before the sessions. A user who turned sound off
+  keeps it off; a viewer without one of these functions only logs it), **Show Subagents** (on by default:
   the subagents of a session, drawn under the task they belong to),
   **Always on Top**, **Show Automatically**,
   **Hide When Idle** and **Quit FlowCTL**;
