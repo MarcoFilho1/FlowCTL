@@ -83,6 +83,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         look.submenu = looks
         menu.addItem(look)
         menu.addItem(toggle("Show Subagents", actions.preferences.showSubagents, #selector(toggleShowSubagents)))
+        menu.addItem(toggle("Sound", actions.preferences.sound, #selector(toggleSound)))
         menu.addItem(toggle("Always on Top", actions.preferences.alwaysOnTop, #selector(toggleAlwaysOnTop)))
         menu.addItem(toggle("Show Automatically", actions.preferences.showAutomatically, #selector(toggleShowAutomatically)))
         menu.addItem(toggle("Hide When Idle", actions.preferences.hideWhenIdle, #selector(toggleHideWhenIdle)))
@@ -151,6 +152,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func setSize(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let size = PanelSize(rawValue: raw), let actions else { return }
         actions.preferences.panelSize = size
+        actions.preferencesChanged()
+    }
+
+    @objc private func toggleSound() {
+        guard let actions else { return }
+        actions.preferences.sound.toggle()
         actions.preferencesChanged()
     }
 

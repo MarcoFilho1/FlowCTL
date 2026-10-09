@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge.onFocus = { [weak self] sessionId, nodeId in self?.focusTerminal(of: sessionId, node: nodeId) }
         bridge.currentLook = { [weak self] in self?.preferences.look ?? .standard }
         bridge.currentShowSubagents = { [weak self] in self?.preferences.showSubagents ?? true }
+        bridge.currentSound = { [weak self] in self?.preferences.sound ?? true }
         self.bridge = bridge
         let panel = OverlayPanel(content: bridge.webView)
         panel.onHide = { [weak self] in self?.hidePanel(byUser: true) }
@@ -248,6 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         applyPreferences()
         bridge?.applyLook(preferences.look)
         bridge?.applyShowSubagents(preferences.showSubagents)
+        bridge?.applySound(preferences.sound)
         layOut(animated: true)
     }
 
@@ -352,6 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             "panelSize": preferences.panelSize.rawValue,
             "look": preferences.look.rawValue,
             "showSubagents": preferences.showSubagents,
+            "sound": preferences.sound,
             "hoverMovesRelayed": bridge?.hover.moves ?? 0,
             "menu": statusMenu?.describe() ?? []
         ]
