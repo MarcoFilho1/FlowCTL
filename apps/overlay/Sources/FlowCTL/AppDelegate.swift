@@ -11,7 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     private var statusMenu: StatusMenu?
     private var timers: [Timer] = []
     /// The person hid the panel; only a new session or one waiting on them brings it back.
-    private var userHidden = false
+    /// What hid the panel, if anything: decides what may bring it back.
+    private var hiddenBy: HiddenBy = .nobody
     /// How long with no active session before the panel hides (5 minutes).
     /// FLOWCTL_IDLE_SECONDS shortens it, for checks, when FLOWCTL_DEBUG=1.
     static var idleLimit: TimeInterval {
@@ -44,10 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge.currentSound = { [weak self] in self?.preferences.sound ?? true }
         bridge.currentSoundStyle = { [weak self] in self?.preferences.soundStyle ?? SoundChoice.standard.rawValue }
         bridge.currentTheme = { [weak self] in self?.preferences.themeChoice.rawValue ?? ThemeChoice.standard.rawValue }
+        bridge.currentIdleAnimation = { [weak self] in self?.preferences.idleAnimation ?? true }
         self.bridge = bridge
         let panel = OverlayPanel(content: bridge.webView)
-        panel.onHide = { [weak self] in self?.hidePanel(byUser: true) }
-        bridge.onClose = { [weak self] in self?.hidePanel(byUser: true) }
+        panel.onHide = { [weak self] in self?.hidePanel(.user) }
+        bridge.onClose = { [weak self] in self?.hidePanel(.user) }
         bridge.onGripDragEnded = { [weak self] in self?.reanchor() }
         self.panel = panel
         anchor = restoredAnchor()
@@ -69,9 +71,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         server?.stop()
     }
 
-    /// Opening the app again (Finder, Spotlight, `open -a FlowCTL`) shows the panel.
+    /// Opening the app again (Finder, Spotlight, the Dock, `open -a FlowCTL`) shows
+    /// the panel, unless it went away for idleness: that comes back only when a
+    /// session resumes. Before this, every open brought it back, so using the Mac
+    /// (launching anything that opens FlowCTL) looked like a session resuming.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showPanel()
+        if AutoShow.reopenShows(hiddenBy) { showPanel() }
         return false
     }
 
@@ -137,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         let outcome = registry.accept(info, body: body, now: Date())
         guard outcome != .stale else { return }
         flushToViewer()
-        if AutoShow.shouldShow(outcome: outcome, state: info.state, enabled: preferences.showAutomatically, userHidden: userHidden) {
+        if AutoShow.shouldShow(outcome: outcome, state: info.state, enabled: preferences.showAutomatically, hiddenBy: hiddenBy) {
             showPanel()
         }
         statusMenu?.refreshIcon()
@@ -169,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         // A session whose process went away, or that went quiet, changes state here.
         flushToViewer()
         if preferences.hideWhenIdle, isPanelShown, registry.isIdle(now: now) {
-            hidePanel(byUser: false)
+            hidePanel(.idle)
         }
         statusMenu?.refreshIcon()
     }
@@ -244,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     var isAnySessionWaiting: Bool { registry.isAnyWaiting(now: Date()) }
 
     func togglePanel() {
-        if isPanelVisible { hidePanel(byUser: true) } else { showPanel() }
+        if isPanelVisible { hidePanel(.user) } else { showPanel() }
     }
 
     func preferencesChanged() {
@@ -254,18 +259,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge?.applySound(preferences.sound)
         bridge?.applySoundStyle(preferences.soundStyle)
         bridge?.applyTheme(preferences.themeChoice.rawValue)
+        bridge?.applyIdleAnimation(preferences.idleAnimation)
         layOut(animated: true)
     }
 
     /// How long the panel takes to appear or disappear.
     private static let fadeDuration: TimeInterval = 0.25
+    /// Going away for idleness is slower than a close, so it does not look like a cut.
+    private static let idleFadeDuration: TimeInterval = 0.8
     /// True while the panel is fading out, so a tick does not start it again.
     private var hiding = false
     /// Counts show and hide requests: a fade-out that was overtaken must not order the panel out.
     private var visibilityChange = 0
 
     private func showPanel() {
-        userHidden = false
+        hiddenBy = .nobody
         guard let panel else { return }
         let target = CGFloat(preferences.opacity)
         if isPanelShown, panel.alphaValue == target { return }
@@ -279,14 +287,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         }
     }
 
-    private func hidePanel(byUser: Bool) {
-        if byUser { userHidden = true }
+    private func hidePanel(_ by: HiddenBy) {
+        hiddenBy = by
         guard let panel, panel.isVisible, !hiding else { return }
         visibilityChange += 1
         let change = visibilityChange
         hiding = true
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.fadeDuration
+            context.duration = by == .idle ? Self.idleFadeDuration : Self.fadeDuration
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             guard let self, self.visibilityChange == change else { return }
@@ -340,7 +348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
                 "grip": gripState(),
                 "shadow": panel?.hasShadow == true,
                 "opaque": panel?.isOpaque == true,
-                "userHidden": userHidden
+                "hiddenBy": "\(hiddenBy)",
+                "idleAnimation": preferences.idleAnimation
             ],
             "sessions": registry.order.map { id -> [String: Any] in
                 let session = registry.sessions[id]
