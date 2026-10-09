@@ -135,16 +135,24 @@ private let registry: [Check] = [
         expect.equal(sessions.order, ["s2"])
         expect.equal(sessions.bodies.count, 1)
     },
-    Check(group: "sessions", name: "idle once nothing has been active for 60 s, counted from launch") { expect in
+    Check(group: "sessions", name: "idle once nothing has been active for more than 5 min, counted from launch") { expect in
         var sessions = SessionRegistry(now: t0)
-        expect.that(!sessions.isIdle(now: t0.addingTimeInterval(59)), "not idle right after launch")
-        expect.that(sessions.isIdle(now: t0.addingTimeInterval(60)), "idle a minute after launch with no session")
-        _ = sessions.accept(info(seq: 1), body: Data(), now: t0.addingTimeInterval(100))
-        expect.that(!sessions.isIdle(now: t0.addingTimeInterval(200)), "a working session is active")
-        _ = sessions.accept(info(seq: 2, state: .idle), body: Data(), now: t0.addingTimeInterval(210))
-        // Working until the idle snapshot at 210: the minute counts from there.
-        expect.that(!sessions.isIdle(now: t0.addingTimeInterval(269)), "less than 60 s since it was active")
-        expect.that(sessions.isIdle(now: t0.addingTimeInterval(270)), "idle 60 s after the last activity")
+        expect.equal(SessionRegistry.idleAfter, 300, "the production limit")
+        expect.that(!sessions.isIdle(now: t0.addingTimeInterval(300)), "exactly 5 min is not more than 5 min")
+        expect.that(sessions.isIdle(now: t0.addingTimeInterval(301)), "idle after 5 min with no session")
+        _ = sessions.accept(info(seq: 1), body: Data(), now: t0.addingTimeInterval(400))
+        expect.that(!sessions.isIdle(now: t0.addingTimeInterval(600)), "a working session is active")
+        _ = sessions.accept(info(seq: 2, state: .idle), body: Data(), now: t0.addingTimeInterval(610))
+        // Working until the idle snapshot at 610: the five minutes count from there.
+        expect.that(!sessions.isIdle(now: t0.addingTimeInterval(910)), "still within 5 min of the last activity")
+        expect.that(sessions.isIdle(now: t0.addingTimeInterval(911)), "idle after 5 min since the last activity")
+    },
+    Check(group: "sessions", name: "a shorter idle limit can be given, as the debug override does") { expect in
+        var sessions = SessionRegistry(now: t0, idleAfter: 3)
+        expect.that(!sessions.isIdle(now: t0.addingTimeInterval(3)), "3 s is not more than 3 s")
+        expect.that(sessions.isIdle(now: t0.addingTimeInterval(4)), "idle after 3 s")
+        _ = sessions.accept(info(seq: 1, state: .waitingYou), body: Data(), now: t0.addingTimeInterval(5))
+        expect.that(!sessions.isIdle(now: t0.addingTimeInterval(7)), "waiting on the person is active")
     },
     Check(group: "sessions", name: "an old snapshot read from disk does not turn the idle clock back") { expect in
         var sessions = SessionRegistry(now: t0)

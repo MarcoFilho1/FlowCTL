@@ -8,8 +8,8 @@ public struct SessionRegistry {
     /// A session that said "working" and went quiet this long is presumed gone
     /// (its process died without a session.end). One waiting on the person stays active.
     public static let workingSilenceLimit: TimeInterval = 10 * 60
-    /// No active session for this long counts as idle (`Hide When Idle`).
-    public static let idleAfter: TimeInterval = 60
+    /// No active session for longer than this is idle: the panel hides (`Hide When Idle`).
+    public static let idleAfter: TimeInterval = 5 * 60
 
     public struct Session: Equatable {
         public let info: SnapshotInfo
@@ -29,10 +29,13 @@ public struct SessionRegistry {
     /// Session ids in the order they first arrived.
     public private(set) var order: [String] = []
     private var lastActiveAt: Date
+    private let idleAfter: TimeInterval
 
     /// `now`: when the overlay opened; idleness is counted from there.
-    public init(now: Date) {
+    /// `idleAfter` is the production limit unless a test shortens it.
+    public init(now: Date, idleAfter: TimeInterval = SessionRegistry.idleAfter) {
         lastActiveAt = now
+        self.idleAfter = idleAfter
     }
 
     /// `now`: when the snapshot was seen (a file's modification date, for one
@@ -77,13 +80,13 @@ public struct SessionRegistry {
         sessions.values.contains { $0.info.state == .waitingYou }
     }
 
-    /// True once no session has been active for `idleAfter`.
+    /// True once no session has been active for longer than `idleAfter`.
     public mutating func isIdle(now: Date) -> Bool {
         if activeCount(now: now) > 0 {
             lastActiveAt = now
             return false
         }
-        return now.timeIntervalSince(lastActiveAt) >= Self.idleAfter
+        return now.timeIntervalSince(lastActiveAt) > idleAfter
     }
 
     /// The bodies to push again, in arrival order, after the page reloads.

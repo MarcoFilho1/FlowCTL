@@ -4,7 +4,7 @@ import FlowCTLCore
 final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     let preferences = Preferences()
     private let paths = Paths()
-    private var registry = SessionRegistry(now: Date())
+    private var registry = SessionRegistry(now: Date(), idleAfter: AppDelegate.idleLimit)
     private var panel: OverlayPanel?
     private var bridge: WebBridge?
     private var server: SocketServer?
@@ -12,6 +12,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     private var timers: [Timer] = []
     /// The person hid the panel; only a new session or one waiting on them brings it back.
     private var userHidden = false
+    /// How long with no active session before the panel hides (5 minutes).
+    /// FLOWCTL_IDLE_SECONDS shortens it, for checks, when FLOWCTL_DEBUG=1.
+    static var idleLimit: TimeInterval {
+        guard DebugHooks.isEnabled, let raw = ProcessInfo.processInfo.environment["FLOWCTL_IDLE_SECONDS"],
+              let seconds = Double(raw), seconds > 0
+        else { return SessionRegistry.idleAfter }
+        return seconds
+    }
     /// The corner the panel keeps fixed while it grows, and where that corner is.
     private var anchor: (corner: Corner, point: CGPoint) = (.topRight, .zero)
 
@@ -137,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             log("closing the ended session tab \(id)")
             bridge?.remove(id) { [weak self] in self?.registry.bodies ?? [] }
         }
-        if preferences.hideWhenIdle, isPanelVisible, registry.isIdle(now: now) {
+        if preferences.hideWhenIdle, isPanelShown, registry.isIdle(now: now) {
             hidePanel(byUser: false)
         }
         statusMenu?.refreshIcon()
@@ -221,14 +229,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         layOut(animated: true)
     }
 
+    /// How long the panel takes to appear or disappear.
+    private static let fadeDuration: TimeInterval = 0.25
+    /// True while the panel is fading out, so a tick does not start it again.
+    private var hiding = false
+    /// Counts show and hide requests: a fade-out that was overtaken must not order the panel out.
+    private var visibilityChange = 0
+
     private func showPanel() {
         userHidden = false
-        panel?.orderFrontRegardless()
+        guard let panel else { return }
+        let target = CGFloat(preferences.opacity)
+        if isPanelShown, panel.alphaValue == target { return }
+        visibilityChange += 1
+        hiding = false
+        if !panel.isVisible { panel.alphaValue = 0 }
+        panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.fadeDuration
+            panel.animator().alphaValue = target
+        }
     }
 
     private func hidePanel(byUser: Bool) {
         if byUser { userHidden = true }
-        panel?.orderOut(nil)
+        guard let panel, panel.isVisible, !hiding else { return }
+        visibilityChange += 1
+        let change = visibilityChange
+        hiding = true
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Self.fadeDuration
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            guard let self, self.visibilityChange == change else { return }
+            panel.orderOut(nil)
+            // Back to the chosen opacity, ready for the next showPanel.
+            panel.alphaValue = CGFloat(self.preferences.opacity)
+            self.hiding = false
+        })
+    }
+
+    /// Whether the panel is up for the person (visible and not on its way out).
+    private var isPanelShown: Bool {
+        (panel?.isVisible ?? false) && !hiding
     }
 
     private func applyPreferences() {
