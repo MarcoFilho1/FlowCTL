@@ -39,8 +39,17 @@ It can always be closed:
 - **⌘Q** quits once you have clicked the window.
 
 Hidden by you, it comes back only for a new session or one that starts
-waiting on you (with **Show Automatically** on). **Hide When Idle** hides it
-after a minute with no session working or waiting.
+waiting on you (with **Show Automatically** on).
+
+**Hide When Idle** is on by default: when no session has been working or
+waiting for more than five minutes, the panel fades out by itself, and it fades
+back in as soon as a session starts working or waits on you again, even when
+it was hidden that way (a panel you closed with × stays closed for ordinary
+activity: only a new session or one that starts waiting brings it back). The
+viewer keeps drawing the whole graph meanwhile. Turn the item off to keep it up
+all the time.
+
+Hiding and showing fade over 0.25 s.
 
 ## Uninstall
 

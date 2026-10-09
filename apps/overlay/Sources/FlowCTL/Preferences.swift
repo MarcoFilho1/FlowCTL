@@ -14,7 +14,7 @@ final class Preferences {
             Key.opacity: 1.0,
             Key.alwaysOnTop: true,
             Key.showAutomatically: true,
-            Key.hideWhenIdle: false
+            Key.hideWhenIdle: true
         ])
     }
 
@@ -34,7 +34,7 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Key.showAutomatically) }
     }
 
-    /// Hide the panel after a minute with no active session.
+    /// Hide the panel after five minutes with no active session (on by default).
     var hideWhenIdle: Bool {
         get { defaults.bool(forKey: Key.hideWhenIdle) }
         set { defaults.set(newValue, forKey: Key.hideWhenIdle) }
