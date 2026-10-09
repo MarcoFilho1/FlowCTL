@@ -22,6 +22,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var currentShowSubagents: () -> Bool = { true }
     /// Whether the viewer plays its sounds (on by default).
     var currentSound: () -> Bool = { true }
+    /// The style of the sounds (look by default).
+    var currentSoundStyle: () -> String = { SoundChoice.standard.rawValue }
     /// Hands the page hover moves while the app is inactive.
     let hover = HoverRelay()
 
@@ -106,6 +108,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             self.applyLook(self.currentLook())
             self.applyShowSubagents(self.currentShowSubagents())
             self.applySound(self.currentSound())
+            self.applySoundStyle(self.currentSoundStyle())
             let pending = self.queued
             self.queued.removeAll()
             pending.forEach(self.send)
@@ -123,6 +126,11 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     /// load, and logged as not applied to a viewer that does not have it yet.
     func applyShowSubagents(_ show: Bool) {
         setPageOption("setShowSubagents", value: show, what: "subagents \(show ? "shown" : "hidden")", missing: "the viewer has no setShowSubagents yet")
+    }
+
+    /// `window.flowctl.setSoundStyle(style)`, the same way, after setSound.
+    func applySoundStyle(_ style: String) {
+        setPageOption("setSoundStyle", value: style, what: "sound style \(style)", missing: "the viewer has no setSoundStyle yet")
     }
 
     /// `window.flowctl.setSound(on)`, the same way: applied on every load.

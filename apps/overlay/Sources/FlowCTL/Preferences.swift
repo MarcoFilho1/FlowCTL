@@ -16,7 +16,8 @@ final class Preferences {
             Key.showAutomatically: true,
             Key.hideWhenIdle: true,
             Key.showSubagents: true,
-            Key.sound: true
+            Key.sound: true,
+            Key.soundStyle: SoundChoice.standard.rawValue
         ])
     }
 
@@ -43,9 +44,25 @@ final class Preferences {
     }
 
     /// The viewer's sounds for graph events (on by default); the viewer takes it through setSound.
+    /// A user who turned sound off keeps it off: the stored `false` is what they chose.
     var sound: Bool {
         get { defaults.bool(forKey: Key.sound) }
         set { defaults.set(newValue, forKey: Key.sound) }
+    }
+
+    /// The style of the sounds when they are on: look, smooth or pixel (sent as setSoundStyle).
+    var soundStyle: String {
+        get { defaults.string(forKey: Key.soundStyle) ?? SoundChoice.standard.rawValue }
+        set { defaults.set(newValue, forKey: Key.soundStyle) }
+    }
+
+    /// The sound menu's choice, from the two stored values.
+    var soundChoice: SoundChoice {
+        get { SoundChoice.from(sound: sound, style: soundStyle) }
+        set {
+            sound = newValue.isOn
+            if newValue.isOn { soundStyle = newValue.rawValue }
+        }
     }
 
     /// Hide the panel after five minutes with no active session (on by default).
@@ -92,5 +109,6 @@ final class Preferences {
         static let hideWhenIdle = "hideWhenIdle"
         static let showSubagents = "showSubagents"
         static let sound = "sound"
+        static let soundStyle = "soundStyle"
     }
 }
