@@ -70,10 +70,32 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 
 /* Header: one quiet line */
 /* Header and tabs float over the graph, so the whole window is canvas. */
+.topbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3; height: 26px; padding: 0 4px 0 8px;
+  display: flex; align-items: center; gap: 6px; pointer-events: none;
+}
+.topbar > .grip, .topbar > .pager, .topbar > .close { pointer-events: auto; }
 .header {
-  position: absolute; top: 6px; left: 8px; z-index: 3; max-width: 60%; pointer-events: none;
+  flex: 0 1 auto; max-width: 55%;
   display: flex; align-items: center; gap: 6px; height: 18px; min-width: 0; font-size: 11px; color: var(--muted);
 }
+/* The handle the window is dragged by: a field of dots, clearer on hover. */
+.grip {
+  flex: 1 1 auto; min-width: 24px; height: 14px; cursor: grab; opacity: 0.45; transition: opacity 150ms ease;
+  background-image: radial-gradient(circle, var(--muted) 1px, transparent 1.2px); background-size: 4px 4px; background-position: center;
+}
+.grip:hover { opacity: 0.9; }
+/* Pixel look: square dots on a 4 px grid. */
+.app.look-pixel .grip {
+  background-image: conic-gradient(var(--muted) 0 25%, transparent 0 100%);
+  background-size: 4px 4px; background-position: 0 0;
+}
+.close {
+  flex: none; width: 18px; height: 18px; padding: 0; font: 600 14px/1 var(--font); color: var(--muted);
+  background: none; border: 0; border-radius: 4px; cursor: pointer; text-shadow: 0 0 3px var(--halo);
+}
+.close:hover, .close:focus-visible { color: var(--text); background: var(--chip); outline: none; }
+.app.look-pixel .close { border-radius: 0; }
 .header > * { text-shadow: 0 0 3px var(--halo), 0 0 6px var(--halo); }
 .state-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .state-dot.state-working { background: var(--running); }
@@ -86,7 +108,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 
 /* Session pager: ‹ 2/3 › */
 .pager {
-  position: absolute; top: 3px; right: 6px; z-index: 3;
+  flex: none;
   display: flex; align-items: center; gap: 2px; font-size: 11px; color: var(--muted);
   text-shadow: 0 0 3px var(--halo);
 }
@@ -99,7 +121,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .pager-waiting { width: 6px; height: 6px; border-radius: 50%; background: var(--needs-you); margin-left: 2px; animation: pulse 1.4s ease-in-out infinite; }
 .app.look-pixel .pager-step { border-radius: 0; }
 .app.look-pixel .pager-waiting { border-radius: 0; animation-timing-function: steps(2, jump-none); }
-.app.dev .pager { position: static; margin: 6px 8px 0; }
+.app.dev .topbar { position: static; margin: 4px 0 0; }
 
 /* Graph: a fixed window onto a larger canvas, moved by dragging */
 .graph { flex: 1; min-height: 0; min-width: 0; position: relative; }
@@ -206,7 +228,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 
 /* In the dev page the header sits in the flow, and the graph shows in an
    overlay-sized frame (Medium, 360 × 220) to judge it at its real size. */
-.app.dev .header { position: static; max-width: none; margin: 6px 8px 0; pointer-events: auto; }
+.app.dev .header { max-width: none; pointer-events: auto; }
 .app.dev .graph { flex: none; width: 360px; height: 220px; margin: 8px; border: 1px dashed var(--line); border-radius: 10px; }
 
 /* ── Pixel look ──────────────────────────────────────────────────────────

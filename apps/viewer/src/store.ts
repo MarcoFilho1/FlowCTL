@@ -137,7 +137,11 @@ declare global {
 /** What the viewer tells the overlay app: the size it wants, and which session to bring forward. */
 export type NativeMessage =
   | { type: "size"; width: number; height: number }
-  | { type: "focus"; sessionId: string; nodeId: string };
+  | { type: "focus"; sessionId: string; nodeId: string }
+  /** Where the window can be grabbed and dragged, in page points; width 0 means nowhere. */
+  | { type: "grip"; x: number; y: number; width: number; height: number }
+  /** The person closed the overlay with the × in the top bar. */
+  | { type: "close" };
 
 /** Sends a message to the overlay app; a no-op in a plain browser. */
 export function tellNative(message: NativeMessage, target: Window = window): boolean {
