@@ -132,9 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     private func tick() {
         let now = Date()
         let expired = registry.expireEnded(now: now)
-        if !expired.isEmpty {
-            log("closing ended session tab(s): \(expired.joined(separator: ", "))")
-            bridge?.reload(replaying: registry.bodies)
+        for id in expired {
+            log("closing the ended session tab \(id)")
+            bridge?.remove(id) { [weak self] in self?.registry.bodies ?? [] }
         }
         if preferences.hideWhenIdle, isPanelVisible, registry.isIdle(now: now) {
             hidePanel(byUser: false)

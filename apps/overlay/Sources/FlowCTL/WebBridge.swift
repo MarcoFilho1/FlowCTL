@@ -47,8 +47,22 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         if isReady { send(body) } else { queued.append(body) }
     }
 
-    /// Loads the page again and pushes `bodies` once it is up: how a tab is
-    /// removed, since the viewer only adds and updates sessions.
+    /// Closes a session's tab: `window.flowctl.remove(sessionId)`, or a fresh
+    /// page with `remaining` pushed again on a viewer too old to have it.
+    func remove(_ sessionId: String, remaining: @escaping () -> [Data]) {
+        guard isReady else {
+            reload(replaying: remaining())
+            return
+        }
+        let script = "if (window.flowctl && typeof window.flowctl.remove === 'function') { window.flowctl.remove(sessionId); return true } return false"
+        webView.callAsyncJavaScript(script, arguments: ["sessionId": sessionId], in: nil, in: .page) { [weak self] result in
+            if case .success(let removed) = result, (removed as? Bool) == true { return }
+            log("the page cannot remove \(sessionId); reloading it")
+            self?.reload(replaying: remaining())
+        }
+    }
+
+    /// Loads the page again and pushes `bodies` once it is up.
     func reload(replaying bodies: [Data]) {
         queued = bodies
         load()
@@ -128,18 +142,59 @@ private final class MessageProxy: NSObject, WKScriptMessageHandler {
 /// moves while its app is inactive, and the overlay's always is, so hover
 /// would never reach the page; this hands each move to `pageScript`, which
 /// raises the mouseover/mouseout pair a real move would (React derives
-/// onMouseEnter/onMouseLeave from those).
+/// onMouseEnter/onMouseLeave from those). `pageScript` also defines
+/// `__flowctlDrag` and `__flowctlWheel`, the same for presses and scrolls.
 final class HoverRelay: NSResponder {
     static let pageScript = """
     (() => {
+      // Hover: the mouseover/mouseout pair a real move raises.
       let last = null;
+      let at = { x: -1, y: -1 };
       window.__flowctlPointer = (x, y) => {
+        at = { x, y };
         const target = x < 0 ? null : document.elementFromPoint(x, y);
         if (target === last) return;
         const init = (related) => ({ bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, relatedTarget: related });
         if (last && last.isConnected) last.dispatchEvent(new MouseEvent("mouseout", init(target)));
         if (target) target.dispatchEvent(new MouseEvent("mouseover", init(last)));
         last = target;
+      };
+
+      // Drag: pointerdown, pointermove (buttons 1) and pointerup on the element
+      // under the press, pointerId 1, with the matching mouse events; a press
+      // that moved less than 4 px also clicks.
+      let press = null;
+      window.__flowctlDrag = (phase, x, y) => {
+        at = { x, y };
+        if (phase === "down") press = { target: document.elementFromPoint(x, y), x, y, moved: 0 };
+        const target = press && press.target && press.target.isConnected ? press.target : document.elementFromPoint(x, y);
+        if (!target) return;
+        if (press) press.moved = Math.max(press.moved, Math.hypot(x - press.x, y - press.y));
+        const pointer = { down: "pointerdown", move: "pointermove", up: "pointerup" }[phase];
+        const mouse = { down: "mousedown", move: "mousemove", up: "mouseup" }[phase];
+        if (!pointer) return;
+        const init = {
+          bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y,
+          pointerId: 1, pointerType: "mouse", isPrimary: true,
+          button: phase === "move" ? -1 : 0, buttons: phase === "up" ? 0 : 1
+        };
+        target.dispatchEvent(new PointerEvent(pointer, init));
+        target.dispatchEvent(new MouseEvent(mouse, { ...init, button: 0 }));
+        if (phase === "up") {
+          if (press && press.moved < 4) target.dispatchEvent(new MouseEvent("click", { ...init, button: 0, detail: 1 }));
+          press = null;
+        }
+      };
+
+      // Wheel and two-finger trackpad scroll, in pixels, at a point (or the
+      // last one the pointer was seen at).
+      window.__flowctlWheel = (dx, dy, x, y) => {
+        const px = x ?? at.x, py = y ?? at.y;
+        const target = (px >= 0 ? document.elementFromPoint(px, py) : null) || document.body;
+        target.dispatchEvent(new WheelEvent("wheel", {
+          bubbles: true, cancelable: true, composed: true, view: window,
+          clientX: px, clientY: py, deltaX: dx, deltaY: dy, deltaMode: 0
+        }));
       };
     })();
     """
