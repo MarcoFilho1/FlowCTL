@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { DevControls, type Replay } from "./DevControls.tsx";
 import { GraphView } from "./GraphView.tsx";
-import { Close, Grip, Header, Pager } from "./Header.tsx";
+import { Close, DragZone, Grip, Header, Pager } from "./Header.tsx";
 import { sessionKey, withoutSubagents, type SessionStore } from "./store.ts";
 
 export function App({
@@ -24,10 +24,12 @@ export function App({
   return (
     <main className={`app ${replays ? "dev" : "overlay"} look-${look}`}>
       {replays && <DevControls replays={replays} store={store} {...(startAt !== undefined ? { startAt } : {})} />}
-      {/* One top bar: the session, the handle to drag the window by, the pager, close. */}
+      {/* One top bar: the drag zone (session name, progress, dots), the pager, close. */}
       <div className="topbar">
-        {current ? <Header snapshot={current} showWarnings={replays !== undefined} /> : <span className="header" />}
-        <Grip />
+        <DragZone>
+          {current ? <Header snapshot={current} showWarnings={replays !== undefined} /> : <span className="header" />}
+          <Grip />
+        </DragZone>
         <Pager sessions={sessions} active={current ? sessionKey(current) : null} onSelect={store.select} />
         <Close />
       </div>

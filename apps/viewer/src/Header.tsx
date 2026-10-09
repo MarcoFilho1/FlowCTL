@@ -75,10 +75,11 @@ export function Pager({
 }
 
 /**
- * The handle the window is dragged by, between the session's name and the
- * pager. The overlay app does the dragging: it is told where the handle is.
+ * Where the window is dragged by: the whole top bar but the pager and the ×,
+ * that is the session's name, its progress and the dotted handle. The overlay
+ * app does the dragging: it is told where this zone is.
  */
-export function Grip() {
+export function DragZone({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const element = ref.current;
@@ -98,7 +99,16 @@ export function Grip() {
       tellNative({ type: "grip", x: 0, y: 0, width: 0, height: 0 });
     };
   }, []);
-  return <div ref={ref} className="grip" title="Drag to move the overlay" aria-hidden="true" />;
+  return (
+    <div ref={ref} className="drag-zone" title="Drag to move the overlay">
+      {children}
+    </div>
+  );
+}
+
+/** The dots that say "grab here", filling the room the session's name leaves. */
+export function Grip() {
+  return <div className="grip" aria-hidden="true" />;
 }
 
 /** Closes the overlay; it comes back for a new session or one that needs you. */

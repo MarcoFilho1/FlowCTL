@@ -529,10 +529,11 @@ describe("the top bar", () => {
     delete window.webkit;
   });
 
-  test("the drag handle sits between the session's name and the pager, and the overlay is told where", () => {
+  test("the whole bar but the pager and the × drags the window, and the overlay is told where", () => {
     const { container } = mount(snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/api" }), snapshotOf([task("b")], { sessionId: "s2", cwd: "/w/web" }));
     const bar = container.querySelector(".topbar")!;
-    expect([...bar.children].map((child) => child.className)).toEqual(["header", "grip", "pager", "close"]);
+    expect([...bar.children].map((child) => child.className)).toEqual(["drag-zone", "pager", "close"]);
+    expect([...bar.querySelector(".drag-zone")!.children].map((child) => child.className)).toEqual(["header", "grip"]);
     expect(messages.some((message) => (message as { type: string }).type === "grip")).toBe(true);
   });
 
