@@ -217,6 +217,10 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 
 .app.look-pixel { --font: "FlowCTL Digits", "Pixelify Sans", ui-monospace, monospace; --px-ink: #14161b; font-family: var(--font); }
 .app.look-pixel .header, .app.look-pixel .tab { font-size: 12px; letter-spacing: 0.02em; }
+/* Digits come from another face with other metrics: align the header's parts
+   on their baseline, not their boxes, or "4/8" sits lower than "lab". */
+.app.look-pixel .header { align-items: baseline; }
+.app.look-pixel .header .state-dot { align-self: center; }
 .app.look-pixel .state-dot { border-radius: 0; width: 6px; height: 6px; animation-timing-function: steps(2, jump-none); }
 
 .node.pixel .px-body    { fill: var(--status); }
