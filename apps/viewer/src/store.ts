@@ -11,6 +11,8 @@ export interface SessionsState {
   sessions: readonly Snapshot[];
   active: string | null;
   look: Look;
+  /** Draw subagents under their tasks (default) or leave them out. */
+  showSubagents: boolean;
 }
 
 export interface SessionStore {
@@ -20,8 +22,18 @@ export interface SessionStore {
   /** Drops a session, so its seq starts over (the fixture player's restart). */
   forget(key: string): void;
   setLook(look: Look): void;
+  setShowSubagents(show: boolean): void;
   getState(): SessionsState;
   subscribe(listener: () => void): () => void;
+}
+
+/**
+ * The snapshot as drawn without subagents: their nodes are left out, and so
+ * are their links to the tasks they worked for.
+ */
+export function withoutSubagents(snapshot: Snapshot): Snapshot {
+  if (!snapshot.nodes.some((node) => node.kind === "agent")) return snapshot;
+  return { ...snapshot, nodes: snapshot.nodes.filter((node) => node.kind !== "agent") };
 }
 
 /** A session's tab key: its id, else its folder, so a snapshot always lands somewhere. */
@@ -45,7 +57,7 @@ export function isSnapshot(value: unknown): value is Snapshot {
 }
 
 export function createSessionStore(): SessionStore {
-  let state: SessionsState = { sessions: [], active: null, look: "pixel" };
+  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
 
@@ -76,6 +88,11 @@ export function createSessionStore(): SessionStore {
       state = { ...state, sessions, active };
       emit();
     },
+    setShowSubagents(show) {
+      if (typeof show !== "boolean" || state.showSubagents === show) return;
+      state = { ...state, showSubagents: show };
+      emit();
+    },
     setLook(look) {
       if (state.look === look || (look !== "pixel" && look !== "smooth")) return;
       state = { ...state, look };
@@ -91,7 +108,12 @@ export function createSessionStore(): SessionStore {
 
 declare global {
   interface Window {
-    flowctl?: { push(snapshot: unknown): boolean; remove(sessionId: string): void; setLook(look: Look): void };
+    flowctl?: {
+      push(snapshot: unknown): boolean;
+      remove(sessionId: string): void;
+      setLook(look: Look): void;
+      setShowSubagents(show: boolean): void;
+    };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
   }
 }
@@ -118,6 +140,7 @@ export function installBridge(store: SessionStore, target: Window = window): voi
   target.flowctl = {
     push: (snapshot) => store.push(snapshot),
     remove: (sessionId) => store.forget(sessionId),
-    setLook: (look) => store.setLook(look)
+    setLook: (look) => store.setLook(look),
+    setShowSubagents: (show) => store.setShowSubagents(show)
   };
 }

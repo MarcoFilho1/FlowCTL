@@ -346,3 +346,27 @@ describe("transitions and the camera", () => {
     expect(Number(canvas.getAttribute("data-scale"))).toBeLessThan(1);
   });
 });
+
+describe("subagents can be hidden", () => {
+  test("shown by default under their tasks", () => {
+    const { container } = mount(golden("03-subagents-with-task-graph"));
+    expect(container.querySelectorAll(".node.kind-agent")).toHaveLength(3);
+    expect(container.querySelectorAll(".link-agent")).toHaveLength(3);
+  });
+
+  test("the overlay can hide them: nodes, links and counts go", () => {
+    const store = createSessionStore();
+    installBridge(store);
+    const { container } = render(<App store={store} />);
+    act(() => {
+      window.flowctl?.push({ ...golden("03-subagents-with-task-graph"), cwd: "/w/shop" });
+      window.flowctl?.setShowSubagents(false);
+    });
+    expect(container.querySelectorAll(".node.kind-agent")).toHaveLength(0);
+    expect(container.querySelectorAll(".link-agent")).toHaveLength(0);
+    expect(container.querySelectorAll(".node")).toHaveLength(4);
+    expect(within(screen.getByRole("banner")).getByText("4/4")).toBeTruthy();
+    act(() => window.flowctl?.setShowSubagents(true));
+    expect(container.querySelectorAll(".node.kind-agent")).toHaveLength(3);
+  });
+});
