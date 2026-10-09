@@ -252,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge?.applyShowSubagents(preferences.showSubagents)
         bridge?.applySound(preferences.sound)
         bridge?.applySoundStyle(preferences.soundStyle)
+        statusMenu?.refreshIcon()
         layOut(animated: true)
     }
 

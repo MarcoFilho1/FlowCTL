@@ -26,15 +26,86 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         refreshIcon()
     }
 
-    /// The icon turns into a warning while a session waits on the person.
+    /// While a session waits on the person, the icon is a yellow node that
+    /// blinks, in the panel's look.
     func refreshIcon() {
         let waiting = actions?.isAnySessionWaiting ?? false
-        let name = waiting ? "exclamationmark.circle.fill" : "point.3.connected.trianglepath.dotted"
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: waiting ? "FlowCTL: a session needs you" : "FlowCTL")
-        image?.isTemplate = !waiting
-        item.button?.image = image
-        item.button?.contentTintColor = waiting ? .systemYellow : nil
-        if image == nil { item.button?.title = "FlowCTL" }
+        let look = actions?.preferences.look ?? .standard
+        guard waiting else {
+            stopBlinking()
+            let image = NSImage(systemSymbolName: "point.3.connected.trianglepath.dotted", accessibilityDescription: "FlowCTL")
+            image?.isTemplate = true
+            item.button?.image = image
+            item.button?.contentTintColor = nil
+            if image == nil { item.button?.title = "FlowCTL" }
+            return
+        }
+        item.button?.title = ""
+        item.button?.contentTintColor = nil
+        guard blink == nil || blinkLook != look else { return }
+        stopBlinking()
+        blinkLook = look
+        let began = Date()
+        let draw = { [weak self] in
+            let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            let alpha = still ? 1 : AttentionIcon.alpha(look: look, at: Date().timeIntervalSince(began))
+            self?.item.button?.image = StatusMenu.attentionImage(look: look, alpha: alpha)
+        }
+        draw()
+        let timer = Timer(timeInterval: AttentionIcon.frameInterval(look: look), repeats: true) { _ in draw() }
+        RunLoop.main.add(timer, forMode: .common)
+        blink = timer
+    }
+
+    private var blink: Timer?
+    private var blinkLook: PageLook?
+
+    private func stopBlinking() {
+        blink?.invalidate()
+        blink = nil
+        blinkLook = nil
+    }
+
+    private static let yellow = NSColor(srgbRed: 0xf2 / 255, green: 0xc9 / 255, blue: 0x4c / 255, alpha: 1)
+    private static let ink = NSColor(srgbRed: 0x14 / 255, green: 0x16 / 255, blue: 0x1b / 255, alpha: 1)
+
+    /// The node as the viewer draws it: a pixel sprite, or a disc with a shine.
+    static func attentionImage(look: PageLook, alpha: Double) -> NSImage {
+        let side: CGFloat = 18
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: true) { _ in
+            NSGraphicsContext.current?.cgContext.setAlpha(alpha)
+            switch look {
+            case .pixel:
+                let disc = AttentionIcon.pixelDisc(size: 8)
+                let cell: CGFloat = 2
+                let origin = (side - cell * 8) / 2
+                for (y, row) in disc.enumerated() {
+                    for (x, part) in row.enumerated() {
+                        guard let part else { continue }
+                        switch part {
+                        case .outline: ink.setFill()
+                        case .body: yellow.setFill()
+                        case .light: yellow.blended(withFraction: 0.45, of: .white)?.setFill()
+                        case .shade: yellow.blended(withFraction: 0.3, of: .black)?.setFill()
+                        }
+                        NSRect(x: origin + CGFloat(x) * cell, y: origin + CGFloat(y) * cell, width: cell, height: cell).fill()
+                    }
+                }
+            case .smooth:
+                let disc = NSBezierPath(ovalIn: NSRect(x: 2, y: 2, width: side - 4, height: side - 4))
+                yellow.setFill()
+                disc.fill()
+                yellow.blended(withFraction: 0.35, of: .black)?.setStroke()
+                disc.lineWidth = 1
+                disc.stroke()
+                NSColor.white.withAlphaComponent(0.35).setFill()
+                NSBezierPath(ovalIn: NSRect(x: 5, y: 4.5, width: 4.5, height: 3.5)).fill()
+            }
+            return true
+        }
+        image.isTemplate = false
+        image.accessibilityDescription = "FlowCTL: a session needs you"
+        return image
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
