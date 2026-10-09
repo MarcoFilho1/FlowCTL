@@ -3,7 +3,7 @@ import { DevControls, type Replay } from "./DevControls.tsx";
 import { GraphView } from "./GraphView.tsx";
 import { Close, DragZone, Grip, Header, Pager } from "./Header.tsx";
 import { cue } from "./sound.ts";
-import { sessionKey, withoutSubagents, type SessionStore } from "./store.ts";
+import { sessionKey, soundLook, withoutSubagents, type SessionStore } from "./store.ts";
 
 export function App({
   store,
@@ -14,7 +14,8 @@ export function App({
   replays?: readonly Replay[];
   startAt?: number | "end";
 }) {
-  const { sessions: all, active, look, showSubagents, sound } = useSyncExternalStore(store.subscribe, store.getState);
+  const { sessions: all, active, look, showSubagents, sound, soundStyle } = useSyncExternalStore(store.subscribe, store.getState);
+  const sounds = soundLook(look, soundStyle);
   // A session with nothing drawn that is not working (a fresh one gone idle, a
   // stale file restored at launch) would only be an empty tab.
   const sessions = all.filter(
@@ -28,9 +29,9 @@ export function App({
   useEffect(() => {
     const waiting = new Set(sessions.filter((session) => session.sessionState === "waiting_you").map(sessionKey));
     const shown = current ? sessionKey(current) : null;
-    if (sound && [...waiting].some((key) => key !== shown && !waitingBefore.current.has(key))) cue("needs", look);
+    if (sound && [...waiting].some((key) => key !== shown && !waitingBefore.current.has(key))) cue("needs", sounds);
     waitingBefore.current = waiting;
-  }, [sessions, current, sound, look]);
+  }, [sessions, current, sound, sounds]);
   return (
     <main className={`app ${replays ? "dev" : "overlay"} look-${look}`}>
       {replays && <DevControls replays={replays} store={store} {...(startAt !== undefined ? { startAt } : {})} />}
@@ -46,7 +47,7 @@ export function App({
       {current ? (
         <>
           {/* Keyed per session: each tab keeps its own orientation and tweens. */}
-          <GraphView key={sessionKey(current)} snapshot={current} look={look} sound={sound} />
+          <GraphView key={sessionKey(current)} snapshot={current} look={look} sound={sound} sounds={sounds} />
         </>
       ) : (
         <p className="empty">Waiting for a Claude Code session…</p>

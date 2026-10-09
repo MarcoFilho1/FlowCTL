@@ -6,6 +6,9 @@ import { SNAPSHOT_SCHEMA, type Snapshot } from "../../../mod/graph/types.ts";
 /** How the graph is drawn: pixel art (the default) or smooth vector shapes. */
 export type Look = "pixel" | "smooth";
 
+/** Which sounds play: the look's own (default), or clean or 8-bit whatever the look. */
+export type SoundStyle = "look" | "smooth" | "pixel";
+
 export interface SessionsState {
   /** In the order they first arrived. */
   sessions: readonly Snapshot[];
@@ -15,6 +18,7 @@ export interface SessionsState {
   showSubagents: boolean;
   /** Quiet sound cues for what changes (default on). */
   sound: boolean;
+  soundStyle: SoundStyle;
 }
 
 export interface SessionStore {
@@ -26,6 +30,7 @@ export interface SessionStore {
   setLook(look: Look): void;
   setShowSubagents(show: boolean): void;
   setSound(on: boolean): void;
+  setSoundStyle(style: SoundStyle): void;
   getState(): SessionsState;
   subscribe(listener: () => void): () => void;
 }
@@ -67,7 +72,7 @@ const isLive = (snapshot: Snapshot | undefined) =>
 
 export function createSessionStore(now: () => number = () => Date.now()): SessionStore {
   let pickedAt = -Infinity;
-  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true };
+  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look" };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
 
@@ -107,6 +112,11 @@ export function createSessionStore(now: () => number = () => Date.now()): Sessio
       state = { ...state, sessions, active };
       emit();
     },
+    setSoundStyle(style) {
+      if ((style !== "look" && style !== "smooth" && style !== "pixel") || state.soundStyle === style) return;
+      state = { ...state, soundStyle: style };
+      emit();
+    },
     setSound(on) {
       if (typeof on !== "boolean" || state.sound === on) return;
       state = { ...state, sound: on };
@@ -138,6 +148,7 @@ declare global {
       setLook(look: Look): void;
       setShowSubagents(show: boolean): void;
       setSound(on: boolean): void;
+      setSoundStyle(style: SoundStyle): void;
     };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
   }
@@ -171,6 +182,12 @@ export function installBridge(store: SessionStore, target: Window = window): voi
     remove: (sessionId) => store.forget(sessionId),
     setLook: (look) => store.setLook(look),
     setShowSubagents: (show) => store.setShowSubagents(show),
-    setSound: (on) => store.setSound(on)
+    setSound: (on) => store.setSound(on),
+    setSoundStyle: (style) => store.setSoundStyle(style)
   };
+}
+
+/** The sounds to play: the look's own unless a style was chosen. */
+export function soundLook(look: Look, style: SoundStyle): Look {
+  return style === "look" ? look : style;
 }

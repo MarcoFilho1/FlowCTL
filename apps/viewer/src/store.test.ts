@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Snapshot } from "../../../mod/graph/types.ts";
-import { createSessionStore, installBridge, isSnapshot, MANUAL_HOLD_MS, sessionKey, withoutSubagents } from "./store.ts";
+import { createSessionStore, installBridge, isSnapshot, MANUAL_HOLD_MS, sessionKey, soundLook, withoutSubagents } from "./store.ts";
 import { agent, golden, snapshotOf, task } from "./goldens.ts";
 
 describe("session store", () => {
@@ -53,7 +53,7 @@ describe("session store", () => {
     const store = createSessionStore();
     store.push(snapshotOf([], { seq: 9 }));
     store.forget("s1");
-    expect(store.getState()).toEqual({ sessions: [], active: null, look: "pixel", showSubagents: true, sound: true });
+    expect(store.getState()).toEqual({ sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look" });
     expect(store.push(snapshotOf([], { seq: 1 }))).toBe(true);
   });
 
@@ -124,5 +124,24 @@ describe("following the activity", () => {
     clock = 5_000 + MANUAL_HOLD_MS;
     store.push(session("a", "working", 3));
     expect(store.getState().active).toBe("a");
+  });
+});
+
+describe("sound style", () => {
+  test("follows the look unless a set of sounds was chosen", () => {
+    expect(soundLook("smooth", "look")).toBe("smooth");
+    expect(soundLook("pixel", "look")).toBe("pixel");
+    expect(soundLook("smooth", "pixel")).toBe("pixel");
+    expect(soundLook("pixel", "smooth")).toBe("smooth");
+  });
+
+  test("the overlay sets it through the bridge; anything else is ignored", () => {
+    const store = createSessionStore();
+    const target = {} as Window;
+    installBridge(store, target);
+    target.flowctl?.setSoundStyle("pixel");
+    expect(store.getState().soundStyle).toBe("pixel");
+    target.flowctl?.setSoundStyle("loud" as never);
+    expect(store.getState().soundStyle).toBe("pixel");
   });
 });
