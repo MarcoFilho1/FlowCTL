@@ -15,7 +15,7 @@ export function folderName(cwd: string): string {
 }
 
 /** One quiet line: where the session runs, how it stands, how far the plan got. */
-export function Header({ snapshot }: { snapshot: Snapshot }) {
+export function Header({ snapshot, showWarnings = false }: { snapshot: Snapshot; showWarnings?: boolean }) {
   const plan = snapshot.nodes.filter((node) => node.kind !== "turn");
   const done = plan.filter((node) => node.status === "done").length;
   const waiting = snapshot.nodes.filter((node) => node.status === "needs_you").length;
@@ -28,7 +28,8 @@ export function Header({ snapshot }: { snapshot: Snapshot }) {
       {plan.length > 0 && <span className="progress">{`${done}/${plan.length}`}</span>}
       {waiting > 0 && <span className="waiting">{waiting} waiting</span>}
       <span className="visually-hidden">{STATE_LABEL[snapshot.sessionState]}</span>
-      {snapshot.warnings.length > 0 && (
+      {/* Graph warnings are diagnostics for development, not for the overlay. */}
+      {showWarnings && snapshot.warnings.length > 0 && (
         <span className="warnings" title={snapshot.warnings.join("\n")}>
           ⚠ {snapshot.warnings.length}
         </span>
@@ -37,7 +38,11 @@ export function Header({ snapshot }: { snapshot: Snapshot }) {
   );
 }
 
-export function Tabs({
+/**
+ * Moves between sessions: ‹ 2/3 ›. A dot marks another session that needs
+ * the person. Shown only with more than one session.
+ */
+export function Pager({
   sessions,
   active,
   onSelect
@@ -47,33 +52,23 @@ export function Tabs({
   onSelect: (key: string) => void;
 }) {
   if (sessions.length < 2) return null;
-  const folders = sessions.map((session) => (session.cwd ? folderName(session.cwd) : ""));
-  const label = (session: Snapshot, i: number) => {
-    const folder = folders[i] ?? "";
-    const key = sessionKey(session);
-    if (!folder) return key;
-    // Two sessions in the same folder are told apart by their id.
-    return folders.filter((other) => other === folder).length > 1 ? `${folder} · ${key.slice(0, 8)}` : folder;
-  };
+  const keys = sessions.map(sessionKey);
+  const at = Math.max(0, keys.indexOf(active ?? ""));
+  const go = (step: number) => onSelect(keys[(at + step + keys.length) % keys.length] as string);
+  const othersWaiting = sessions.some((session, i) => i !== at && session.sessionState === "waiting_you");
+  const name = (i: number) => folderName(sessions[i]?.cwd ?? "") || keys[i];
   return (
-    <nav className="tabs" role="tablist" aria-label="Sessions">
-      {sessions.map((session, i) => {
-        const key = sessionKey(session);
-        const waiting = session.sessionState === "waiting_you";
-        return (
-          <button
-            key={key}
-            role="tab"
-            type="button"
-            aria-selected={key === active}
-            className={`tab${waiting ? " waiting" : ""}`}
-            title={session.cwd || key}
-            onClick={() => onSelect(key)}
-          >
-            {label(session, i)}
-          </button>
-        );
-      })}
+    <nav className="pager" aria-label="Sessions">
+      <button type="button" className="pager-step" aria-label={`Previous session: ${name((at - 1 + keys.length) % keys.length)}`} onClick={() => go(-1)}>
+        ‹
+      </button>
+      <span className="pager-count" aria-live="polite">
+        {at + 1}/{keys.length}
+      </span>
+      <button type="button" className="pager-step" aria-label={`Next session: ${name((at + 1) % keys.length)}`} onClick={() => go(1)}>
+        ›
+      </button>
+      {othersWaiting && <span className="pager-waiting" title="Another session needs you" aria-label="Another session needs you" />}
     </nav>
   );
 }

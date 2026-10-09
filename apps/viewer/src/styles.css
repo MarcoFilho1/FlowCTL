@@ -84,15 +84,22 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .waiting { color: var(--needs-you); font-weight: 600; }
 .warnings { margin-left: auto; }
 
-/* Tabs */
-.tabs { position: absolute; top: 4px; right: 6px; z-index: 3; max-width: 45%; display: flex; gap: 2px; overflow-x: auto; }
-.tab {
-  font: inherit; font-size: 11px; color: var(--muted); background: none; border: 0;
-  padding: 3px 8px; border-radius: 999px; white-space: nowrap; cursor: pointer;
+/* Session pager: ‹ 2/3 › */
+.pager {
+  position: absolute; top: 3px; right: 6px; z-index: 3;
+  display: flex; align-items: center; gap: 2px; font-size: 11px; color: var(--muted);
   text-shadow: 0 0 3px var(--halo);
 }
-.tab[aria-selected="true"] { color: var(--text); background: var(--chip); }
-.tab.waiting::after { content: " •"; color: var(--needs-you); }
+.pager-step {
+  font: inherit; font-size: 14px; line-height: 1; color: var(--text); background: none; border: 0;
+  width: 18px; height: 18px; padding: 0; border-radius: 4px; cursor: pointer;
+}
+.pager-step:hover, .pager-step:focus-visible { background: var(--chip); outline: none; }
+.pager-count { min-width: 2.6em; text-align: center; font-variant-numeric: tabular-nums; }
+.pager-waiting { width: 6px; height: 6px; border-radius: 50%; background: var(--needs-you); margin-left: 2px; animation: pulse 1.4s ease-in-out infinite; }
+.app.look-pixel .pager-step { border-radius: 0; }
+.app.look-pixel .pager-waiting { border-radius: 0; animation-timing-function: steps(2, jump-none); }
+.app.dev .pager { position: static; margin: 6px 8px 0; }
 
 /* Graph: a fixed window onto a larger canvas, moved by dragging */
 .graph { flex: 1; min-height: 0; min-width: 0; position: relative; }
@@ -191,7 +198,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 
 /* In the dev page the header sits in the flow, and the graph shows in an
    overlay-sized frame (Medium, 360 × 220) to judge it at its real size. */
-.app.dev .header, .app.dev .tabs { position: static; max-width: none; margin: 6px 8px 0; pointer-events: auto; }
+.app.dev .header { position: static; max-width: none; margin: 6px 8px 0; pointer-events: auto; }
 .app.dev .graph { flex: none; width: 360px; height: 220px; margin: 8px; border: 1px dashed var(--line); border-radius: 10px; }
 
 /* ── Pixel look ──────────────────────────────────────────────────────────
@@ -216,7 +223,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 }
 
 .app.look-pixel { --font: "FlowCTL Digits", "Pixelify Sans", ui-monospace, monospace; --px-ink: #14161b; font-family: var(--font); }
-.app.look-pixel .header, .app.look-pixel .tab { font-size: 12px; letter-spacing: 0.02em; }
+.app.look-pixel .header, .app.look-pixel .pager { font-size: 12px; letter-spacing: 0.02em; }
 /* Digits come from another face with other metrics: align the header's parts
    on their baseline, not their boxes, or "4/8" sits lower than "lab". */
 .app.look-pixel .header { align-items: baseline; }
