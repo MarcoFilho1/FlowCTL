@@ -74,6 +74,11 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
   position: absolute; top: 0; left: 0; right: 0; z-index: 3; height: 26px; padding: 0 4px 0 8px;
   display: flex; align-items: center; gap: 6px; pointer-events: none;
 }
+/* Nothing in the overlay is text to select: dragging the window by its handle
+   would otherwise select the bar's text up to the pager and the ×. */
+.app.overlay, .app.overlay * { -webkit-user-select: none; user-select: none; }
+.topbar button { -webkit-user-select: none; user-select: none; }
+.topbar button::selection, .topbar *::selection { background: transparent; }
 .topbar > .grip, .topbar > .pager, .topbar > .close { pointer-events: auto; }
 .header {
   flex: 0 1 auto; max-width: 55%;
