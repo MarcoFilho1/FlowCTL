@@ -9,6 +9,12 @@ export type Look = "pixel" | "smooth";
 /** Which sounds play: the look's own (default), or clean or 8-bit whatever the look. */
 export type SoundStyle = "look" | "smooth" | "pixel";
 
+/**
+ * How the idle animation draws: the nodes alone over a faint outline of the
+ * shape, or the nodes still tied by the graph's own links as they move.
+ */
+export type DreamStyle = "shapes" | "linked";
+
 export interface SessionsState {
   /** In the order they first arrived. */
   sessions: readonly Snapshot[];
@@ -21,6 +27,7 @@ export interface SessionsState {
   soundStyle: SoundStyle;
   /** Nodes form moving shapes once nothing has worked for a minute (default on). */
   idleAnimation: boolean;
+  dreamStyle: DreamStyle;
 }
 
 export interface SessionStore {
@@ -34,6 +41,7 @@ export interface SessionStore {
   setSound(on: boolean): void;
   setSoundStyle(style: SoundStyle): void;
   setIdleAnimation(on: boolean): void;
+  setDreamStyle(style: DreamStyle): void;
   getState(): SessionsState;
   subscribe(listener: () => void): () => void;
 }
@@ -75,7 +83,7 @@ const isLive = (snapshot: Snapshot | undefined) =>
 
 export function createSessionStore(now: () => number = () => Date.now()): SessionStore {
   let pickedAt = -Infinity;
-  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true };
+  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true, dreamStyle: "shapes" };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
 
@@ -120,6 +128,11 @@ export function createSessionStore(now: () => number = () => Date.now()): Sessio
       state = { ...state, soundStyle: style };
       emit();
     },
+    setDreamStyle(style) {
+      if ((style !== "shapes" && style !== "linked") || state.dreamStyle === style) return;
+      state = { ...state, dreamStyle: style };
+      emit();
+    },
     setIdleAnimation(on) {
       if (typeof on !== "boolean" || state.idleAnimation === on) return;
       state = { ...state, idleAnimation: on };
@@ -158,6 +171,7 @@ declare global {
       setSound(on: boolean): void;
       setSoundStyle(style: SoundStyle): void;
       setIdleAnimation(on: boolean): void;
+      setDreamStyle(style: DreamStyle): void;
     };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
   }
@@ -193,7 +207,8 @@ export function installBridge(store: SessionStore, target: Window = window): voi
     setShowSubagents: (show) => store.setShowSubagents(show),
     setSound: (on) => store.setSound(on),
     setSoundStyle: (style) => store.setSoundStyle(style),
-    setIdleAnimation: (on) => store.setIdleAnimation(on)
+    setIdleAnimation: (on) => store.setIdleAnimation(on),
+    setDreamStyle: (style) => store.setDreamStyle(style)
   };
 }
 

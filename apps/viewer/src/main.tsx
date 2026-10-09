@@ -12,7 +12,9 @@ installBridge(store);
 
 // ?fixture=<name>[,<name>...] replays recorded sessions; ?fixture=all plays
 // every one; &at=<event> (1-based) or &at=end opens them there, paused.
-const params = new URLSearchParams(location.search);
+// A page that embeds the viewer with srcdoc (a demo) has no query string; it
+// sets window.flowctlParams instead.
+const params = new URLSearchParams((window as Window & { flowctlParams?: string }).flowctlParams ?? location.search);
 const requested = params.get("fixture");
 let replays: Replay[] | undefined;
 if (requested !== null) {
@@ -39,6 +41,9 @@ if (sounds === "smooth" || sounds === "pixel") store.setSoundStyle(sounds);
 
 // ?dream=now starts the idle animation at once (demos, screenshots).
 const dreamAfter = params.get("dream") === "now" ? 0 : undefined;
+
+// ?dreamStyle=linked keeps the graph's links while the nodes form shapes.
+if (params.get("dreamStyle") === "linked") store.setDreamStyle("linked");
 
 // ?subagents=hide leaves subagents out of the graph.
 if (params.get("subagents") === "hide") store.setShowSubagents(false);

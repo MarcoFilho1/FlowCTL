@@ -3,7 +3,7 @@ import type { NodeStatus, Snapshot } from "../../../mod/graph/types.ts";
 import { buildScene, cameraFor, centerOn, circleBox, clampPan, linkPath, type Box, type Camera, type NodeShape } from "./geometry.ts";
 import { hoverCard } from "./hover.ts";
 import { BANG, discSprite, PX, ringPixels, snap, steppedPath } from "./pixel.ts";
-import { tellNative, type Look } from "./store.ts";
+import { tellNative, type DreamStyle, type Look } from "./store.ts";
 import { cue, cuesFor } from "./sound.ts";
 import { errorsOf, statusesOf, transitions } from "./transitions.ts";
 import { useTween } from "./useTween.ts";
@@ -116,7 +116,8 @@ export function GraphView({
   look = "pixel",
   sound = false,
   sounds = look,
-  dreaming = false
+  dreaming = false,
+  dreamStyle = "shapes"
 }: {
   snapshot: Snapshot;
   look?: Look;
@@ -125,7 +126,10 @@ export function GraphView({
   sounds?: Look;
   /** Nothing has worked for a while: the nodes form shapes (the idle animation). */
   dreaming?: boolean;
+  /** Nodes alone over the shape's outline, or still tied by their links. */
+  dreamStyle?: DreamStyle;
 }) {
+  const linked = dreaming && dreamStyle === "linked";
   const pixel = look === "pixel";
   const [ref, viewport] = useViewport();
   const scene = useMemo(() => buildScene(snapshot), [snapshot]);
@@ -383,7 +387,7 @@ export function GraphView({
         <svg
           role="img"
           aria-label={`Task graph, ${snapshot.nodes.length} nodes`}
-          className={dreaming ? "dreaming" : undefined}
+          className={dreaming ? `dreaming dream-${dreamStyle}` : undefined}
           width="100%"
           height="100%"
           {...(pixel ? { shapeRendering: "crispEdges" } : {})}
@@ -419,7 +423,12 @@ export function GraphView({
               const to = boxes.get(link.to);
               if (!from || !to) return null;
               const live = link.kind !== "agent" && shapes.get(link.to)?.node.status === "running";
-              const d = pixel && link.kind !== "agent" ? steppedLink(from, to) : linkPath(from, to, link.kind === "agent" ? "agent" : "dependency");
+              // Dreaming with links: straight ties between the moving nodes, a web inside the shape.
+              const d = linked
+                ? `M ${from.x + from.w / 2} ${from.y + from.h / 2} L ${to.x + to.w / 2} ${to.y + to.h / 2}`
+                : pixel && link.kind !== "agent"
+                  ? steppedLink(from, to)
+                  : linkPath(from, to, link.kind === "agent" ? "agent" : "dependency");
               return (
                 <g key={`${link.kind}:${link.from}->${link.to}`}>
                 <path
@@ -427,14 +436,14 @@ export function GraphView({
                   pathLength={entering.has(link.to) ? 1 : undefined}
                   data-link={`${link.from}->${link.to}`}
                   d={d}
-                  {...(link.kind !== "agent" ? { markerEnd: live ? "url(#arrow-live)" : "url(#arrow)" } : {})}
+                  {...(link.kind !== "agent" && !linked ? { markerEnd: live ? "url(#arrow-live)" : "url(#arrow)" } : {})}
                 />
                 {/* Into the running step, a packet keeps travelling the edge: the direction of the work. */}
                 {live && <Flow path={d} pixel={pixel} />}
                 </g>
               );
             })}
-            {frame &&
+            {frame && !linked &&
               [
                 { shape: frame.shape, opacity: frame.mix },
                 ...(frame.from !== "graph" && frame.mix < 1 ? [{ shape: frame.from, opacity: 1 - frame.mix }] : [])
