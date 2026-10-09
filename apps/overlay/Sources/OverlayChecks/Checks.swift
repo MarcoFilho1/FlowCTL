@@ -56,7 +56,8 @@ private let http: [Check] = [
         let result = parse(["POST /snapshot?x=1 HTTP/1.1\r\nHost: overlay\r\nContent-", "Length: \(body.utf8.count)\r\n\r\n{\"a\"", ":1}"])
         guard case let .complete(request) = result else { return expect.that(false, "incomplete: \(result)") }
         expect.equal(request.method, "POST")
-        expect.equal(request.path, "/snapshot", "query is stripped")
+        expect.equal(request.path, "/snapshot", "query is kept apart")
+        expect.equal(request.query, "x=1")
         expect.equal(request.headers["host"], "overlay", "header names are lowercased")
         expect.equal(request.body, bytes(body))
     },

@@ -4,13 +4,16 @@ public struct HTTPRequest: Equatable {
     public let method: String
     /// The request target without its query string.
     public let path: String
+    /// What follows `?` in the target, undecoded; empty without one.
+    public let query: String
     /// Header names lowercased.
     public let headers: [String: String]
     public let body: Data
 
-    public init(method: String, path: String, headers: [String: String], body: Data) {
+    public init(method: String, path: String, query: String = "", headers: [String: String], body: Data) {
         self.method = method
         self.path = path
+        self.query = query
         self.headers = headers
         self.body = body
     }
@@ -59,7 +62,7 @@ public struct HTTPRequestParser {
     public static let maxBodyBytes = 8 * 1024 * 1024
 
     private var buffer = Data()
-    private var head: (method: String, path: String, headers: [String: String], bodyStart: Int, length: Int)?
+    private var head: (method: String, path: String, query: String, headers: [String: String], bodyStart: Int, length: Int)?
 
     public init() {}
 
@@ -74,7 +77,7 @@ public struct HTTPRequestParser {
             case .failure(let response):
                 return .failed(response)
             case .success(let parsed):
-                head = (parsed.method, parsed.path, parsed.headers, end.upperBound, parsed.length)
+                head = (parsed.method, parsed.path, parsed.query, parsed.headers, end.upperBound, parsed.length)
             }
         }
 
@@ -82,10 +85,10 @@ public struct HTTPRequestParser {
         let available = buffer.count - head.bodyStart
         guard available >= head.length else { return .needMore }
         let body = buffer.subdata(in: head.bodyStart..<(head.bodyStart + head.length))
-        return .complete(HTTPRequest(method: head.method, path: head.path, headers: head.headers, body: body))
+        return .complete(HTTPRequest(method: head.method, path: head.path, query: head.query, headers: head.headers, body: body))
     }
 
-    private static func parseHead(_ data: Data) -> Result<(method: String, path: String, headers: [String: String], length: Int), HTTPResponse> {
+    private static func parseHead(_ data: Data) -> Result<(method: String, path: String, query: String, headers: [String: String], length: Int), HTTPResponse> {
         guard let text = String(data: data, encoding: .utf8) else { return .failure(.badRequest("headers are not UTF-8")) }
         let lines = text.components(separatedBy: "\r\n")
         let parts = (lines.first ?? "").split(separator: " ", omittingEmptySubsequences: true)
@@ -112,9 +115,10 @@ public struct HTTPRequestParser {
         }
         guard length <= maxBodyBytes else { return .failure(.tooLarge) }
 
-        let target = String(parts[1])
-        let path = target.split(separator: "?", maxSplits: 1).first.map(String.init) ?? target
-        return .success((String(parts[0]), path, headers, length))
+        let target = parts[1].split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let path = String(target.first ?? "")
+        let query = target.count > 1 ? String(target[1]) : ""
+        return .success((String(parts[0]), path, query, headers, length))
     }
 }
 
