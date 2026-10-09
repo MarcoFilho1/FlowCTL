@@ -44,7 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         self.bridge = bridge
         let panel = OverlayPanel(content: bridge.webView)
         panel.onHide = { [weak self] in self?.hidePanel(byUser: true) }
-        panel.onDragEnded = { [weak self] in self?.reanchor() }
+        bridge.onClose = { [weak self] in self?.hidePanel(byUser: true) }
+        bridge.onGripDragEnded = { [weak self] in self?.reanchor() }
         self.panel = panel
         anchor = restoredAnchor()
         layOut(animated: false)
@@ -330,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
                 "frame": [frame.origin.x, frame.origin.y, frame.width, frame.height],
                 "level": panel?.level == .floating ? "floating" : "normal",
                 "alpha": Double(panel?.alphaValue ?? 0),
-                "closeButtonVisible": !(panel?.closeButton?.isHidden ?? true),
+                "grip": gripState(),
                 "shadow": panel?.hasShadow == true,
                 "opaque": panel?.isOpaque == true,
                 "userHidden": userHidden
@@ -354,6 +355,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             "hoverMovesRelayed": bridge?.hover.moves ?? 0,
             "menu": statusMenu?.describe() ?? []
         ]
+    }
+
+    /// The grip as the viewer reported it, for the debug state; NSNull when none.
+    private func gripState() -> Any {
+        guard let grip = bridge?.debugGrip else { return NSNull() }
+        return ["x": Double(grip.minX), "y": Double(grip.minY), "width": Double(grip.width), "height": Double(grip.height)]
     }
 
     /// The views a gesture over the middle of the page would reach, innermost first.
