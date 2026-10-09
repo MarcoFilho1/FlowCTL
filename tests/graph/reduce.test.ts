@@ -244,3 +244,30 @@ test("Claude idling for the next prompt is a resting session, not one waiting fo
   apply(state, { t: 4, event: "classic.PermissionRequest", input: { tool_name: "Bash" } });
   assert.equal(sessionState(state), "waiting_you");
 });
+
+test("parallel subagents attach to the step they work on, one each", () => {
+  const state = initialState();
+  const plan = (steps: object[]): GraphEvent => ({ t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps }, result: { result: [] } });
+  apply(state, plan([
+    { id: "cart", title: "Testes do cart", status: "in_progress" },
+    { id: "user", title: "Testes do user", status: "in_progress" },
+    { id: "report", title: "Testes do report", status: "in_progress" }
+  ]));
+  for (const [id, description] of [["a1", "Testes node:test para cart"], ["a2", "Testes node:test para user"], ["a3", "Testes node:test para report"]]) {
+    apply(state, { t: 1, event: "agent.spawn", input: { description }, result: { agentId: id } });
+  }
+  assert.deepEqual(nodes(state).filter((node) => node.kind === "agent").map((node) => [node.agentId, node.parent]), [
+    ["a1", "plan:cart"],
+    ["a2", "plan:user"],
+    ["a3", "plan:report"]
+  ]);
+});
+
+test("with no word in common, subagents spread over the running steps", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "x", title: "Alpha", status: "in_progress" }, { id: "y", title: "Beta", status: "in_progress" }] }, result: { result: [] } });
+  apply(state, { t: 1, event: "agent.spawn", input: { description: "Worker one" }, result: { agentId: "w1" } });
+  apply(state, { t: 2, event: "agent.spawn", input: { description: "Worker two" }, result: { agentId: "w2" } });
+  const parents = nodes(state).filter((node) => node.kind === "agent").map((node) => node.parent);
+  assert.deepEqual(new Set(parents), new Set(["plan:x", "plan:y"]));
+});
