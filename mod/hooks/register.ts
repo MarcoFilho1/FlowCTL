@@ -1,9 +1,18 @@
-import type { EngineInterface, Register } from "claude-code";
+import type { EngineInterface, PluginOptions, Register, ToolCallResult } from "claude-code";
+import { apply, FLOWPLAN_TOOL, initialState, type GraphState } from "../graph/reduce.ts";
+import { snapshot } from "../graph/snapshot.ts";
+import type { GraphEvent, Layout, Snapshot } from "../graph/types.ts";
+import { alerts, FLOWPLAN_SPEC, nudgeText, statusLine } from "../live/present.ts";
 import { omitKeys, Recording, trim } from "../recorder/recording.ts";
 
-// Phase 1: record the events the graph will be built from, one session per
-// folder under ~/.flowctl/recordings/<sessionId>/. Observe only: every hook
-// passes the event on untouched and recording never fails a call.
+// The live mod: every hook below observes one engine event, passes it on
+// untouched, and feeds it to the graph (mod/graph). Each change publishes a
+// snapshot to the overlay's socket and to ~/.flowctl/sessions/<id>.json, and
+// refreshes the status line. Nothing here may fail or slow down a call: all
+// I/O is fire-and-forget.
+//
+// The events reach the graph in the same shape the recorder stores them, so
+// the fixtures in fixtures/ replay exactly what a live session sees.
 
 // Tools whose input and result the graph reads. Every other tool call keeps
 // only its name, agent and outcome, so file contents and commands stay out.
@@ -16,7 +25,8 @@ const GRAPH_TOOLS = new Set([
   "TodoWrite",
   "Agent",
   "AskUserQuestion",
-  "SendMessage"
+  "SendMessage",
+  FLOWPLAN_TOOL
 ]);
 
 // Fields of classic events, at any depth, that carry prompts, the model's
@@ -33,97 +43,203 @@ const CLASSIC_DROPPED = new Set([
   "last_assistant_message"
 ]);
 
-const FLUSH_DELAY_MS = 500;
+const PUBLISH_DELAY_MS = 100;
+const RECORD_FLUSH_DELAY_MS = 500;
+const OVERLAY_URL = "http://overlay";
+const OVERLAY_APP = "FlowCTL";
 
-type Entry = Parameters<Recording["add"]>[0];
+type Entry = Omit<GraphEvent, "seq">;
 
+interface Settings {
+  errorThreshold: number;
+  nudge: boolean;
+  autoOpenOverlay: boolean;
+  recordEvents: boolean;
+}
+
+let settings: Settings = { errorThreshold: 3, nudge: false, autoOpenOverlay: true, recordEvents: false };
+let graph: GraphState = initialState();
+let flowctlDir: string | undefined;
+let seq = 0;
+let lastSnapshot: Snapshot | undefined;
+let lastLayout: Layout | undefined;
+let publishScheduled = false;
+let planTool = "TaskCreate";
+
+// Recorder (opt-in): the same events, kept as fixtures-to-be.
 let recording: Recording | undefined;
-let recordingsRoot: string | undefined;
-let currentSessionId: string | undefined;
-const pending: Entry[] = [];
-let flushScheduled = false;
-let flushing: Promise<void> = Promise.resolve();
+let recordingSession: string | undefined;
+let recordScheduled = false;
+let recordFlushing: Promise<void> = Promise.resolve();
 
-function record($: EngineInterface, event: string, fields: Omit<Entry, "t" | "event">): void {
+function readSettings(options: PluginOptions): Settings {
+  const threshold = Number(options["errorThreshold"]);
+  return {
+    errorThreshold: Number.isFinite(threshold) && threshold >= 1 ? threshold : 3,
+    nudge: options["nudge"] === true,
+    autoOpenOverlay: options["autoOpenOverlay"] !== false,
+    recordEvents: options["recordEvents"] === true
+  };
+}
+
+/** One engine event: into the graph, into the recording, then out to the surfaces. */
+function observe($: EngineInterface, event: string, fields: Omit<Entry, "t" | "event">): void {
   try {
-    const entry = { t: Date.now(), event, ...fields };
-    if (recording === undefined) {
-      pending.push(entry);
-      return;
+    const entry: Entry = { t: Date.now(), event, ...fields };
+    apply(graph, entry);
+    if (settings.recordEvents) {
+      record($, entry);
     }
-    recording.add(entry);
-    scheduleFlush($);
+    schedulePublish($);
   } catch {
     // A lost event is better than a failed hook.
   }
 }
 
-function scheduleFlush($: EngineInterface): void {
-  if (flushScheduled) {
+function schedulePublish($: EngineInterface): void {
+  if (publishScheduled) {
     return;
   }
-  flushScheduled = true;
-  $.clock.after(FLUSH_DELAY_MS, () => {
-    flushScheduled = false;
-    void flush($);
+  publishScheduled = true;
+  $.clock.after(PUBLISH_DELAY_MS, () => {
+    publishScheduled = false;
+    publish($);
   });
 }
 
-// /clear and --resume switch the session id without a new session.start:
-// the classic events carry the new id, and the recording follows it.
-function followSession($: EngineInterface, sessionId: string): void {
-  if (recordingsRoot === undefined || sessionId === currentSessionId) {
-    return;
+function publish($: EngineInterface): void {
+  try {
+    seq += 1;
+    const next = snapshot(graph, { seq, now: Date.now(), ...(lastLayout ? { previous: lastLayout } : {}) });
+    lastLayout = next.layout;
+    for (const line of alerts(lastSnapshot, next)) {
+      $.ui.toast(line);
+    }
+    lastSnapshot = next;
+    $.ui.status(statusLine(next));
+    if (flowctlDir === undefined || next.sessionId === "") {
+      return;
+    }
+    const body = JSON.stringify(next);
+    void $.http
+      .fetch(`${OVERLAY_URL}/snapshot`, { method: "POST", socketPath: `${flowctlDir}/overlay.sock`, body })
+      .catch(() => undefined);
+    void $.fs.write(`${flowctlDir}/sessions/${next.sessionId}.json`, body).catch(() => undefined);
+  } catch {
+    // The next event publishes again.
   }
-  void flush($);
-  currentSessionId = sessionId;
-  recording = new Recording(`${recordingsRoot}/${sessionId}`, String(Date.now()));
 }
 
-function flush($: EngineInterface): Promise<void> {
+/** Opens the overlay app when it is installed and not already listening. */
+async function openOverlay($: EngineInterface): Promise<void> {
+  if (flowctlDir === undefined) {
+    return;
+  }
+  const alive = await $.http
+    .fetch(`${OVERLAY_URL}/health`, { socketPath: `${flowctlDir}/overlay.sock` })
+    .then(() => true)
+    .catch(() => false);
+  if (!alive) {
+    await $.process.run(["open", "-g", "-a", OVERLAY_APP]).catch(() => undefined);
+  }
+}
+
+/**
+ * The plan source (docs/roadmap-agent-graph.md, Phase 1 gate): the session's
+ * own task tools when it has them, else the FlowPlan tool this mod serves.
+ */
+async function choosePlanTool($: EngineInterface): Promise<void> {
+  const tools = await $.tool.list();
+  if (tools.some((tool) => tool.name === "TaskCreate")) {
+    planTool = "TaskCreate";
+    return;
+  }
+  const registered = await $.tool.register(FLOWPLAN_SPEC);
+  planTool = registered.tool;
+}
+
+function record($: EngineInterface, entry: Entry): void {
+  if (flowctlDir === undefined) {
+    return;
+  }
+  const sessionId = graph.sessionId;
+  if (sessionId !== undefined && sessionId !== recordingSession) {
+    flushRecording($);
+    recordingSession = sessionId;
+    recording = new Recording(`${flowctlDir}/recordings/${sessionId}`, String(Date.now()));
+  }
+  recording?.add(entry);
+  if (!recordScheduled) {
+    recordScheduled = true;
+    $.clock.after(RECORD_FLUSH_DELAY_MS, () => {
+      recordScheduled = false;
+      void flushRecording($);
+    });
+  }
+}
+
+function flushRecording($: EngineInterface): Promise<void> {
   // Taken now, so a session switch right after cannot redirect these writes.
   const writes = recording?.flush() ?? [];
-  flushing = flushing.then(async () => {
+  recordFlushing = recordFlushing.then(async () => {
     for (const write of writes) {
       await $.fs.write(write.file, write.text).catch(() => undefined);
     }
   });
-  return flushing;
+  return recordFlushing;
 }
 
-export const register: Register = (on) => {
+/** Serves the FlowPlan tool: the plan itself reaches the graph as the call is observed. */
+function serveFlowPlan(e: Record<string, unknown>): ToolCallResult {
+  const steps = Array.isArray(e["steps"]) ? e["steps"].length : 0;
+  return { result: { accepted: steps }, text: `Plan updated: ${steps} step(s). The person sees it as a live graph.` };
+}
+
+export const register: Register = (on, options) => {
+  settings = readSettings(options);
+  graph = initialState({ errorThreshold: settings.errorThreshold });
+
   on("session.start", async ($, e, next) => {
     const result = await next(e);
     try {
-      const home = await $.env.get("HOME");
-      const sessionId = await $.session.id();
-      recordingsRoot = `${home}/.flowctl/recordings`;
-      currentSessionId ??= sessionId;
-      recording ??= new Recording(`${recordingsRoot}/${currentSessionId}`, String(Date.now()));
-      for (const entry of pending.splice(0)) {
-        recording.add(entry);
+      flowctlDir = `${await $.env.get("HOME")}/.flowctl`;
+      graph.sessionId ??= await $.session.id();
+      observe($, "session.start", { input: { cwd: e.cwd } });
+      await choosePlanTool($).catch(() => undefined);
+      if (settings.autoOpenOverlay) {
+        void openOverlay($).catch(() => undefined);
       }
-      record($, "session.start", { input: { cwd: e.cwd } });
     } catch {
-      // No recording for this session; the session itself is unaffected.
+      // Without its home folder the mod still draws the status line.
     }
     return result;
   });
 
   on("session.end", async ($, e, next) => {
-    record($, "session.end", { input: trim(e) });
-    await flush($);
+    observe($, "session.end", { input: trim(e) });
+    publish($);
+    if (settings.recordEvents) {
+      await flushRecording($);
+    }
     return next(e);
   });
 
   on("prompt.submit", async ($, e, next) => {
-    record($, "prompt.submit", { input: { chars: e.text.length } });
+    observe($, "prompt.submit", { input: { chars: e.text.length } });
     return next(e);
+  });
+
+  on("prompt.compose", async ($, e, next) => {
+    const result = await next(e);
+    if (!settings.nudge) {
+      return result;
+    }
+    return { ...result, sections: [...result.sections, { id: "flowctl-nudge", text: nudgeText(planTool), scope: "session" as const }] };
   });
 
   on("turn.start", async ($, e, next) => {
     const result = await next(e);
-    record($, "turn.start", { input: { turnId: e.turnId } });
+    observe($, "turn.start", { input: { turnId: e.turnId } });
     return result;
   });
 
@@ -131,8 +247,8 @@ export const register: Register = (on) => {
     const result = await next(e);
     const { answer: _answer, ...fields } = e;
     const agents = await $.agent.list().catch(() => []);
-    record($, "turn.complete", {
-      agentId: e.agentId,
+    observe($, "turn.complete", {
+      ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
       input: trim(fields),
       result: { agents: agents.map(({ id, status, parentId, description, type }) => ({ id, status, parentId, description, type })) }
     });
@@ -140,20 +256,21 @@ export const register: Register = (on) => {
   });
 
   on("tool.call", async ($, e, next) => {
-    const result = await next(e);
+    const result = e.tool === FLOWPLAN_TOOL ? serveFlowPlan(e as Record<string, unknown>) : await next(e);
     const outcome = { isError: result.isError, deny: result.deny };
+    const agent = e.agentId !== undefined ? { agentId: e.agentId } : {};
     if (GRAPH_TOOLS.has(e.tool)) {
       // An Agent call's prompt is the subagent's brief: code and context the
       // graph does not need. Its description names the node.
       const { tool: _tool, agentId: _agentId, prompt: _prompt, ...input } = e as typeof e & { prompt?: unknown };
-      record($, "tool.call", {
-        agentId: e.agentId,
+      observe($, "tool.call", {
+        ...agent,
         input: { tool: e.tool, ...(trim(input) as object) },
         result: { ...outcome, result: trim(result.result) }
       });
     } else {
-      record($, "tool.call", {
-        agentId: e.agentId,
+      observe($, "tool.call", {
+        ...agent,
         input: { tool: e.tool, tool_use_id: e.tool_use_id },
         result: { ...outcome, text: result.isError ? trim(result.text?.slice(0, 300)) : undefined }
       });
@@ -163,8 +280,8 @@ export const register: Register = (on) => {
 
   on("tool.check", async ($, e, next) => {
     const result = await next(e);
-    record($, "tool.check", {
-      agentId: e.agentId,
+    observe($, "tool.check", {
+      ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
       input: { tool: e.tool, tool_use_id: e.tool_use_id, ceiling: e.ceiling },
       result: { decision: result.decision, reason: result.reason, rule: result.rule }
     });
@@ -174,22 +291,19 @@ export const register: Register = (on) => {
   on("agent.spawn", async ($, e, next) => {
     const result = await next(e);
     const { prompt: _prompt, ...input } = e as typeof e & { prompt?: unknown };
-    record($, "agent.spawn", { input: trim(input), result: trim(result) });
+    observe($, "agent.spawn", { input: trim(input), result: trim(result) });
     return result;
   });
 
   on("classic.*", async ($, e, next) => {
     const result = await next(e);
     // classic.PreToolUse carries the bare tool call (no hook_event_name, every
-    // argument): tool.call already records what the graph needs from it.
+    // argument): tool.call already observes what the graph needs from it.
     if (!("hook_event_name" in e)) {
       return result;
     }
     const fields = omitKeys(e, CLASSIC_DROPPED) as Record<string, unknown>;
-    if (typeof fields["session_id"] === "string") {
-      followSession($, fields["session_id"]);
-    }
-    record($, `classic.${String(fields["hook_event_name"])}`, { input: trim(fields) });
+    observe($, `classic.${String(fields["hook_event_name"])}`, { input: trim(fields) });
     return result;
   });
 };
