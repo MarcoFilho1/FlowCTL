@@ -11,6 +11,8 @@
       "id": "turn:1",
       "kind": "turn",
       "title": "Current turn",
+      "startedAt": 1791512865261,
+      "finishedAt": 1791512881964,
       "status": "error",
       "attention": {
         "kind": "error",

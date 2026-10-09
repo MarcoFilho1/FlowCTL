@@ -48,6 +48,39 @@ function label(node: GraphNode): string {
   return node.kind === "turn" ? "The agent" : `"${node.title}"`;
 }
 
+/**
+ * Why a tool call needs the person, in words, for the hover card: the
+ * question asked, a command's own description, or what it touches.
+ */
+export function describeRequest(tool: string, input: unknown): string {
+  const args = input !== null && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const str = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined);
+  const cut = (value: string) => (value.length > 160 ? `${value.slice(0, 159)}…` : value);
+
+  if (tool === "AskUserQuestion" && Array.isArray(args["questions"])) {
+    const first = args["questions"][0] as Record<string, unknown> | undefined;
+    const question = str(first?.["question"]);
+    if (question !== undefined) {
+      return cut(question);
+    }
+  }
+  const described = str(args["description"]);
+  if (described !== undefined) {
+    return cut(`${tool}: ${described}`);
+  }
+  const target = str(args["command"]) ?? str(args["file_path"]) ?? str(args["url"]) ?? str(args["path"]);
+  return target !== undefined ? cut(`${tool}: ${target}`) : `${tool} wants to run`;
+}
+
+/** The first lines of an answer, for a node's summary. */
+export function summarize(answer: string | undefined): string | undefined {
+  const text = answer?.trim();
+  if (text === undefined || text === "") {
+    return undefined;
+  }
+  return text.length > 300 ? `${text.slice(0, 299)}…` : text;
+}
+
 /** The name the engine gives the registered tool: mcp__<plugin>__<name>. */
 export const FLOWPLAN_NAME = "FlowPlan";
 
@@ -69,6 +102,7 @@ export const FLOWPLAN_SPEC = {
           properties: {
             id: { type: "string", description: "Short stable id, e.g. 'tests'" },
             title: { type: "string", description: "What the step does, in a few words" },
+            description: { type: "string", description: "One sentence on what the step involves" },
             status: { type: "string", enum: ["pending", "in_progress", "completed"] },
             blockedBy: { type: "array", items: { type: "string" }, description: "Ids of steps that must finish first" }
           },

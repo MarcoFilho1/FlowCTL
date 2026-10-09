@@ -12,6 +12,8 @@
       "kind": "task",
       "title": "aguardar build",
       "activeForm": "Aguardando build",
+      "description": "Aguardar a criação do arquivo /tmp/nunca-existe-flowctl via loop em Bash.",
+      "startedAt": 1791513008799,
       "status": "pending",
       "blockedBy": []
     }

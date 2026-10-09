@@ -2,7 +2,8 @@
 // surface draws (Snapshot). Pure types, no imports.
 //
 // Snapshot is the contract between the mod, the viewer and the overlay. A
-// change to its shape bumps SNAPSHOT_SCHEMA and updates all three together.
+// change to its shape bumps SNAPSHOT_SCHEMA and updates all three together;
+// a new optional field does not (readers ignore what they do not know).
 
 export const SNAPSHOT_SCHEMA = 1;
 
@@ -26,6 +27,8 @@ export interface Attention {
   kind: "permission" | "question" | "error";
   /** Tool name, or the last error's first line. */
   detail: string;
+  /** Why the person is needed, in words: the command's purpose, the question asked. */
+  reason?: string;
   since: number;
 }
 
@@ -36,6 +39,13 @@ export interface GraphNode {
   title: string;
   /** Present-tense label while running ("Running tests"). */
   activeForm?: string;
+  /** What the step is about, as the agent described it. */
+  description?: string;
+  /** What came of it, once done (a subagent's or a turn's answer, cut short). */
+  summary?: string;
+  /** When it started running and when it finished (ms since epoch). */
+  startedAt?: number;
+  finishedAt?: number;
   /** What the node shows. */
   status: NodeStatus;
   attention?: Attention;
@@ -59,6 +69,18 @@ export type Layout = Record<string, NodePlacement>;
 
 export type SessionState = "working" | "waiting_you" | "idle" | "ended";
 
+/** Where the session runs, so a click on a node can bring that terminal forward. */
+export interface TerminalInfo {
+  /** The terminal app's bundle id (com.apple.Terminal, com.googlecode.iterm2, ...). */
+  app?: string;
+  /** TERM_PROGRAM. */
+  program?: string;
+  /** The session's tty, e.g. ttys021. */
+  tty?: string;
+  /** Terminal-specific ids, when set: ITERM_SESSION_ID, TERM_SESSION_ID, MAESTRI_TERMINAL_ID. */
+  ids?: Record<string, string>;
+}
+
 export interface Snapshot {
   schema: typeof SNAPSHOT_SCHEMA;
   /** Grows with every snapshot of the session; readers drop older ones. */
@@ -67,6 +89,7 @@ export interface Snapshot {
   cwd: string;
   updatedAt: number;
   sessionState: SessionState;
+  terminal?: TerminalInfo;
   /** Where the plan comes from in this session. */
   planSource: "tasks" | "flowplan" | "none";
   nodes: GraphNode[];

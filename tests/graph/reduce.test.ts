@@ -195,3 +195,26 @@ test("one event costs the same early and late in a long session", () => {
   }
   assert.ok(performance.now() - started < 200, "2000 events over 50 nodes took too long");
 });
+
+test("hover details: why it waits, what it is about, what came of it", () => {
+  const state = initialState();
+  const call = (tool: string, input: object, result: object, t: number): GraphEvent => ({ t, event: "tool.call", input: { tool, ...input }, result: { result } });
+  apply(state, { t: 1, event: "turn.start", input: { turnId: "a" } });
+  apply(state, call("TaskCreate", { subject: "Clean up", description: "Remove stale build output" }, { task: { id: "1", subject: "Clean up" } }, 2));
+  apply(state, call("TaskUpdate", { taskId: "1", status: "in_progress" }, { success: true }, 3));
+  apply(state, { t: 4, event: "tool.check", input: { tool: "Bash", reason: "Bash: Remove the build folder" }, result: { decision: "ask" } });
+  apply(state, { t: 5, event: "classic.PermissionRequest", input: { tool_name: "Bash" } });
+  const waiting = nodes(state)[0];
+  assert.equal(waiting?.status, "needs_you");
+  assert.equal(waiting?.attention?.reason, "Bash: Remove the build folder");
+  assert.equal(waiting?.description, "Remove stale build output");
+  assert.equal(waiting?.startedAt, 3);
+
+  apply(state, call("Bash", {}, {}, 6));
+  apply(state, call("TaskUpdate", { taskId: "1", status: "completed" }, { success: true }, 7));
+  apply(state, { t: 8, event: "agent.spawn", input: { description: "Review" }, result: { agentId: "x1" } });
+  apply(state, { t: 9, event: "turn.complete", agentId: "x1", input: { reason: "answer", summary: "Found 2 issues." } });
+  const [task, agent] = nodes(state);
+  assert.deepEqual([task?.status, task?.finishedAt], ["done", 7]);
+  assert.deepEqual([agent?.status, agent?.summary, agent?.startedAt, agent?.finishedAt], ["done", "Found 2 issues.", 8, 9]);
+});

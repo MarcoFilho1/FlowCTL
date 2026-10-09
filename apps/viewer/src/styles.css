@@ -8,8 +8,10 @@
   --surface: #ffffff;
   --line: rgba(31, 35, 40, 0.14);
   --edge: #8c959f;
-  --cluster: rgba(31, 35, 40, 0.04);
-  --cluster-line: rgba(31, 35, 40, 0.16);
+  --veil: rgba(255, 255, 255, 0.08);
+  --halo: rgba(255, 255, 255, 0.85);
+  --card: rgba(255, 255, 255, 0.96);
+  --chip: rgba(31, 35, 40, 0.08);
 
   --pending: #d0d7de;
   --pending-fill: #ffffff;
@@ -29,8 +31,10 @@
     --surface: #22262d;
     --line: rgba(230, 237, 243, 0.14);
     --edge: #6e7681;
-    --cluster: rgba(230, 237, 243, 0.04);
-    --cluster-line: rgba(230, 237, 243, 0.16);
+    --veil: rgba(13, 15, 19, 0.10);
+    --halo: rgba(13, 15, 19, 0.85);
+    --card: rgba(30, 33, 40, 0.97);
+    --chip: rgba(230, 237, 243, 0.10);
 
     --pending: #e6edf3;
     --pending-fill: #2a2f37;
@@ -46,19 +50,13 @@
 
 html, body, #root { height: 100%; margin: 0; }
 
-/* Transparent so the overlay's blur shows through; the panel tints it. */
-body { background: transparent; color: var(--text); font: 13px/1.35 var(--font); }
+/* The overlay floats over the desktop: nothing behind the graph but a faint
+   veil, and every label carries a halo so it reads on any background. */
+body { background: transparent; color: var(--text); font: 12px/1.35 var(--font); }
 
-.app {
-  width: 100%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--panel);
-}
+.app { width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; background: var(--veil); padding: 8px; }
 
-/* In a browser there is no blur behind the page. */
+/* In a browser there is no desktop behind the page. */
 .app.dev { background: var(--panel-solid); }
 
 .visually-hidden {
@@ -66,69 +64,74 @@ body { background: transparent; color: var(--text); font: 13px/1.35 var(--font);
   clip-path: inset(50%); white-space: nowrap;
 }
 
-/* Header */
-.header { padding: 10px 12px 6px; display: grid; gap: 6px; }
-.header-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.folder { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.state {
-  margin-left: auto; flex: none; font-size: 11px; padding: 1px 8px; border-radius: 999px;
-  color: var(--muted); border: 1px solid var(--line);
-}
-.state-working { color: var(--running); border-color: color-mix(in srgb, var(--running) 45%, transparent); }
-.state-waiting_you {
-  color: var(--needs-you); border-color: color-mix(in srgb, var(--needs-you) 55%, transparent);
-  background: color-mix(in srgb, var(--needs-you) var(--tint), transparent);
-}
-.counters { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; color: var(--muted); }
-.counter { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
-.counter .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status); }
+/* Header: one quiet line */
+.header { display: flex; align-items: center; gap: 6px; height: 18px; margin-bottom: 8px; min-width: 0; font-size: 11px; color: var(--muted); }
+.header > * { text-shadow: 0 0 3px var(--halo), 0 0 6px var(--halo); }
+.state-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.state-dot.state-working { background: var(--running); }
+.state-dot.state-waiting_you { background: var(--needs-you); animation: pulse 1.4s ease-in-out infinite; }
+.state-dot.state-ended { background: transparent; border: 1px solid var(--muted); }
+.folder { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.progress { font-variant-numeric: tabular-nums; }
+.waiting { color: var(--needs-you); font-weight: 600; }
+.warnings { margin-left: auto; }
 
 /* Tabs */
-.tabs { display: flex; gap: 2px; padding: 6px 8px 0; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; gap: 2px; margin-bottom: 6px; overflow-x: auto; }
 .tab {
-  font: inherit; font-size: 12px; color: var(--muted); background: none; border: 0;
-  padding: 5px 10px; border-radius: 6px 6px 0 0; white-space: nowrap; cursor: pointer;
-  border-bottom: 2px solid transparent;
+  font: inherit; font-size: 11px; color: var(--muted); background: none; border: 0;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap; cursor: pointer;
+  text-shadow: 0 0 3px var(--halo);
 }
-.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--running); }
+.tab[aria-selected="true"] { color: var(--text); background: var(--chip); }
 .tab.waiting::after { content: " •"; color: var(--needs-you); }
 
 /* Graph */
 .graph { flex: 1; min-height: 0; min-width: 0; position: relative; }
-.canvas { position: absolute; inset: 0; display: flex; padding: 4px 0 10px; }
-.canvas.fits { overflow: hidden; align-items: center; justify-content: center; }
-.canvas.scrolls { overflow: auto; align-items: flex-start; justify-content: safe center; }
-.canvas svg { flex: none; display: block; overflow: visible; }
+.canvas { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: flex-start; }
+.stage { position: relative; flex: none; }
+.stage svg { display: block; overflow: visible; }
 
-.status-pending   { --status: var(--pending);   --fill: var(--pending-fill); }
-.status-running   { --status: var(--running);   --fill: color-mix(in srgb, var(--running) var(--tint), var(--surface)); }
-.status-needs_you { --status: var(--needs-you); --fill: color-mix(in srgb, var(--needs-you) var(--tint), var(--surface)); }
-.status-error     { --status: var(--error);     --fill: color-mix(in srgb, var(--error) var(--tint), var(--surface)); }
-.status-done      { --status: var(--done);      --fill: color-mix(in srgb, var(--done) var(--tint), var(--surface)); }
+.status-pending   { --status: var(--pending); }
+.status-running   { --status: var(--running); }
+.status-needs_you { --status: var(--needs-you); }
+.status-error     { --status: var(--error); }
+.status-done      { --status: var(--done); }
 
-.card .card-bg {
-  fill: var(--fill); stroke: var(--status); stroke-width: 1.25;
-  transition: fill 300ms ease, stroke 300ms ease;
+.node { cursor: pointer; outline: none; }
+.node .dot { fill: var(--status); stroke: var(--halo); stroke-width: 1.5; transition: fill 300ms ease; }
+.node.status-pending .dot { fill: var(--pending-fill); stroke: var(--pending); stroke-width: 1.75; }
+.node .label {
+  fill: var(--text); font-size: 11.5px; font-weight: 500;
+  paint-order: stroke; stroke: var(--halo); stroke-width: 3px; stroke-linejoin: round;
 }
-.card .card-bar { fill: var(--status); transition: fill 300ms ease; }
-.card .glyph { fill: var(--status); font-size: 14px; font-weight: 700; transition: fill 300ms ease; }
-.card .title { fill: var(--text); font-size: 12.5px; font-weight: 600; }
-.card .sub { fill: var(--muted); font-size: 11px; }
-.card.status-pending .card-bar { fill: var(--line); }
-.card.child .card-bg { stroke-width: 1; }
-.card { animation: appear 300ms ease both; }
+.node.satellite .label { font-size: 10.5px; fill: var(--muted); }
+.node.status-done .label { fill: var(--muted); }
+.node:hover .dot, .node:focus-visible .dot { stroke: var(--text); }
+.node .hit { fill: transparent; }
+.pulse { fill: none; stroke: var(--needs-you); stroke-width: 2.5; animation: pulse 1.4s ease-in-out infinite; }
 
-.halo { fill: none; stroke: var(--needs-you); stroke-width: 3; animation: pulse 1.4s ease-in-out infinite; }
-
-.cluster { fill: var(--cluster); stroke: var(--cluster-line); stroke-dasharray: 4 3; }
-
-.edge { fill: none; stroke: var(--edge); stroke-width: 1.4; }
-.edge.inferred { stroke-dasharray: 5 4; opacity: 0.8; }
+.link { fill: none; stroke: var(--edge); stroke-width: 1.3; }
+.link.inferred { stroke-dasharray: 4 4; opacity: 0.8; }
+.link-agent { stroke-dasharray: 2 3; stroke-width: 1; }
 .arrow-head { fill: var(--edge); }
 
+/* Hover card */
+.hover-card {
+  position: absolute; z-index: 2; pointer-events: none;
+  padding: 7px 9px; border-radius: 8px; font-size: 11.5px;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--line); border-left: 3px solid var(--status);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.hover-title { font-weight: 600; }
+.hover-status { color: var(--status); margin-top: 1px; }
+.status-pending .hover-status { color: var(--muted); }
+.hover-body { color: var(--muted); margin-top: 4px; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+
 @keyframes pulse {
-  0%, 100% { opacity: 0.15; }
-  50% { opacity: 0.9; }
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
 }
 @keyframes appear {
   from { opacity: 0; }
@@ -136,12 +139,11 @@ body { background: transparent; color: var(--text); font: 13px/1.35 var(--font);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .card, .halo { animation: none; }
-  .halo { opacity: 0.8; }
-  .card .card-bg, .card .card-bar, .card .glyph { transition: none; }
+  .pulse, .state-dot { animation: none; }
+  .node .dot { transition: none; }
 }
 
-.empty { margin: auto; color: var(--muted); padding: 24px; text-align: center; }
+.empty { margin: auto; color: var(--muted); padding: 8px; text-align: center; font-size: 11px; text-shadow: 0 0 3px var(--halo); }
 
 /* Dev player */
 .dev-controls {
