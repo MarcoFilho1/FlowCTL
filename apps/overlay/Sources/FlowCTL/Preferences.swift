@@ -40,6 +40,11 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Key.hideWhenIdle) }
     }
 
+    var panelSize: PanelSize {
+        get { defaults.string(forKey: Key.panelSize).flatMap(PanelSize.init(rawValue:)) ?? .standard }
+        set { defaults.set(newValue.rawValue, forKey: Key.panelSize) }
+    }
+
     /// The corner the panel grows from and where it sits, after the last drag.
     var anchor: (corner: Corner, point: CGPoint)? {
         get {
@@ -56,6 +61,7 @@ final class Preferences {
     }
 
     private enum Key {
+        static let panelSize = "panelSize"
         static let anchorCorner = "anchorCorner"
         static let anchorX = "anchorX"
         static let anchorY = "anchorY"

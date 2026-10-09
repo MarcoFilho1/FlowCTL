@@ -9,7 +9,6 @@ import FlowCTLCore
 ///   POST /debug/close            clicks the panel's close button
 ///   POST /debug/menu?item=Title  runs a menu bar item, as a click on it would
 ///   POST /debug/click            clicks the panel's strip (it becomes key, as on a real click)
-///   POST /debug/size?w=&h=       the page posts { type: "size" } through the real message handler
 ///   POST /debug/focus?session=   the page posts { type: "focus" } through the real message handler
 ///   POST /debug/drag?x=&y=       moves the panel there and re-anchors, as after a drag
 ///   POST /debug/mouse?x=&y=&type=move|click   a mouse event at a point of the page
@@ -38,10 +37,6 @@ enum DebugHooks {
                 guard app.debugHasMenuItem(title) else { return .badRequest("no menu item titled \(title)") }
                 // After the reply: "Quit FlowCTL" would end the process before it.
                 DispatchQueue.main.async { _ = app.debugMenu(title) }
-                return .ok()
-            case ("POST", "/debug/size"):
-                guard let w = query["w"].flatMap(Double.init), let h = query["h"].flatMap(Double.init) else { return .badRequest("w= and h= are required") }
-                app.debugBridge?.postFromPage(["type": "size", "width": w, "height": h])
                 return .ok()
             case ("POST", "/debug/focus"):
                 guard let session = query["session"] else { return .badRequest("session= is required") }

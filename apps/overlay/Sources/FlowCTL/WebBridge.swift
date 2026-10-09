@@ -4,8 +4,9 @@ import WebKit
 /// The viewer page and the ways in and out of it. In: `window.flowctl.push(snapshot)`,
 /// the snapshot crossing as an argument, never spliced into script text. Out:
 /// `window.webkit.messageHandlers.flowctl.postMessage(...)` with
-/// `{ type: "size", width, height }` (the room the graph wants, in points) or
-/// `{ type: "focus", sessionId, nodeId }` (a node was clicked).
+/// `{ type: "focus", sessionId, nodeId }` (a node was clicked). The window's
+/// size is the person's choice (Size in the menu bar), so `{ type: "size" }`,
+/// which older viewers send, is ignored.
 final class WebBridge: NSObject, WKNavigationDelegate {
     let webView: WKWebView
     private let page: URL
@@ -13,8 +14,6 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     private var queued: [Data] = []
     /// Asked for every snapshot to push again when the page had to load anew.
     var currentBodies: () -> [Data] = { [] }
-    /// The page asked for this much room.
-    var onSize: ((CGSize) -> Void)?
     /// A node was clicked.
     var onFocus: ((_ sessionId: String, _ nodeId: String?) -> Void)?
     /// Hands the page hover moves while the app is inactive.
@@ -89,11 +88,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         guard let message = body as? [String: Any], let type = message["type"] as? String else { return }
         switch type {
         case "size":
-            guard let width = (message["width"] as? NSNumber)?.doubleValue,
-                  let height = (message["height"] as? NSNumber)?.doubleValue,
-                  width.isFinite, height.isFinite, width > 0, height > 0
-            else { return log("ignored a size message: \(message)") }
-            onSize?(CGSize(width: width, height: height))
+            break
         case "focus":
             guard let sessionId = message["sessionId"] as? String, !sessionId.isEmpty else { return }
             onFocus?(sessionId, message["nodeId"] as? String)
