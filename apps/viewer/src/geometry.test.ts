@@ -98,6 +98,22 @@ describe("drawing", () => {
     expect(linkPath(from, to, "dependency")).toMatch(/^M 28 20 C .* 82 50$/);
   });
 
+  test("a new request starts after a wider gap than the steps within a request", () => {
+    const scene = buildScene(
+      laidOut([
+        task("a", { status: "done" }),
+        task("b", { status: "done", blockedBy: ["a"] }),
+        task("c", { after: ["b"] }),
+        task("d", { blockedBy: ["c"] })
+      ])
+    );
+    const x = new Map(scene.nodes.map((shape) => [shape.id, shape.cx]));
+    const within = x.get("b")! - x.get("a")!;
+    expect(x.get("c")! - x.get("b")!).toBe(2 * within);
+    expect(x.get("d")! - x.get("c")!).toBe(within);
+    expect(scene.links.find((link) => link.to === "c")?.kind).toBe("sequence");
+  });
+
   test("dashed dependencies come from inferred nodes", () => {
     const scene = buildScene(laidOut([task("a"), task("b", { blockedBy: ["a"], inferred: true })]));
     expect(scene.links.find((link) => link.to === "b")?.inferred).toBe(true);
