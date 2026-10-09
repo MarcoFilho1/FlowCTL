@@ -37,6 +37,10 @@ if (params.get("sound") === "off") store.setSound(false);
 const sounds = params.get("sounds");
 if (sounds === "smooth" || sounds === "pixel") store.setSoundStyle(sounds);
 
+// ?theme=dark|light overrides macOS's appearance.
+const theme = params.get("theme");
+if (theme === "dark" || theme === "light") store.setTheme(theme);
+
 // ?subagents=hide leaves subagents out of the graph.
 if (params.get("subagents") === "hide") store.setShowSubagents(false);
 

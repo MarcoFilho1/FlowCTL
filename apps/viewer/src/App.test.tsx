@@ -326,6 +326,20 @@ describe("looks", () => {
     expect(node(container, "a").querySelector(".pulse")).not.toBeNull();
     expect(container.querySelector("svg")?.getAttribute("shape-rendering")).toBeNull();
   });
+
+  test("the chosen theme lands on the root; auto leaves it to macOS", () => {
+    const store = createSessionStore();
+    installBridge(store);
+    const { container } = render(<App store={store} />);
+    act(() => window.flowctl?.push(snapshotOf([task("a", { status: "running" })])));
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    act(() => window.flowctl?.setTheme("dark"));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    act(() => window.flowctl?.setTheme("auto"));
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    // The graph's marks sit in the outlined layer, outside the camera.
+    expect(container.querySelector(".ink [data-node='a']")).not.toBeNull();
+  });
 });
 
 describe("transitions and the camera", () => {
