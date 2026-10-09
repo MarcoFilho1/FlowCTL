@@ -42,6 +42,17 @@ public enum SnapshotError: Error, Equatable {
 public enum Snapshot {
     public static let schema = 1
 
+    /// The snapshot with its sessionState and seq replaced. The overlay sends the
+    /// viewer each session's effective state (`ended` for a dead process, `idle`
+    /// after 30 min without a pid) and a seq of its own that always rises, so
+    /// the viewer takes every update even when the mod's seq does not move on.
+    public static func restamped(_ data: Data, state: SessionState, seq: Int) -> Data {
+        guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return data }
+        object["sessionState"] = state.rawValue
+        object["seq"] = seq
+        return (try? JSONSerialization.data(withJSONObject: object)) ?? data
+    }
+
     /// Reads the fields the overlay needs and checks the shape the viewer
     /// expects; the body itself goes to the page untouched.
     public static func parse(_ data: Data) -> Result<SnapshotInfo, SnapshotError> {

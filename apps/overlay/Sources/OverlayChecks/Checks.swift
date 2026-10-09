@@ -24,7 +24,7 @@ public struct Check {
 }
 
 public enum OverlayChecks {
-    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look
+    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look + viewerState
 }
 
 // MARK: - Helpers
@@ -141,7 +141,7 @@ private let registry: [Check] = [
         expect.equal(sessions.expireEnded(now: t0.addingTimeInterval(29)), [], "the clock starts at the first ended snapshot")
         expect.equal(sessions.expireEnded(now: t0.addingTimeInterval(30)), ["s1"])
         expect.equal(sessions.order, ["s2"])
-        expect.equal(sessions.bodies.count, 1)
+        expect.equal(sessions.replayBodies(now: t0).count, 1)
     },
     Check(group: "sessions", name: "idle once nothing has been active for more than 5 min, counted from launch") { expect in
         var sessions = SessionRegistry(now: t0)
@@ -374,5 +374,64 @@ private let look: [Check] = [
         expect.equal(PageLook.allCases.map(\.rawValue), ["pixel", "smooth"])
         expect.equal(PageLook.allCases.map(\.title), ["Pixel", "Smooth"])
         expect.equal(PageLook(rawValue: "retro"), nil, "unknown looks are not accepted")
+    }
+]
+
+// MARK: - The state the viewer is sent
+
+/// Reads the sessionState and seq of a stamped snapshot.
+private func stamped(_ data: Data) -> (state: String?, seq: Int?, nodes: Int?) {
+    let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    return (object?["sessionState"] as? String, (object?["seq"] as? NSNumber)?.intValue, (object?["nodes"] as? [Any])?.count)
+}
+
+private let viewerState: [Check] = [
+    Check(group: "viewer", name: "restamping changes only the state and seq, keeping the rest") { expect in
+        let original = snapshotJSON(id: "a", seq: 4, state: "waiting_you", nodes: 3)
+        let out = Snapshot.restamped(original, state: .ended, seq: 9)
+        expect.equal(stamped(out).state, "ended")
+        expect.equal(stamped(out).seq, 9)
+        expect.equal(stamped(out).nodes, 3, "nodes kept")
+        expect.equal(Snapshot.parse(out).map(\.nodeCount), .success(3), "still a valid snapshot")
+    },
+    Check(group: "viewer", name: "a dead process is sent as ended, once, with a seq that keeps rising") { expect in
+        var alive: Set<Int32> = [4242]
+        var sessions = SessionRegistry(now: t0, isAlive: { alive.contains($0) })
+        _ = sessions.accept(info("w", seq: 1, state: .waitingYou, pid: 4242), body: snapshotJSON(id: "w", seq: 1, state: "waiting_you"), now: t0)
+        let first = sessions.pendingPushes(now: t0)
+        expect.equal(first.count, 1)
+        expect.equal(stamped(first.first ?? Data()).state, "waiting_you")
+        expect.equal(sessions.pendingPushes(now: t0.addingTimeInterval(5)).count, 0, "nothing new: nothing sent")
+
+        alive = []
+        let gone = sessions.pendingPushes(now: t0.addingTimeInterval(10))
+        expect.equal(gone.count, 1, "its state changed: one update")
+        expect.equal(stamped(gone.first ?? Data()).state, "ended")
+        expect.that((stamped(gone.first ?? Data()).seq ?? 0) > (stamped(first.first ?? Data()).seq ?? 0), "the viewer's seq rises")
+        expect.equal(sessions.pendingPushes(now: t0.addingTimeInterval(15)).count, 0)
+    },
+    Check(group: "viewer", name: "30 min without a pid is sent as idle, once") { expect in
+        var sessions = SessionRegistry(now: t0, isAlive: { _ in true })
+        _ = sessions.accept(info("q", seq: 1, state: .waitingYou), body: snapshotJSON(id: "q", seq: 1, state: "waiting_you"), now: t0)
+        _ = sessions.pendingPushes(now: t0)
+        let later = t0.addingTimeInterval(SessionRegistry.staleAfter + 1)
+        let pushes = sessions.pendingPushes(now: later)
+        expect.equal(pushes.count, 1)
+        expect.equal(stamped(pushes.first ?? Data()).state, "idle")
+        expect.equal(sessions.pendingPushes(now: later.addingTimeInterval(5)).count, 0)
+    },
+    Check(group: "viewer", name: "a page that starts over gets every session in its effective state") { expect in
+        var sessions = SessionRegistry(now: t0, isAlive: { $0 == 1 })
+        _ = sessions.accept(info("live", seq: 1, state: .working, pid: 1), body: snapshotJSON(id: "live", seq: 1, state: "working"), now: t0)
+        _ = sessions.accept(info("dead", seq: 1, state: .waitingYou, pid: 2), body: snapshotJSON(id: "dead", seq: 1, state: "waiting_you"), now: t0)
+        let bodies = sessions.replayBodies(now: t0).map { stamped($0).state }
+        expect.equal(bodies, ["working", "ended"])
+    },
+    Check(group: "viewer", name: "a new snapshot is sent in full, even when its state did not change") { expect in
+        var sessions = SessionRegistry(now: t0, isAlive: { _ in true })
+        _ = sessions.accept(info("a", seq: 1, state: .working), body: snapshotJSON(id: "a", seq: 1, state: "working"), now: t0)
+        _ = sessions.pendingPushes(now: t0)
+        _ = sessions.accept(info("a", seq: 2, state: .working), body: snapshotJSON(id: "a", seq: 2, state: "working"), now: t0.addingTimeInterval(1))
+        expect.equal(sessions.pendingPushes(now: t0.addingTimeInterval(1)).count, 1)
     }
 ]

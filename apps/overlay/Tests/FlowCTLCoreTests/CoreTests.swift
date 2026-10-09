@@ -11,6 +11,7 @@ final class CoreTests: XCTestCase {
     func testGeometry() { run("geometry") }
     func testFocus() { run("focus") }
     func testLook() { run("look") }
+    func testViewerState() { run("viewer") }
     func testLiveness() { run("liveness") }
 
     func testEveryGroupIsCovered() {

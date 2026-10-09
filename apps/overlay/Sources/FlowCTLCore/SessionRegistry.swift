@@ -13,11 +13,17 @@ public struct SessionRegistry {
     public static let idleAfter: TimeInterval = 5 * 60
 
     public struct Session: Equatable {
-        public let info: SnapshotInfo
-        /// The snapshot as received, to push again after a page reload.
-        public let body: Data
-        public let lastSeen: Date
-        public let endedAt: Date?
+        public var info: SnapshotInfo
+        /// The snapshot as received, to send again after a page reload.
+        public var body: Data
+        public var lastSeen: Date
+        public var endedAt: Date?
+        /// The seq the viewer was last sent for this session: the overlay's own, always rising.
+        public var viewerSeq: Int
+        /// The state the viewer was last sent.
+        public var shownState: SessionState?
+        /// A snapshot arrived that the viewer has not been sent yet.
+        public var needsPush: Bool
     }
 
     public enum Outcome: Equatable {
@@ -53,7 +59,10 @@ public struct SessionRegistry {
         if let previous, info.seq <= previous.info.seq { return .stale }
 
         let endedAt = info.state == .ended ? (previous?.endedAt ?? now) : nil
-        sessions[info.sessionId] = Session(info: info, body: body, lastSeen: now, endedAt: endedAt)
+        sessions[info.sessionId] = Session(
+            info: info, body: body, lastSeen: now, endedAt: endedAt,
+            viewerSeq: previous?.viewerSeq ?? 0, shownState: previous?.shownState, needsPush: true
+        )
         if previous == nil { order.append(info.sessionId) }
         // A session that was active until this snapshot counts as active until now.
         if info.state.isActive || previous?.info.state.isActive == true { lastActiveAt = max(lastActiveAt, now) }
@@ -108,7 +117,7 @@ public struct SessionRegistry {
             guard let session = sessions[id], session.endedAt == nil, session.info.state != .ended,
                   let pid = session.info.pid, !isAlive(pid)
             else { continue }
-            sessions[id] = Session(info: session.info, body: session.body, lastSeen: session.lastSeen, endedAt: now)
+            sessions[id]?.endedAt = now
             gone.append(id)
         }
         return gone
@@ -123,8 +132,39 @@ public struct SessionRegistry {
         return now.timeIntervalSince(lastActiveAt) > idleAfter
     }
 
-    /// The bodies to push again, in arrival order, after the page reloads.
-    public var bodies: [Data] { order.compactMap { sessions[$0]?.body } }
+    /// What the viewer must be sent now, in arrival order: each session whose
+    /// snapshot is new to it, or whose effective state changed since it was last
+    /// sent (a process gone, 30 min quiet). Each one comes stamped with the
+    /// effective state and the next viewer seq.
+    public mutating func pendingPushes(now: Date) -> [Data] {
+        var out: [Data] = []
+        for id in order {
+            guard var session = sessions[id] else { continue }
+            let state = effectiveState(of: session, now: now)
+            guard session.needsPush || session.shownState != state else { continue }
+            out.append(Self.stamp(&session, state))
+            sessions[id] = session
+        }
+        return out
+    }
+
+    /// Every session, stamped with its effective state, for a page that starts over.
+    public mutating func replayBodies(now: Date) -> [Data] {
+        var out: [Data] = []
+        for id in order {
+            guard var session = sessions[id] else { continue }
+            out.append(Self.stamp(&session, effectiveState(of: session, now: now)))
+            sessions[id] = session
+        }
+        return out
+    }
+
+    private static func stamp(_ session: inout Session, _ state: SessionState) -> Data {
+        session.viewerSeq += 1
+        session.shownState = state
+        session.needsPush = false
+        return Snapshot.restamped(session.body, state: state, seq: session.viewerSeq)
+    }
 }
 
 /// Whether a snapshot should bring the panel up.
