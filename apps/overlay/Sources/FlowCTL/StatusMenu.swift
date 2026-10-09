@@ -93,6 +93,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         sound.submenu = sounds
         menu.addItem(sound)
+
+        let theme = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
+        let themes = NSMenu()
+        for choice in ThemeChoice.allCases {
+            let item = entry(choice.title, #selector(setThemeChoice(_:)))
+            item.representedObject = choice.rawValue
+            item.state = actions.preferences.themeChoice == choice ? .on : .off
+            themes.addItem(item)
+        }
+        theme.submenu = themes
+        menu.addItem(theme)
         menu.addItem(toggle("Always on Top", actions.preferences.alwaysOnTop, #selector(toggleAlwaysOnTop)))
         menu.addItem(toggle("Show Automatically", actions.preferences.showAutomatically, #selector(toggleShowAutomatically)))
         menu.addItem(toggle("Hide When Idle", actions.preferences.hideWhenIdle, #selector(toggleHideWhenIdle)))
@@ -161,6 +172,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func setSize(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let size = PanelSize(rawValue: raw), let actions else { return }
         actions.preferences.panelSize = size
+        actions.preferencesChanged()
+    }
+
+    @objc private func setThemeChoice(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let choice = ThemeChoice(rawValue: raw), let actions else { return }
+        actions.preferences.themeChoice = choice
         actions.preferencesChanged()
     }
 
