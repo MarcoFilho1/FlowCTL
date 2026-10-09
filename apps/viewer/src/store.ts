@@ -56,7 +56,14 @@ export function isSnapshot(value: unknown): value is Snapshot {
   );
 }
 
-export function createSessionStore(): SessionStore {
+/** After a tab is picked by hand, sessions do not take it over for this long. */
+export const MANUAL_HOLD_MS = 15_000;
+
+const isLive = (snapshot: Snapshot | undefined) =>
+  snapshot?.sessionState === "working" || snapshot?.sessionState === "waiting_you";
+
+export function createSessionStore(now: () => number = () => Date.now()): SessionStore {
+  let pickedAt = -Infinity;
   let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
@@ -72,12 +79,21 @@ export function createSessionStore(): SessionStore {
       const sessions = [...state.sessions];
       if (index >= 0) sessions[index] = snapshot;
       else sessions.push(snapshot);
-      state = { ...state, sessions, active: state.active ?? key };
+      // Follow the activity: when the tab on screen is resting and another
+      // session starts working (or needs the person), switch to it, unless
+      // the person picked the tab on screen a moment ago.
+      let active = state.active ?? key;
+      if (active !== key && isLive(snapshot) && now() - pickedAt >= MANUAL_HOLD_MS) {
+        const shown = sessions.find((s) => sessionKey(s) === active);
+        if (!isLive(shown)) active = key;
+      }
+      state = { ...state, sessions, active };
       emit();
       return true;
     },
     select(key) {
       if (state.active === key || !state.sessions.some((s) => sessionKey(s) === key)) return;
+      pickedAt = now();
       state = { ...state, active: key };
       emit();
     },
