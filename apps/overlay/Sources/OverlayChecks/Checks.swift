@@ -30,6 +30,7 @@ public enum OverlayChecks {
 // MARK: - Helpers
 
 private func bytes(_ text: String) -> Data { Data(text.utf8) }
+extension OverlayChecks { static func bytesOf(_ text: String) -> Data { Data(text.utf8) } }
 
 private func parse(_ chunks: [String]) -> HTTPParseResult {
     var parser = HTTPRequestParser()
@@ -43,11 +44,18 @@ func snapshotJSON(id: String = "s1", seq: Int = 1, state: String = "working", up
     return bytes(#"{"schema":1,"seq":\#(seq),"sessionId":"\#(id)","cwd":"/p","updatedAt":\#(updatedAt),"sessionState":"\#(state)","planSource":"tasks","nodes":[\#(list.joined(separator: ","))],"layout":{},"warnings":[]}"#)
 }
 
-private func info(_ id: String = "s1", seq: Int = 1, state: SessionState = .working) -> SnapshotInfo {
-    SnapshotInfo(sessionId: id, seq: seq, state: state, updatedAt: 0, nodeCount: 1)
+private func info(_ id: String = "s1", seq: Int = 1, state: SessionState = .working, pid: Int32? = nil) -> SnapshotInfo {
+    SnapshotInfo(sessionId: id, seq: seq, state: state, updatedAt: 0, nodeCount: 1, pid: pid)
 }
 
 private let t0 = Date(timeIntervalSince1970: 1_000_000)
+
+extension Data {
+    /// The same snapshot JSON with a terminal.pid, for the liveness checks.
+    func withPid(_ pid: Int) -> Data {
+        OverlayChecks.bytesOf(String(decoding: self, as: UTF8.self).replacingOccurrences(of: #""planSource""#, with: #""terminal":{"pid":\#(pid)},"planSource""#))
+    }
+}
 
 // MARK: - HTTP
 
@@ -158,18 +166,59 @@ private let registry: [Check] = [
         var sessions = SessionRegistry(now: t0)
         _ = sessions.accept(info(seq: 1), body: Data(), now: t0.addingTimeInterval(-300))
         expect.equal(sessions.activeCount(now: t0), 1, "a 5-minute-old working file still counts")
-        let silent = t0.addingTimeInterval(SessionRegistry.workingSilenceLimit - 300)
-        expect.equal(sessions.activeCount(now: silent), 0, "until the silence limit, counted from the file's date")
+        let silent = t0.addingTimeInterval(SessionRegistry.staleAfter - 300 + 1)
+        expect.equal(sessions.activeCount(now: silent), 0, "past the 30 min limit, counted from the file's date")
         expect.that(!sessions.isIdle(now: t0.addingTimeInterval(59)), "launch still starts the minute")
     },
-    Check(group: "sessions", name: "a working session that went silent stops counting; a waiting one does not") { expect in
-        var sessions = SessionRegistry(now: t0)
+    Check(group: "sessions", name: "without a pid, working or waiting stops counting after 30 min of silence") { expect in
+        var sessions = SessionRegistry(now: t0, isAlive: { _ in true })
         _ = sessions.accept(info("w", seq: 1, state: .working), body: Data(), now: t0)
         _ = sessions.accept(info("q", seq: 1, state: .waitingYou), body: Data(), now: t0)
-        let later = t0.addingTimeInterval(SessionRegistry.workingSilenceLimit + 1)
+        let later = t0.addingTimeInterval(SessionRegistry.staleAfter + 1)
         expect.equal(sessions.activeCount(now: t0), 2)
-        expect.equal(sessions.activeCount(now: later), 1)
-        expect.that(sessions.isAnyWaiting, "q waits on the person")
+        expect.equal(sessions.activeCount(now: later), 0, "neither counts")
+        expect.that(!sessions.isAnyWaiting(now: later), "a stale waiting session does not light the icon")
+        expect.that(sessions.isAnyWaiting(now: t0), "fresh, it does")
+        expect.that(sessions.isIdle(now: later.addingTimeInterval(SessionRegistry.idleAfter)), "so it does not hold off the idle hide")
+    },
+    Check(group: "liveness", name: "a live pid keeps a session as it said; a dead one is ended") { expect in
+        var sessions = SessionRegistry(now: t0, isAlive: { $0 == 4242 })
+        _ = sessions.accept(info("live", seq: 1, state: .waitingYou, pid: 4242), body: Data(), now: t0)
+        _ = sessions.accept(info("dead", seq: 1, state: .waitingYou, pid: 9999), body: Data(), now: t0)
+        let later = t0.addingTimeInterval(SessionRegistry.staleAfter * 4)
+        expect.equal(sessions.activeCount(now: later), 1, "a live waiting session is not stale: its pid is the proof")
+        expect.that(sessions.isAnyWaiting(now: later), "the live one lights the icon")
+        let dead = sessions.sessions["dead"]
+        expect.equal(dead.map { sessions.effectiveState(of: $0, now: later) }, .ended, "a dead pid is ended, whatever it said")
+    },
+    Check(group: "liveness", name: "a waiting session whose process is gone does not light the icon") { expect in
+        var sessions = SessionRegistry(now: t0, isAlive: { _ in false })
+        _ = sessions.accept(info("gone", seq: 1, state: .waitingYou, pid: 68_123), body: Data(), now: t0)
+        expect.that(!sessions.isAnyWaiting(now: t0), "the icon stays normal")
+        expect.equal(sessions.activeCount(now: t0), 0)
+        expect.equal(sessions.reconcile(now: t0), ["gone"], "marked ended once")
+        expect.equal(sessions.reconcile(now: t0.addingTimeInterval(1)), [], "and not again")
+        expect.equal(sessions.expireEnded(now: t0.addingTimeInterval(29)), [], "its tab stays 30 s, like an ended one")
+        expect.equal(sessions.expireEnded(now: t0.addingTimeInterval(30)), ["gone"], "then leaves")
+    },
+    Check(group: "liveness", name: "a live pid is not reconciled, and an ended snapshot is not doubled") { expect in
+        var sessions = SessionRegistry(now: t0, isAlive: { _ in true })
+        _ = sessions.accept(info("a", seq: 1, state: .working, pid: 7), body: Data(), now: t0)
+        expect.equal(sessions.reconcile(now: t0), [])
+        _ = sessions.accept(info("a", seq: 2, state: .ended, pid: 7), body: Data(), now: t0)
+        expect.equal(sessions.reconcile(now: t0), [], "already ended by its own snapshot")
+    },
+    Check(group: "liveness", name: "the probe says a running process is alive and a missing one is not") { expect in
+        expect.that(ProcessLiveness.isAlive(getpid()), "this process")
+        expect.that(!ProcessLiveness.isAlive(0), "pid 0 is never a session")
+        expect.that(!ProcessLiveness.isAlive(-1), "nor is -1")
+        expect.that(!ProcessLiveness.isAlive(2_000_000_000), "a pid no process has")
+    },
+    Check(group: "liveness", name: "a snapshot names its process by terminal.pid") { expect in
+        let withPid = try? Snapshot.parse(bytes(String(decoding: snapshotJSON(), as: UTF8.self).replacingOccurrences(of: #""planSource""#, with: #""terminal":{"pid":4321},"planSource""#))).get()
+        expect.equal(withPid?.pid, 4321)
+        expect.equal(try? Snapshot.parse(snapshotJSON()).get().pid, nil, "older snapshots have none")
+        expect.equal(try? Snapshot.parse(bytes(String(decoding: snapshotJSON(), as: UTF8.self).replacingOccurrences(of: #""planSource""#, with: #""terminal":{"pid":-5},"planSource""#))).get().pid, nil, "a pid that is not a process is ignored")
     },
     Check(group: "sessions", name: "auto-show: active sessions bring the panel up unless the person closed it") { expect in
         let fresh = SessionRegistry.Outcome.accepted(isNewSession: false, startedWaiting: false)
@@ -198,9 +247,20 @@ private let files: [Check] = [
             SessionFiles.Entry(name: "broken-old.json", data: bytes("x"), modified: old),
             SessionFiles.Entry(name: "notes.txt", data: bytes("x"), modified: old)
         ]
-        let plan = SessionFiles.plan(entries, now: now)
+        let plan = SessionFiles.plan(entries, now: now, isAlive: { _ in true })
         expect.equal(plan.show.map(\.name), ["a.json", "b.json"])
         expect.equal(plan.delete, ["broken-old.json", "ended.json", "stale.json"])
+    },
+    Check(group: "files", name: "a file whose process is gone is deleted; a live or pid-less one is kept") { expect in
+        let now = t0
+        let entries = [
+            SessionFiles.Entry(name: "dead.json", data: snapshotJSON(id: "d", state: "waiting_you").withPid(68_123), modified: now),
+            SessionFiles.Entry(name: "live.json", data: snapshotJSON(id: "l", state: "waiting_you").withPid(4321), modified: now),
+            SessionFiles.Entry(name: "old-style.json", data: snapshotJSON(id: "o", state: "waiting_you"), modified: now)
+        ]
+        let plan = SessionFiles.plan(entries, now: now, isAlive: { $0 == 4321 })
+        expect.equal(plan.delete, ["dead.json"])
+        expect.equal(plan.show.map(\.name), ["live.json", "old-style.json"], "the pid-less file is shown: it is only stale in the registry")
     },
     Check(group: "files", name: "reads a directory, and a missing one as empty") { expect in
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("flowctl-checks-\(UUID().uuidString)")

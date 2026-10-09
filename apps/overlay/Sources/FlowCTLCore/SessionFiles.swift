@@ -24,10 +24,10 @@ public enum SessionFiles {
         public var delete: [String] = []
     }
 
-    /// Ended sessions and files older than a day go; live ones are shown. A
-    /// file that does not parse is left alone while fresh: the mod may be
-    /// writing it right now.
-    public static func plan(_ entries: [Entry], now: Date) -> Plan {
+    /// Ended sessions, sessions whose pid is gone, and files older than a day
+    /// go; the rest are shown, oldest update first. A file that does not parse
+    /// is left alone while fresh: the mod may be writing it right now.
+    public static func plan(_ entries: [Entry], now: Date, isAlive: (Int32) -> Bool) -> Plan {
         var plan = Plan()
         var shown: [(SnapshotInfo, Entry)] = []
         for entry in entries where entry.name.hasSuffix(".json") {
@@ -36,7 +36,8 @@ public enum SessionFiles {
             case .failure:
                 if isOld { plan.delete.append(entry.name) }
             case .success(let info):
-                if isOld || info.state == .ended {
+                let gone = info.pid.map { !isAlive($0) } ?? false
+                if isOld || info.state == .ended || gone {
                     plan.delete.append(entry.name)
                 } else {
                     shown.append((info, entry))

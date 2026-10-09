@@ -5,9 +5,10 @@ import Foundation
 public struct SessionRegistry {
     /// How long an ended session's tab stays up.
     public static let endedTabLifetime: TimeInterval = 30
-    /// A session that said "working" and went quiet this long is presumed gone
-    /// (its process died without a session.end). One waiting on the person stays active.
-    public static let workingSilenceLimit: TimeInterval = 10 * 60
+    /// Without a pid, a session that is working or waiting but has not been
+    /// written for this long is presumed dead (its process left without a
+    /// session.end): it counts as neither active nor waiting.
+    public static let staleAfter: TimeInterval = 30 * 60
     /// No active session for longer than this is idle: the panel hides (`Hide When Idle`).
     public static let idleAfter: TimeInterval = 5 * 60
 
@@ -30,12 +31,19 @@ public struct SessionRegistry {
     public private(set) var order: [String] = []
     private var lastActiveAt: Date
     private let idleAfter: TimeInterval
+    private let isAlive: (Int32) -> Bool
 
     /// `now`: when the overlay opened; idleness is counted from there.
-    /// `idleAfter` is the production limit unless a test shortens it.
-    public init(now: Date, idleAfter: TimeInterval = SessionRegistry.idleAfter) {
+    /// `idleAfter` is the production limit unless a test shortens it, and
+    /// `isAlive` asks whether a session's pid still runs (a test answers it).
+    public init(
+        now: Date,
+        idleAfter: TimeInterval = SessionRegistry.idleAfter,
+        isAlive: @escaping (Int32) -> Bool = ProcessLiveness.isAlive
+    ) {
         lastActiveAt = now
         self.idleAfter = idleAfter
+        self.isAlive = isAlive
     }
 
     /// `now`: when the snapshot was seen (a file's modification date, for one
@@ -54,6 +62,7 @@ public struct SessionRegistry {
     }
 
     /// Drops sessions that ended at least `endedTabLifetime` ago; returns their ids.
+    /// A session marked by `reconcile` ended when its pid went away.
     public mutating func expireEnded(now: Date) -> [String] {
         let expired = order.filter { id in
             guard let endedAt = sessions[id]?.endedAt else { return false }
@@ -64,20 +73,45 @@ public struct SessionRegistry {
         return expired
     }
 
-    public func isActive(_ session: Session, now: Date) -> Bool {
-        switch session.info.state {
-        case .waitingYou: return true
-        case .working: return now.timeIntervalSince(session.lastSeen) < Self.workingSilenceLimit
-        case .idle, .ended: return false
+    /// The state a session counts as now. A session is ended when its pid is
+    /// gone (whatever it last said), and a session without a pid that has not
+    /// been written for `staleAfter` is idle: not active, not waiting.
+    public func effectiveState(of session: Session, now: Date) -> SessionState {
+        if session.info.state == .ended || session.endedAt != nil { return .ended }
+        if let pid = session.info.pid {
+            return isAlive(pid) ? session.info.state : .ended
         }
+        if session.info.state.isActive, now.timeIntervalSince(session.lastSeen) > Self.staleAfter {
+            return .idle
+        }
+        return session.info.state
+    }
+
+    public func isActive(_ session: Session, now: Date) -> Bool {
+        effectiveState(of: session, now: now).isActive
     }
 
     public func activeCount(now: Date) -> Int {
         sessions.values.filter { isActive($0, now: now) }.count
     }
 
-    public var isAnyWaiting: Bool {
-        sessions.values.contains { $0.info.state == .waitingYou }
+    /// Whether a session that is alive is waiting on the person (the icon's `!`).
+    public func isAnyWaiting(now: Date) -> Bool {
+        sessions.values.contains { effectiveState(of: $0, now: now) == .waitingYou }
+    }
+
+    /// Marks the sessions whose pid is gone as ended, as they stop counting
+    /// from now, so their tabs leave like any ended session's. Returns the new ones.
+    public mutating func reconcile(now: Date) -> [String] {
+        var gone: [String] = []
+        for id in order {
+            guard let session = sessions[id], session.endedAt == nil, session.info.state != .ended,
+                  let pid = session.info.pid, !isAlive(pid)
+            else { continue }
+            sessions[id] = Session(info: session.info, body: session.body, lastSeen: session.lastSeen, endedAt: now)
+            gone.append(id)
+        }
+        return gone
     }
 
     /// True once no session has been active for longer than `idleAfter`.
