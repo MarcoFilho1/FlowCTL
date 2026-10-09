@@ -222,10 +222,13 @@ Os dois maiores riscos são validados antes de qualquer código definitivo.
 - [ ] Do mod, `$.http.fetch("http://overlay/snapshot", { method: "POST", socketPath, body })` chega ao app e o HTML atualiza.
 - [ ] Medir a latência evento → pixel.
 
-**Gate de decisão (você decide ao fim da fase):**
-- O agente criou tasks em ≥ 50% das sessões não triviais? Então seguimos só observando.
-- Se não, ligar a opção `nudgeTasks` (`userConfig`, desligada por padrão): uma seção curta via `prompt.compose` pedindo `TaskCreate` + `addBlockedBy` em trabalhos com 3 ou mais passos. Não força sub-issues atômicas, só deixa o plano visível.
-- O socket funcionou? Se não, o arquivo vira o plano A.
+**Gate de decisão: DECIDIDO (out/2026), ver `docs/events.md`:**
+- **Fonte do plano, híbrida:**
+  - se `TaskCreate` existe na sessão (`$.tool.list()` no `session.start`), o mod lê as tasks nativas;
+  - se não existe, o mod registra a própria ferramenta de plano (`$.tool.register`, ex.: `FlowPlan` com nós, `blockedBy` e status), que alimenta o mesmo reducer;
+  - nunca as duas ao mesmo tempo, para o agente não receber duas listas.
+- **`nudgeTasks` desligado por padrão** (`userConfig`). Quem quiser o grafo sempre preenchido liga.
+- Consequência: o nó implícito de turno é o caminho **normal** quando não há plano, não uma exceção.
 
 ### Fase 2: Motor do grafo em TS puro (5 dias)
 **Objetivo:** `mod/graph/` completo e testado só com fixtures, sem UI. Ao fim,
@@ -310,6 +313,11 @@ overlay. Pode começar em paralelo com a Fase 3 assim que o `Snapshot` congelar.
 - [ ] Tag **`v0.1.0`** = MVP.
 
 ### Depois do MVP (não bloqueia)
+- **Clique no nó amarelo leva à sessão**: clicar num nó que pede input/permissão traz para a frente o terminal daquela sessão. Precisa de um spike:
+  - o mod envia no snapshot a identidade do terminal (`TERM_PROGRAM`, tty, `TERM_SESSION_ID`/`ITERM_SESSION_ID`, pid);
+  - o overlay ativa o app e a aba certa (AppleScript no Terminal/iTerm, por tty);
+  - Maestri e VS Code precisam de investigação própria;
+  - o overlay deixa de ser só leitura (passa a receber cliques, mas ainda não comanda o agente).
 - Pane `/grafo` no terminal (Box/Text ou `Raster`) para quem não quer o overlay.
 - Clique no nó do overlay → detalhes (description, último erro).
 - Windows/Linux (Tauri ou WPF).
