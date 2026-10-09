@@ -2,15 +2,15 @@
   "name": "flowctl",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": { "node": ">=22.6" },
   "scripts": {
-    "dev": "pnpm --filter @flowctl/playground dev",
-    "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test"
+    "typecheck": "tsc -p mod && tsc -p tests",
+    "test": "node --test --experimental-strip-types --no-warnings=ExperimentalWarning \"tests/**/*.test.ts\"",
+    "validate": "claude plugin validate mod && claude plugin test mod"
   },
   "devDependencies": {
-    "@flowctl/control-plane": "workspace:*",
     "@types/node": "^22.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.6.0"
   }
 }
