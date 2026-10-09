@@ -223,10 +223,22 @@ export function nodes(state: GraphState): GraphNode[] {
       ...(agent.parent !== undefined && known.has(agent.parent) ? { parent: agent.parent } : {})
     });
   }
-  if (out.length === 0 && state.turn.n > 0) {
+  // The turn node stands for the agent's work when no step does: before the
+  // first plan, at the start of each new request (until its plan arrives,
+  // hanging after the previous request's ends), and whenever something needs
+  // the person while no step is in progress.
+  const main = [...state.entries.values()].filter((entry) => entry.agentId === undefined);
+  const currentPlanned = main.some((entry) => entry.request === state.request);
+  const stepRunning = main.some((entry) => entry.base === "in_progress");
+  const showTurn =
+    state.turn.n > 0 &&
+    (out.length === 0 || (state.turn.running && !currentPlanned) || (state.turn.attention !== undefined && !stepRunning));
+  if (showTurn) {
+    const ends = out.length > 0 ? lastEnds(main) : [];
     out.push({
       id: `turn:${state.turn.n}`,
       kind: "turn",
+      ...(ends.length > 0 ? { after: ends } : {}),
       title: "Current turn",
       ...(state.turn.summary !== undefined ? { summary: state.turn.summary } : {}),
       ...(state.turn.startedT !== undefined ? { startedAt: state.turn.startedT } : {}),
@@ -268,6 +280,15 @@ export function sessionState(state: GraphState): SessionState {
  * no dependency inside their request start it; steps nothing in their
  * request depends on end it.
  */
+/** The steps that end the latest request with a plan: nothing in it depends on them. */
+function lastEnds(main: readonly PlanEntry[]): string[] {
+  if (main.length === 0) return [];
+  const latest = Math.max(...main.map((entry) => entry.request));
+  const group = main.filter((entry) => entry.request === latest);
+  const needed = new Set(group.flatMap((entry) => entry.blockedBy));
+  return group.filter((entry) => !needed.has(entry.id)).sort(byCreation).map((entry) => entry.id);
+}
+
 function sequenceLinks(state: GraphState): Map<string, string[]> {
   const byRequest = new Map<number, PlanEntry[]>();
   for (const entry of state.entries.values()) {

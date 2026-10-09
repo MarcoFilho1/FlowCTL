@@ -297,3 +297,26 @@ test("every tool error marks the current node; it stays blue unless errors repea
   assert.equal(fix?.status, "running");
   assert.deepEqual(fix?.lastError, { detail: "Exit code 1", at: 5 });
 });
+
+test("a new request shows the turn after the last plan until its own plan arrives; a question there is yellow", () => {
+  const state = initialState();
+  const plan = (steps: object[]): GraphEvent => ({ t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps }, result: { result: [] } });
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 5 } });
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "1" } });
+  apply(state, plan([{ id: "a", title: "A", status: "completed" }]));
+  apply(state, { t: 1, event: "turn.complete", input: { reason: "answer" }, result: { agents: [] } });
+  assert.deepEqual(nodes(state).map((node) => node.id), ["plan:a"]);
+
+  apply(state, { t: 2, event: "prompt.submit", input: { chars: 5 } });
+  apply(state, { t: 2, event: "turn.start", input: { turnId: "2" } });
+  const turn = nodes(state).find((node) => node.kind === "turn");
+  assert.deepEqual([turn?.status, turn?.after], ["running", ["plan:a"]]);
+
+  apply(state, { t: 3, event: "tool.check", input: { tool: "AskUserQuestion", reason: "Which code?" }, result: { decision: "ask" } });
+  apply(state, { t: 3, event: "classic.PermissionRequest", input: { tool_name: "AskUserQuestion" } });
+  assert.equal(nodes(state).find((node) => node.kind === "turn")?.status, "needs_you");
+
+  apply(state, { t: 4, event: "tool.call", input: { tool: "AskUserQuestion" }, result: { result: { answers: {} } } });
+  apply(state, plan([{ id: "b", title: "B", status: "in_progress" }]));
+  assert.deepEqual(nodes(state).map((node) => node.id), ["plan:a", "plan:b"]);
+});
