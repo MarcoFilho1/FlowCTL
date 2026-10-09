@@ -28,7 +28,7 @@ test("waits for a session before drawing", () => {
 });
 
 test("a session with no nodes yet says so instead of an empty canvas", () => {
-  const { container } = mount(snapshotOf([], { sessionState: "idle" }));
+  const { container } = mount(snapshotOf([], { sessionState: "working" }));
   expect(screen.getByText(/Waiting for the first turn/)).toBeTruthy();
   expect(container.querySelector("svg")).toBeNull();
 });
@@ -261,3 +261,12 @@ test("window.flowctl.remove drops an expired session's tab without a reload", ()
   expect(store.getState().sessions.map((session) => session.sessionId)).toEqual(["s2"]);
 });
 
+
+test("a session with nothing drawn and nothing going on gets no tab", () => {
+  mount(
+    snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/api" }),
+    snapshotOf([], { sessionId: "s2", cwd: "/w/stale", sessionState: "idle" })
+  );
+  expect(screen.queryAllByRole("tab")).toHaveLength(0);
+  expect(screen.queryByText("stale")).toBeNull();
+});

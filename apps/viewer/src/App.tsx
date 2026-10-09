@@ -13,7 +13,12 @@ export function App({
   replays?: readonly Replay[];
   startAt?: number | "end";
 }) {
-  const { sessions, active } = useSyncExternalStore(store.subscribe, store.getState);
+  const { sessions: all, active } = useSyncExternalStore(store.subscribe, store.getState);
+  // A session with nothing drawn that is not working (a fresh one gone idle, a
+  // stale file restored at launch) would only be an empty tab.
+  const sessions = all.filter(
+    (session) => session.nodes.length > 0 || session.sessionState === "working" || session.sessionState === "waiting_you"
+  );
   const current = sessions.find((session) => sessionKey(session) === active) ?? sessions[0];
   return (
     <main className={`app ${replays ? "dev" : "overlay"}`}>
