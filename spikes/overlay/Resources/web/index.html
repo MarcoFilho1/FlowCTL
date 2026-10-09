@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FlowCTL spike</title>
+<style>
+  :root { color-scheme: light dark; font: 13px -apple-system, system-ui, sans-serif; }
+  body { margin: 0; padding: 36px 14px 14px; background: transparent; color: CanvasText; }
+  header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  h1 { font-size: 14px; margin: 0; }
+  .meta { opacity: .65; font-variant-numeric: tabular-nums; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  li { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center;
+       padding: 7px 9px; border-radius: 8px; background: color-mix(in srgb, CanvasText 7%, transparent); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+  .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .id { opacity: .5; font: 11px ui-monospace, monospace; }
+  .status { font-size: 11px; color: var(--c); }
+  .pending   { --c: #a8a8a8; }
+  .running   { --c: #3b82f6; }
+  .needs_you { --c: #eab308; }
+  .error     { --c: #ef4444; }
+  .done      { --c: #22c55e; }
+  .empty { opacity: .6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FlowCTL</h1>
+  <span class="meta">seq <b id="seq">–</b></span>
+</header>
+<ul id="nodes"><li class="empty">Waiting for a snapshot…</li></ul>
+<script>
+  const STATUSES = new Set(["pending", "running", "needs_you", "error", "done"]);
+  const list = document.getElementById("nodes");
+  const seqLabel = document.getElementById("seq");
+  let lastSeq = -Infinity;
+
+  function render(snapshot) {
+    const nodes = Array.isArray(snapshot.nodes) ? snapshot.nodes : [];
+    seqLabel.textContent = String(snapshot.seq ?? "?");
+    list.replaceChildren(...(nodes.length ? nodes.map(row) : [emptyRow()]));
+  }
+
+  function row(node) {
+    const status = STATUSES.has(node.status) ? node.status : "pending";
+    const li = document.createElement("li");
+    li.className = status;
+    li.innerHTML = '<span class="dot"></span><span class="title"></span><span class="status"></span>';
+    li.querySelector(".title").append(text(node.title ?? node.id), " ", span("id", node.id));
+    li.querySelector(".status").textContent = status;
+    return li;
+  }
+
+  function span(cls, value) {
+    const s = document.createElement("span");
+    s.className = cls;
+    s.textContent = String(value ?? "");
+    return s;
+  }
+
+  function text(value) { return document.createTextNode(String(value ?? "")); }
+
+  function emptyRow() {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "No nodes";
+    return li;
+  }
+
+  function post(message) {
+    window.webkit?.messageHandlers?.flowctl?.postMessage(message);
+  }
+
+  window.flowctl = {
+    push(snapshot) {
+      // Out-of-order delivery: an older seq never replaces a newer one.
+      if (typeof snapshot.seq === "number") {
+        if (snapshot.seq <= lastSeq) return;
+        lastSeq = snapshot.seq;
+      }
+      render(snapshot);
+    },
+    ackPaint(id) {
+      post({ id, phase: "eval" });
+      requestAnimationFrame(() => requestAnimationFrame(() => post({ id, phase: "paint" })));
+    },
+  };
+</script>
+</body>
+</html>
