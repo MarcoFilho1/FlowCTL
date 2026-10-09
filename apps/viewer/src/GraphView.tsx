@@ -23,6 +23,15 @@ export const DRAG_THRESHOLD = 4;
 /** After the person pans, the view stops following the work for this long. */
 export const FOLLOW_PAUSE_MS = 8000;
 const CARD_W = 210;
+/** How far the person can zoom at rest. */
+export const ZOOM_MIN = 0.5;
+export const ZOOM_MAX = 2;
+
+/** The next zoom level: quarter steps for pixel art (pixels stay whole), 1.25× otherwise. */
+export function zoomStep(s: number, direction: 1 | -1, pixel: boolean): number {
+  const next = pixel ? Math.round((s + direction * 0.25) * 4) / 4 : direction > 0 ? s * 1.25 : s / 1.25;
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+}
 
 export const STATUS_LABEL: Record<NodeStatus, string> = {
   pending: "Pending",
@@ -107,12 +116,50 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   // Working: follow the current step. Resting: the whole graph ("idle" mode).
   const mode = snapshot.sessionState === "working" || snapshot.sessionState === "waiting_you" ? "follow" : "overview";
   const auto = useMemo(() => cameraFor(scene, viewport, mode, pixel), [scene, viewport, mode, pixel]);
+  // While the session rests, a view the person chose (zoom, pan) stays until
+  // the session works again; while it works, the camera takes over again
+  // after a short pause.
+  const heldAtRest = useRef(false);
   useEffect(() => {
+    if (mode === "follow") heldAtRest.current = false;
+  }, [mode]);
+  useEffect(() => {
+    if (mode === "overview" && heldAtRest.current) return;
     if (performance.now() - lastManual.current < FOLLOW_PAUSE_MS) return;
     setCam(auto);
   }, [auto.x, auto.y, auto.s]);
 
   const drawn = useGlide(cam, dragging);
+
+  // WebKit (the overlay) reports a trackpad pinch as gesture events, not as a
+  // ctrl + wheel: every 15% of pinch is one zoom step.
+  const zoomRef = useRef<((direction: 1 | -1) => void) | undefined>(undefined);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    let last = 1;
+    const start = (event: Event) => {
+      event.preventDefault();
+      last = 1;
+    };
+    const change = (event: Event) => {
+      event.preventDefault();
+      const scale = (event as Event & { scale?: number }).scale ?? 1;
+      if (scale > last * 1.15) {
+        zoomRef.current?.(1);
+        last = scale;
+      } else if (scale < last / 1.15) {
+        zoomRef.current?.(-1);
+        last = scale;
+      }
+    };
+    element.addEventListener("gesturestart", start);
+    element.addEventListener("gesturechange", change);
+    return () => {
+      element.removeEventListener("gesturestart", start);
+      element.removeEventListener("gesturechange", change);
+    };
+  }, [ref]);
 
   // Transition effects: compare each snapshot with the one before.
   const [effects, setEffects] = useState<Effect[]>([]);
@@ -136,9 +183,13 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   }, [snapshot]);
 
   if (snapshot.nodes.length === 0) {
+    // The canvas is there from the start, so the window is measured (and
+    // gestures heard) before the first node arrives.
     return (
       <div className="graph">
-        <p className="empty">Waiting for the first turn…</p>
+        <div ref={ref} className="canvas">
+          <p className="empty">Waiting for the first turn…</p>
+        </div>
       </div>
     );
   }
@@ -149,7 +200,20 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   const sized = (s: number) => ({ width: scene.width * s, height: scene.height * s });
   const moveTo = (next: Point) => {
     lastManual.current = performance.now();
+    if (mode === "overview") heldAtRest.current = true;
     setCam((current) => ({ ...clampPan(next, sized(current.s), viewport), s: current.s }));
+  };
+  // Zoom at rest, around a point of the window (the cursor, or the middle).
+  const zoom = (direction: 1 | -1, around: Point = { x: viewport.width / 2, y: viewport.height / 2 }) => {
+    lastManual.current = performance.now();
+    heldAtRest.current = true;
+    setCam((current) => {
+      const s = zoomStep(current.s, direction, pixel);
+      if (s === current.s) return current;
+      const x = around.x - ((around.x - current.x) * s) / current.s;
+      const y = around.y - ((around.y - current.y) * s) / current.s;
+      return { ...clampPan({ x, y }, sized(s), viewport), s };
+    });
   };
 
   const onPointerDown = (event: React.PointerEvent) => {
@@ -184,7 +248,16 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
       tellNative({ type: "focus", sessionId: snapshot.sessionId, nodeId: held.node });
     }
   };
-  const onWheel = (event: React.WheelEvent) => moveTo({ x: cam.x - event.deltaX, y: cam.y - event.deltaY });
+  zoomRef.current = mode === "overview" ? zoom : undefined;
+  const onWheel = (event: React.WheelEvent) => {
+    // Pinch on a trackpad arrives as a wheel with ctrl held; ⌘ + wheel zooms too.
+    if ((event.ctrlKey || event.metaKey) && mode === "overview") {
+      const box = (event.currentTarget as Element).getBoundingClientRect();
+      zoom(event.deltaY < 0 ? 1 : -1, { x: event.clientX - box.left, y: event.clientY - box.top });
+      return;
+    }
+    moveTo({ x: cam.x - event.deltaX, y: cam.y - event.deltaY });
+  };
 
   const hoveredShape = hovered && !dragging ? shapes.get(hovered) : undefined;
   const offscreen = scene.nodes.filter((shape) => {
@@ -219,15 +292,17 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
             <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
               {pixel ? <rect x="0" y="0" width={PX} height={PX} className="grid-dot" /> : <circle cx="1" cy="1" r="0.8" className="grid-dot" />}
             </pattern>
-            {pixel ? (
-              // A stepped arrowhead, 3 art pixels long.
-              <marker id="arrow" viewBox="0 0 3 5" refX="3" refY="2.5" markerWidth="3" markerHeight="5" markerUnits="userSpaceOnUse" orient="auto">
-                <path d="M0 0h1v1h1v1h1v1h-1v1h-1v1h-1z" className="arrow-head" transform={`scale(${PX / 2})`} />
-              </marker>
-            ) : (
-              <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M 0 0 L 8 4 L 0 8 z" className="arrow-head" />
-              </marker>
+            {/* Arrowheads: a stepped 4×7 art-pixel triangle, or a vector one; blue on edges into running steps. */}
+            {(["arrow", "arrow-live"] as const).map((id) =>
+              pixel ? (
+                <marker key={id} id={id} viewBox="0 0 4 7" refX="4" refY="3.5" markerWidth="6" markerHeight="10.5" markerUnits="userSpaceOnUse" orient="auto">
+                  <path d="M0 0h1v1h1v1h1v1h1v1h-1v1h-1v1h-1v1h-1z" className={`arrow-head${id === "arrow-live" ? " live" : ""}`} />
+                </marker>
+              ) : (
+                <marker key={id} id={id} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" className={`arrow-head${id === "arrow-live" ? " live" : ""}`} />
+                </marker>
+              )
             )}
           </defs>
           <g
@@ -243,16 +318,20 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
               const from = boxes.get(link.from);
               const to = boxes.get(link.to);
               if (!from || !to) return null;
-              const live = link.kind === "dependency" && shapes.get(link.to)?.node.status === "running";
+              const live = link.kind !== "agent" && shapes.get(link.to)?.node.status === "running";
+              const d = pixel && link.kind !== "agent" ? steppedLink(from, to) : linkPath(from, to, link.kind === "agent" ? "agent" : "dependency");
               return (
+                <g key={`${link.kind}:${link.from}->${link.to}`}>
                 <path
-                  key={`${link.kind}:${link.from}->${link.to}`}
                   className={`link link-${link.kind}${link.inferred ? " inferred" : ""}${live ? " live" : ""}${entering.has(link.to) ? " entering" : ""}`}
                   pathLength={entering.has(link.to) ? 1 : undefined}
                   data-link={`${link.from}->${link.to}`}
-                  d={pixel && link.kind !== "agent" ? steppedLink(from, to) : linkPath(from, to, link.kind === "agent" ? "agent" : "dependency")}
-                  {...(link.kind !== "agent" ? { markerEnd: "url(#arrow)" } : {})}
+                  d={d}
+                  {...(link.kind !== "agent" ? { markerEnd: live ? "url(#arrow-live)" : "url(#arrow)" } : {})}
                 />
+                {/* Into the running step, a packet keeps travelling the edge: the direction of the work. */}
+                {live && <Flow path={d} pixel={pixel} />}
+                </g>
               );
             })}
             {scene.nodes.map((shape) => (
@@ -277,6 +356,12 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
             })}
           </g>
         </svg>
+        {mode === "overview" && (
+          <div className="zoom" onPointerDown={(event) => event.stopPropagation()}>
+            <button type="button" aria-label="Zoom in" onClick={() => zoom(1)}>+</button>
+            <button type="button" aria-label="Zoom out" onClick={() => zoom(-1)}>−</button>
+          </div>
+        )}
         {offscreen.map((shape) => (
           <Beacon
             key={shape.id}
@@ -470,6 +555,22 @@ function Converge({ box }: { box: Box }) {
           <rect key={`${ring}:${i}`} x={x} y={y} width={1} height={1} style={{ animationDelay: `${ring * 0.1}s` }} />
         ))
       )}
+    </g>
+  );
+}
+
+/** A packet looping along an edge into the running step. */
+function Flow({ path, pixel }: { path: string; pixel: boolean }) {
+  return (
+    <g className={pixel ? "flow flow-px" : "flow"}>
+      {pixel ? <rect x={-2} y={-2} width={4} height={4} /> : <circle r={2.5} />}
+      <animateMotion
+        dur="1.4s"
+        repeatCount="indefinite"
+        path={path}
+        calcMode={pixel ? "discrete" : "linear"}
+        {...(pixel ? { keyPoints: "0;0.125;0.25;0.375;0.5;0.625;0.75;0.875;1", keyTimes: "0;0.111;0.222;0.333;0.444;0.556;0.667;0.778;0.889" } : {})}
+      />
     </g>
   );
 }

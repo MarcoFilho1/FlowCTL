@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { GraphNode } from "../../../mod/graph/types.ts";
 import { App } from "./App.tsx";
-import { EFFECT_MS } from "./GraphView.tsx";
+import { EFFECT_MS, zoomStep } from "./GraphView.tsx";
 import type { Replay } from "./DevControls.tsx";
 import { agent, golden, snapshotOf, task } from "./goldens.ts";
 import { loadFixture, replaySnapshots } from "./player.ts";
@@ -446,4 +446,64 @@ describe("subagents can be hidden", () => {
     act(() => window.flowctl?.setShowSubagents(true));
     expect(container.querySelectorAll(".node.kind-agent")).toHaveLength(3);
   });
+});
+
+describe("arrows and zoom", () => {
+  const chain = (state: "working" | "idle", running: number, seq = 1) =>
+    snapshotOf(
+      Array.from({ length: 6 }, (_, i) =>
+        task(`t${i}`, { blockedBy: i > 0 ? [`t${i - 1}`] : [], status: i < running ? "done" : i === running ? "running" : "pending" })
+      ),
+      { seq, sessionState: state, layout: Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`t${i}`, { rank: i, order: 0 }])) }
+    );
+
+  test("the edge into the running step is blue with a packet travelling it, and a blue arrowhead", () => {
+    const { container } = mount(chain("working", 2));
+    const live = container.querySelector('[data-link="t1->t2"]');
+    expect(live?.getAttribute("class")).toContain("live");
+    expect(live?.getAttribute("marker-end")).toBe("url(#arrow-live)");
+    expect(live?.parentElement?.querySelector(".flow animateMotion")?.getAttribute("repeatCount")).toBe("indefinite");
+    expect(container.querySelector('[data-link="t0->t1"]')?.getAttribute("marker-end")).toBe("url(#arrow)");
+    expect(container.querySelectorAll(".flow")).toHaveLength(1);
+  });
+
+  test("zoom buttons appear only at rest, and a chosen zoom holds until the session works again", () => {
+    const { container, store } = mount(chain("working", 2));
+    expect(screen.queryByLabelText("Zoom in")).toBeNull();
+    act(() => {
+      store.push(chain("idle", 6, 2));
+    });
+    const canvas = container.querySelector(".canvas")!;
+    const before = Number(canvas.getAttribute("data-scale"));
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    const zoomed = Number(canvas.getAttribute("data-scale"));
+    expect(zoomed).toBe(before + 0.25);
+    act(() => {
+      store.push(chain("idle", 6, 3));
+    });
+    expect(Number(canvas.getAttribute("data-scale"))).toBe(zoomed);
+    act(() => {
+      store.push(chain("working", 3, 4));
+    });
+    expect(canvas.getAttribute("data-mode")).toBe("follow");
+    expect(screen.queryByLabelText("Zoom in")).toBeNull();
+  });
+
+  test("a pinch (ctrl + wheel) zooms at rest; a plain wheel still pans", () => {
+    const { container } = mount(chain("idle", 6));
+    const canvas = container.querySelector(".canvas")!;
+    const before = Number(canvas.getAttribute("data-scale"));
+    fireEvent.wheel(canvas, { deltaY: -10, ctrlKey: true, clientX: 100, clientY: 100 });
+    expect(Number(canvas.getAttribute("data-scale"))).toBeGreaterThan(before);
+    const scaled = canvas.getAttribute("data-scale");
+    fireEvent.wheel(canvas, { deltaX: 30, deltaY: 0 });
+    expect(canvas.getAttribute("data-scale")).toBe(scaled);
+  });
+});
+
+test("zoom steps stay on quarter steps for pixels, within half and double size", () => {
+  expect(zoomStep(0.75, 1, true)).toBe(1);
+  expect(zoomStep(0.5, -1, true)).toBe(0.5);
+  expect(zoomStep(2, 1, true)).toBe(2);
+  expect(zoomStep(1, 1, false)).toBeCloseTo(1.25);
 });

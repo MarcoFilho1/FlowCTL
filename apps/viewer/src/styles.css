@@ -137,9 +137,17 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 
 .link { fill: none; stroke: var(--edge); stroke-width: 1.3; opacity: 0.85; }
 .link.inferred { stroke-dasharray: 4 4; opacity: 0.6; }
-.link.live { stroke: var(--running); stroke-dasharray: 3 6; animation: flow 0.9s linear infinite; opacity: 1; }
+/* The edge into a running step is solid blue; a packet travels it (Flow), so
+   the direction reads without blinking. */
+.link.live { stroke: var(--running); opacity: 1; }
 .link-agent { stroke-dasharray: 2 3; stroke-width: 1; opacity: 0.6; }
 .arrow-head { fill: var(--edge); }
+.arrow-head.live { fill: var(--running); }
+/* Lines keep their width when the idle overview zooms out. */
+.link { vector-effect: non-scaling-stroke; }
+.flow { pointer-events: none; }
+.flow circle { fill: var(--running); filter: drop-shadow(0 0 3px var(--running)); }
+.flow-px rect { fill: var(--running); stroke: var(--halo); stroke-width: 1; vector-effect: non-scaling-stroke; }
 
 .beacon {
   position: absolute; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%;
@@ -153,7 +161,6 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
   0% { transform: scale(1); opacity: 0.9; }
   100% { transform: scale(1.9); opacity: 0; }
 }
-@keyframes flow { to { stroke-dashoffset: -9; } }
 
 /* Hover card */
 .hover-card {
@@ -178,7 +185,8 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pulse, .state-dot, .orbit, .link.live, .beacon { animation: none; }
+  .pulse, .state-dot, .orbit, .beacon { animation: none; }
+  .flow { display: none; }
   .node .dot, .node .glow { transition: none; }
 }
 
@@ -257,9 +265,8 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 
 .app.look-pixel .link { stroke-width: 2; stroke-linecap: square; stroke-linejoin: miter; opacity: 1; }
 .app.look-pixel .link.inferred { stroke-dasharray: 2 4; }
-.app.look-pixel .link.live { stroke-dasharray: 4 4; animation: flow-px 0.6s steps(2, jump-none) infinite; }
+.app.look-pixel .link.live { stroke: var(--running); }
 .app.look-pixel .link-agent { stroke-width: 2; stroke-dasharray: 2 2; opacity: 0.7; }
-@keyframes flow-px { to { stroke-dashoffset: -8; } }
 
 .app.look-pixel .grid-dot { fill: var(--grid); }
 
@@ -275,7 +282,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .app.look-pixel .beacon { border-radius: 0; box-shadow: 0 0 0 2px var(--status); animation-timing-function: steps(2, jump-none); }
 
 @media (prefers-reduced-motion: reduce) {
-  .chaser, .halo-px, .bang, .node.pixel.status-needs_you .px-outline, .app.look-pixel .link.live { animation: none; }
+  .chaser, .halo-px, .bang, .node.pixel.status-needs_you .px-outline { animation: none; }
   .chaser { opacity: 0.8; }
 }
 
@@ -328,8 +335,19 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
   0%, 33%, 66% { fill: var(--error); opacity: 0.6; }
   16%, 50%, 83%, 100% { opacity: 0.32; }
 }
-.link-sequence { stroke-dasharray: 3 4; opacity: 0.6; }
-.app.look-pixel .link-sequence { stroke-dasharray: 2 4; }
+/* Between prompts: a dashed line bold enough to read in the idle overview. */
+.link-sequence { stroke-dasharray: 5 5; stroke-width: 2; opacity: 0.9; }
+.app.look-pixel .link-sequence { stroke-dasharray: 4 4; stroke-width: 2; opacity: 0.9; }
 @media (prefers-reduced-motion: reduce) {
   .flashing .dot, .flashing .px-body, .flashing .px-light, .flashing .px-shade { animation: none; fill: var(--error); }
 }
+
+/* Zoom buttons, shown while the session rests. */
+.zoom { position: absolute; right: 6px; bottom: 6px; z-index: 3; display: flex; flex-direction: column; gap: 2px; }
+.zoom button {
+  width: 20px; height: 20px; padding: 0; font: 600 14px/1 var(--font); color: var(--text);
+  background: var(--card); border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
+}
+.zoom button:hover, .zoom button:focus-visible { border-color: var(--text); outline: none; }
+.app.look-pixel .zoom button { border-radius: 0; box-shadow: 2px 2px 0 0 rgba(0, 0, 0, 0.3); }
+.canvas > .empty { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; }
