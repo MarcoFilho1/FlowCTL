@@ -33,7 +33,8 @@ It can always be closed:
   have clicked the window);
 - the **menu bar item** (the graph icon; a yellow warning while a session waits
   on you) has **Show/Hide Panel**, **Opacity**, **Size** (Small 280×180,
-  Medium 360×220, Large 480×300), **Look** (Pixel, the default, or Smooth),
+  Medium 360×220, Large 480×300), **Look** (Pixel, the default, or Smooth), **Show Subagents** (on by default:
+  the subagents of a session, drawn under the task they belong to),
   **Always on Top**, **Show Automatically**,
   **Hide When Idle** and **Quit FlowCTL**;
 - **⌘Q** quits once you have clicked the window.
@@ -72,6 +73,11 @@ Settings > Privacy & Security > Automation.
   node goes to the page without making the panel key; only a click on the thin
   strip on top (the close button and the handle to drag it by) does, so ⌘W and
   ⌘Q reach it.
+- **Page options**: the look and Show Subagents are kept in UserDefaults and
+  sent to the viewer (`window.flowctl.setLook(look)`,
+  `window.flowctl.setShowSubagents(show)`) on every page load, before the
+  sessions are pushed again. A viewer without one of them keeps drawing as it
+  does, and the log says so (`... not applied: the viewer has no ... yet`).
 - **Hover**: WebKit ignores mouse moves while its app is inactive, and the
   overlay's always is. An always-on tracking area relays each move to a small
   script the overlay adds to the page, which raises the `mouseover`/`mouseout`
