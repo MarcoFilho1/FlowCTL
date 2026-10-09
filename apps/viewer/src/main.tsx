@@ -37,6 +37,9 @@ if (params.get("sound") === "off") store.setSound(false);
 const sounds = params.get("sounds");
 if (sounds === "smooth" || sounds === "pixel") store.setSoundStyle(sounds);
 
+// ?dream=now starts the idle animation at once (demos, screenshots).
+const dreamAfter = params.get("dream") === "now" ? 0 : undefined;
+
 // ?subagents=hide leaves subagents out of the graph.
 if (params.get("subagents") === "hide") store.setShowSubagents(false);
 
@@ -47,7 +50,7 @@ const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <App store={store} {...(replays ? { replays } : {})} {...(startAt !== undefined ? { startAt } : {})} />
+      <App store={store} {...(replays ? { replays } : {})} {...(startAt !== undefined ? { startAt } : {})} {...(dreamAfter !== undefined ? { dreamAfter } : {})} />
     </StrictMode>
   );
 }
