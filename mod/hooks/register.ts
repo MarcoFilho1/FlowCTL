@@ -3,6 +3,7 @@ import { apply, FLOWPLAN_TOOL, initialState, type GraphState } from "../graph/re
 import { snapshot } from "../graph/snapshot.ts";
 import type { GraphEvent, Layout, Snapshot, TerminalInfo } from "../graph/types.ts";
 import { alerts, describeRequest, FLOWPLAN_SPEC, nudgeText, statusLine, summarize } from "../live/present.ts";
+import { rebuildEvents } from "../live/rebuild.ts";
 import { omitKeys, Recording, trim } from "../recorder/recording.ts";
 
 // The live mod: every hook below observes one engine event, passes it on
@@ -60,7 +61,10 @@ interface Settings {
 let settings: Settings = { errorThreshold: 3, nudge: false, autoOpenOverlay: true, recordEvents: false };
 let graph: GraphState = initialState();
 let flowctlDir: string | undefined;
-let seq = 0;
+// Readers drop a snapshot whose seq is not above the last one, and a reload
+// of this module starts its variables over: counting from the clock keeps
+// seq growing across reloads.
+let seq = Date.now();
 let lastSnapshot: Snapshot | undefined;
 let lastLayout: Layout | undefined;
 let publishScheduled = false;
@@ -165,6 +169,31 @@ async function findTerminal($: EngineInterface): Promise<TerminalInfo> {
   };
 }
 
+/**
+ * Replays the plan the transcript already holds: after a reload of the mod
+ * (its memory starts over) or when a session is resumed, the graph would
+ * otherwise be empty until the agent touched its plan again.
+ */
+async function rebuildFromTranscript($: EngineInterface): Promise<void> {
+  const messages = await $.session.messages();
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return;
+  }
+  const agents = await $.agent.list().catch(() => []);
+  const events = rebuildEvents(messages, { flowPlanTool: FLOWPLAN_TOOL, agents, at: Date.now() });
+  if (events.length === 0) {
+    return;
+  }
+  const { sessionId, cwd } = graph;
+  graph = initialState({ errorThreshold: settings.errorThreshold });
+  graph.sessionId = sessionId;
+  graph.cwd = cwd;
+  for (const event of events) {
+    apply(graph, event);
+  }
+  schedulePublish($);
+}
+
 /** Opens the overlay app when it is installed and not already listening. */
 async function openOverlay($: EngineInterface): Promise<void> {
   if (flowctlDir === undefined) {
@@ -247,6 +276,7 @@ export const register: Register = (on, options) => {
       terminal = await findTerminal($).catch(() => undefined);
       observe($, "session.start", { input: { cwd: e.cwd } });
       await choosePlanTool($).catch(() => undefined);
+      await rebuildFromTranscript($).catch(() => undefined);
       if (settings.autoOpenOverlay) {
         void openOverlay($).catch(() => undefined);
       }
@@ -348,6 +378,9 @@ export const register: Register = (on, options) => {
     }
     const fields = omitKeys(e, CLASSIC_DROPPED) as Record<string, unknown>;
     observe($, `classic.${String(fields["hook_event_name"])}`, { input: trim(fields) });
+    if (fields["hook_event_name"] === "SessionStart" && fields["source"] === "resume") {
+      await rebuildFromTranscript($).catch(() => undefined);
+    }
     return result;
   });
 };
