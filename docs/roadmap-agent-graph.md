@@ -284,7 +284,7 @@ overlay. Pode começar em paralelo com a Fase 3 assim que o `Snapshot` congelar.
 
 **Pronto quando:** todos os fixtures ficam legíveis e bonitos no navegador, em tema claro e escuro.
 
-### Fase 5: Overlay nativo macOS (7–8 dias)
+### Fase 5: Overlay nativo macOS (7–8 dias) ✅
 **Objetivo:** a janela flutuante, evoluída a partir do spike 1b.
 - [ ] `apps/overlay`: SwiftPM/Xcode, sem ícone no Dock (`LSUIElement`).
 - [ ] `NSPanel`:
@@ -304,6 +304,9 @@ overlay. Pode começar em paralelo com a Fase 3 assim que o `Snapshot` congelar.
 **Pronto quando:** abrindo `claude` em qualquer terminal, o overlay aparece sozinho e acompanha o grafo com menos de 500 ms de atraso.
 
 ### Fase 6: Endurecimento e lançamento do MVP (4 dias)
+- [ ] Overlay usa `window.flowctl.remove(sessionId)` em vez de recarregar a página quando uma aba encerrada expira.
+- [ ] `install-overlay.sh` remove do LaunchServices o registro do build local (`lsregister -u apps/overlay/build/FlowCTL.app`), senão `open -a FlowCTL` pode abrir a cópia de desenvolvimento.
+- [ ] Teste real do hover no overlay com o mouse (o repasse de mouse foi verificado só por contador).
 - [ ] Teste de ponta a ponta manual com as 8 sessões da Fase 1 (checklist em `docs/qa-mvp.md`).
 - [ ] Duas sessões de `claude` ao mesmo tempo = duas abas.
 - [ ] Reload do mod no meio da sessão: reconstrói o estado pelo `TaskList` (sem nós fantasmas).
