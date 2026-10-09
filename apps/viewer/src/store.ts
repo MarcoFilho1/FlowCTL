@@ -81,7 +81,7 @@ export function createSessionStore(): SessionStore {
 
 declare global {
   interface Window {
-    flowctl?: { push(snapshot: unknown): boolean };
+    flowctl?: { push(snapshot: unknown): boolean; remove(sessionId: string): void };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
   }
 }
@@ -99,7 +99,11 @@ export function tellNative(message: NativeMessage, target: Window = window): boo
   return true;
 }
 
-/** The overlay's entry point: the native app calls window.flowctl.push(snapshot). */
+/**
+ * The overlay's entry points: the native app calls window.flowctl.push(snapshot)
+ * for every snapshot, and window.flowctl.remove(sessionId) when an ended
+ * session's tab expires.
+ */
 export function installBridge(store: SessionStore, target: Window = window): void {
-  target.flowctl = { push: (snapshot) => store.push(snapshot) };
+  target.flowctl = { push: (snapshot) => store.push(snapshot), remove: (sessionId) => store.forget(sessionId) };
 }
