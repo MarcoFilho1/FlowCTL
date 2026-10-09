@@ -100,9 +100,18 @@ Settings > Privacy & Security > Automation.
   is not newer than its session's is dropped. Only one overlay runs: a second
   one finds the first answering `/health` and quits.
 - **Sessions**: on launch it shows the snapshots in `~/.flowctl/sessions`
-  that are neither ended nor older than a day, and deletes those (again every
-  hour). An ended session's tab closes 30 s after it ended, through
-  `window.flowctl.remove(sessionId)` (a page without it is reloaded instead).
+  that are neither ended, nor from a process that is gone, nor older than a
+  day, and deletes those (again every hour). An ended session's tab closes
+  30 s after it ended, through `window.flowctl.remove(sessionId)` (a page
+  without it is reloaded instead).
+- **Liveness**: a snapshot names its Claude Code process (`terminal.pid`). The
+  overlay checks it on launch and every five seconds (`kill(pid, 0)`): when the
+  process is gone (ESRCH) the session is ended, its tab leaves like an ended
+  one's, and its file is deleted. A snapshot without a pid (older ones) counts
+  as working or waiting only while it was written in the last 30 minutes; after
+  that it is neither active nor waiting, so it neither lights the icon nor
+  keeps the panel from hiding when idle.
+- **Icon**: the `!` lights only for a live session that is waiting on you.
 - **Click on a node** (`postMessage({ type: "focus", sessionId, nodeId })`):
   brings that session's terminal forward from the snapshot's `terminal`
   field. Terminal.app and iTerm2 get the session's own tab selected by

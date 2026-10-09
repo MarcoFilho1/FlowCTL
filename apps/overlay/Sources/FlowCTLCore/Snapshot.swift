@@ -19,13 +19,17 @@ public struct SnapshotInfo: Equatable {
     /// Milliseconds since 1970, as the mod writes it.
     public let updatedAt: Double
     public let nodeCount: Int
+    /// The Claude Code process of the session (`terminal.pid`); nil for
+    /// snapshots written before the mod sent it.
+    public let pid: Int32?
 
-    public init(sessionId: String, seq: Int, state: SessionState, updatedAt: Double, nodeCount: Int) {
+    public init(sessionId: String, seq: Int, state: SessionState, updatedAt: Double, nodeCount: Int, pid: Int32? = nil) {
         self.sessionId = sessionId
         self.seq = seq
         self.state = state
         self.updatedAt = updatedAt
         self.nodeCount = nodeCount
+        self.pid = pid
     }
 }
 
@@ -57,6 +61,8 @@ public enum Snapshot {
         guard let nodes = object["nodes"] as? [Any] else { return .failure(.missingField("nodes")) }
         guard object["layout"] is [String: Any] else { return .failure(.missingField("layout")) }
         let updatedAt = (object["updatedAt"] as? NSNumber)?.doubleValue ?? 0
-        return .success(SnapshotInfo(sessionId: sessionId, seq: seq.intValue, state: state, updatedAt: updatedAt, nodeCount: nodes.count))
+        let terminal = object["terminal"] as? [String: Any]
+        let pid = (terminal?["pid"] as? NSNumber).flatMap { $0.int32Value > 0 ? $0.int32Value : nil }
+        return .success(SnapshotInfo(sessionId: sessionId, seq: seq.intValue, state: state, updatedAt: updatedAt, nodeCount: nodes.count, pid: pid))
     }
 }
