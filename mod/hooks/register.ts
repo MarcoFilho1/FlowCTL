@@ -28,6 +28,8 @@ const FLUSH_DELAY_MS = 500;
 type Entry = Parameters<Recording["add"]>[0];
 
 let recording: Recording | undefined;
+let recordingsRoot: string | undefined;
+let currentSessionId: string | undefined;
 const pending: Entry[] = [];
 let flushScheduled = false;
 let flushing: Promise<void> = Promise.resolve();
@@ -57,9 +59,22 @@ function scheduleFlush($: EngineInterface): void {
   });
 }
 
+// /clear and --resume switch the session id without a new session.start:
+// the classic events carry the new id, and the recording follows it.
+function followSession($: EngineInterface, sessionId: string): void {
+  if (recordingsRoot === undefined || sessionId === currentSessionId) {
+    return;
+  }
+  void flush($);
+  currentSessionId = sessionId;
+  recording = new Recording(`${recordingsRoot}/${sessionId}`);
+}
+
 function flush($: EngineInterface): Promise<void> {
+  // Taken now, so a session switch right after cannot redirect these writes.
+  const writes = recording?.flush() ?? [];
   flushing = flushing.then(async () => {
-    for (const write of recording?.flush() ?? []) {
+    for (const write of writes) {
       await $.fs.write(write.file, write.text).catch(() => undefined);
     }
   });
@@ -72,7 +87,9 @@ export const register: Register = (on) => {
     try {
       const home = await $.env.get("HOME");
       const sessionId = await $.session.id();
-      recording ??= new Recording(`${home}/.flowctl/recordings/${sessionId}`);
+      recordingsRoot = `${home}/.flowctl/recordings`;
+      currentSessionId ??= sessionId;
+      recording ??= new Recording(`${recordingsRoot}/${currentSessionId}`);
       for (const entry of pending.splice(0)) {
         recording.add(entry);
       }
@@ -116,7 +133,9 @@ export const register: Register = (on) => {
     const result = await next(e);
     const outcome = { isError: result.isError, deny: result.deny };
     if (GRAPH_TOOLS.has(e.tool)) {
-      const { tool: _tool, agentId: _agentId, ...input } = e;
+      // An Agent call's prompt is the subagent's brief: code and context the
+      // graph does not need. Its description names the node.
+      const { tool: _tool, agentId: _agentId, prompt: _prompt, ...input } = e as typeof e & { prompt?: unknown };
       record($, "tool.call", {
         agentId: e.agentId,
         input: { tool: e.tool, ...(trim(input) as object) },
@@ -157,6 +176,9 @@ export const register: Register = (on) => {
       return result;
     }
     const fields: Record<string, unknown> = { ...(e as Record<string, unknown>) };
+    if (typeof fields["session_id"] === "string") {
+      followSession($, fields["session_id"]);
+    }
     for (const key of CLASSIC_DROPPED) {
       delete fields[key];
     }
