@@ -87,6 +87,13 @@ Settings > Privacy & Security > Automation.
   drag the nearest screen corner. Size, anchor and settings live in
   UserDefaults (`dev.flowctl.overlay`). The viewer pans and zooms the graph
   inside it.
+- **Pinch and ⌘/⌃ + scroll** (zoom in the overview): the trackpad's pinch is
+  `magnify(with:)` on the page view, which passes it on as `gesturestart`,
+  `gesturechange` (the running scale) and `gestureend` events, so the viewer's
+  pinch works with the app inactive. Ctrl- or ⌘-scroll reaches the page as a
+  wheel event with the modifier, which the viewer zooms on. Tested with a
+  simulated pinch (no trackpad gesture can be injected here); a real pinch is
+  unverified.
 - **Drag and scroll**: pressing and dragging in the graph, and two-finger or
   wheel scrolling, reach the page as WebKit's own pointer and wheel events
   even while the app is inactive, and never make the panel key. The page
