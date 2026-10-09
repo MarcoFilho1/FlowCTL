@@ -11,6 +11,8 @@
       "id": "agent:a457c56c27db61ac6",
       "kind": "agent",
       "title": "Revisar módulo cart",
+      "startedAt": 1791512401309,
+      "finishedAt": 1791512453397,
       "status": "done",
       "agentId": "a457c56c27db61ac6",
       "blockedBy": []
@@ -19,6 +21,8 @@
       "id": "agent:a3d0e66e18b902e47",
       "kind": "agent",
       "title": "Revisar módulo user",
+      "startedAt": 1791512401312,
+      "finishedAt": 1791512449231,
       "status": "done",
       "agentId": "a3d0e66e18b902e47",
       "blockedBy": []
@@ -27,6 +31,8 @@
       "id": "agent:aa810dc38ffb6f847",
       "kind": "agent",
       "title": "Revisar módulo report",
+      "startedAt": 1791512401314,
+      "finishedAt": 1791512454896,
       "status": "done",
       "agentId": "aa810dc38ffb6f847",
       "blockedBy": []

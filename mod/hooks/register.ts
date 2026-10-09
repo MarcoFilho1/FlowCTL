@@ -1,8 +1,8 @@
 import type { EngineInterface, PluginOptions, Register, ToolCallResult } from "claude-code";
 import { apply, FLOWPLAN_TOOL, initialState, type GraphState } from "../graph/reduce.ts";
 import { snapshot } from "../graph/snapshot.ts";
-import type { GraphEvent, Layout, Snapshot } from "../graph/types.ts";
-import { alerts, FLOWPLAN_SPEC, nudgeText, statusLine } from "../live/present.ts";
+import type { GraphEvent, Layout, Snapshot, TerminalInfo } from "../graph/types.ts";
+import { alerts, describeRequest, FLOWPLAN_SPEC, nudgeText, statusLine, summarize } from "../live/present.ts";
 import { omitKeys, Recording, trim } from "../recorder/recording.ts";
 
 // The live mod: every hook below observes one engine event, passes it on
@@ -65,6 +65,7 @@ let lastSnapshot: Snapshot | undefined;
 let lastLayout: Layout | undefined;
 let publishScheduled = false;
 let planTool = "TaskCreate";
+let terminal: TerminalInfo | undefined;
 
 // Recorder (opt-in): the same events, kept as fixtures-to-be.
 let recording: Recording | undefined;
@@ -110,7 +111,12 @@ function schedulePublish($: EngineInterface): void {
 function publish($: EngineInterface): void {
   try {
     seq += 1;
-    const next = snapshot(graph, { seq, now: Date.now(), ...(lastLayout ? { previous: lastLayout } : {}) });
+    const next = snapshot(graph, {
+      seq,
+      now: Date.now(),
+      ...(lastLayout ? { previous: lastLayout } : {}),
+      ...(terminal ? { terminal } : {})
+    });
     lastLayout = next.layout;
     for (const line of alerts(lastSnapshot, next)) {
       $.ui.toast(line);
@@ -128,6 +134,35 @@ function publish($: EngineInterface): void {
   } catch {
     // The next event publishes again.
   }
+}
+
+/**
+ * Where this session runs: the terminal app, its tty and its own ids, so the
+ * overlay can bring this terminal forward when a node is clicked.
+ */
+async function findTerminal($: EngineInterface): Promise<TerminalInfo> {
+  // $.env.get takes literal names, so the variables the mod reads are listed.
+  const read = (value: string | undefined) => (value === undefined || value === "" ? undefined : value);
+  const ids: Record<string, string> = {};
+  const iterm = read(await $.env.get("ITERM_SESSION_ID").catch(() => undefined));
+  const apple = read(await $.env.get("TERM_SESSION_ID").catch(() => undefined));
+  const maestri = read(await $.env.get("MAESTRI_TERMINAL_ID").catch(() => undefined));
+  if (iterm !== undefined) ids["ITERM_SESSION_ID"] = iterm;
+  if (apple !== undefined) ids["TERM_SESSION_ID"] = apple;
+  if (maestri !== undefined) ids["MAESTRI_TERMINAL_ID"] = maestri;
+  const app = read(await $.env.get("__CFBundleIdentifier").catch(() => undefined));
+  const program = read(await $.env.get("TERM_PROGRAM").catch(() => undefined));
+  // The shell's parent is this Claude Code process, whose tty is the session's.
+  const tty = await $.process
+    .run(["sh", "-c", "ps -o tty= -p $PPID"])
+    .then((run) => run.stdout.trim())
+    .catch(() => "");
+  return {
+    ...(app !== undefined ? { app } : {}),
+    ...(program !== undefined ? { program } : {}),
+    ...(tty !== "" && tty !== "??" ? { tty } : {}),
+    ...(Object.keys(ids).length > 0 ? { ids } : {})
+  };
 }
 
 /** Opens the overlay app when it is installed and not already listening. */
@@ -204,6 +239,7 @@ export const register: Register = (on, options) => {
     try {
       flowctlDir = `${await $.env.get("HOME")}/.flowctl`;
       graph.sessionId ??= await $.session.id();
+      terminal = await findTerminal($).catch(() => undefined);
       observe($, "session.start", { input: { cwd: e.cwd } });
       await choosePlanTool($).catch(() => undefined);
       if (settings.autoOpenOverlay) {
@@ -245,11 +281,12 @@ export const register: Register = (on, options) => {
 
   on("turn.complete", async ($, e, next) => {
     const result = await next(e);
-    const { answer: _answer, ...fields } = e;
+    const { answer, ...fields } = e;
     const agents = await $.agent.list().catch(() => []);
+    const summary = summarize(answer);
     observe($, "turn.complete", {
       ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
-      input: trim(fields),
+      input: { ...(trim(fields) as object), ...(summary !== undefined ? { summary } : {}) },
       result: { agents: agents.map(({ id, status, parentId, description, type }) => ({ id, status, parentId, description, type })) }
     });
     return result;
@@ -280,9 +317,11 @@ export const register: Register = (on, options) => {
 
   on("tool.check", async ($, e, next) => {
     const result = await next(e);
+    // Why it asks, in words, only when it asks: the hover card shows it.
+    const reason = result.decision === "ask" ? describeRequest(e.tool, e.input) : undefined;
     observe($, "tool.check", {
       ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
-      input: { tool: e.tool, tool_use_id: e.tool_use_id, ceiling: e.ceiling },
+      input: { tool: e.tool, tool_use_id: e.tool_use_id, ceiling: e.ceiling, ...(reason !== undefined ? { reason } : {}) },
       result: { decision: result.decision, reason: result.reason, rule: result.rule }
     });
     return result;

@@ -28,6 +28,9 @@ interface PlanEntry {
   kind: "task" | "plan";
   title: string;
   activeForm?: string;
+  description?: string;
+  startedT?: number;
+  finishedT?: number;
   base: BaseStatus;
   agentId?: string;
   blockedBy: string[];
@@ -42,6 +45,9 @@ interface AgentEntry {
   id: string;
   agentId: string;
   title: string;
+  summary?: string;
+  startedT: number;
+  finishedT?: number;
   state: "running" | "done" | "failed";
   parent?: string;
   attention?: Attention;
@@ -59,9 +65,9 @@ export interface GraphState {
   entries: Map<string, PlanEntry>;
   agents: Map<string, AgentEntry>;
   loops: Map<string, LoopState>;
-  /** The loop of the last permission check that asked, per tool name. */
-  askedBy: Map<string, string>;
-  turn: { n: number; running: boolean; attention?: Attention };
+  /** The loop (and why) of the last permission check that asked, per tool name. */
+  askedBy: Map<string, { loop: string; reason?: string }>;
+  turn: { n: number; running: boolean; attention?: Attention; startedT?: number; finishedT?: number; summary?: string };
   idlePrompt: boolean;
   ended: boolean;
   warnings: string[];
@@ -113,7 +119,7 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       break;
     case "turn.start":
       if (event.agentId === undefined) {
-        state.turn = { n: state.turn.n + 1, running: true };
+        state.turn = { n: state.turn.n + 1, running: true, startedT: event.t };
         state.idlePrompt = false;
       }
       break;
@@ -121,11 +127,12 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       onTurnComplete(state, event, input, result);
       break;
     case "agent.spawn":
-      onAgentSpawn(state, input, result);
+      onAgentSpawn(state, event, input, result);
       break;
     case "tool.check":
       if (result["decision"] === "ask") {
-        state.askedBy.set(text(input["tool"]) ?? "", event.agentId ?? MAIN);
+        const reason = text(input["reason"]);
+        state.askedBy.set(text(input["tool"]) ?? "", { loop: event.agentId ?? MAIN, ...(reason !== undefined ? { reason } : {}) });
       }
       break;
     case "classic.PermissionRequest":
@@ -168,6 +175,9 @@ export function nodes(state: GraphState): GraphNode[] {
       kind: "task",
       title: entry.title,
       ...(entry.activeForm !== undefined ? { activeForm: entry.activeForm } : {}),
+      ...(entry.description !== undefined ? { description: entry.description } : {}),
+      ...(entry.startedT !== undefined ? { startedAt: entry.startedT } : {}),
+      ...(entry.finishedT !== undefined ? { finishedAt: entry.finishedT } : {}),
       status: displayStatus(entry.base, entry.attention, entry.paused),
       ...(entry.attention !== undefined ? { attention: entry.attention } : {}),
       ...(entry.agentId !== undefined ? { agentId: entry.agentId } : {}),
@@ -182,6 +192,9 @@ export function nodes(state: GraphState): GraphNode[] {
       id: agent.id,
       kind: "agent",
       title: agent.title,
+      ...(agent.summary !== undefined ? { summary: agent.summary } : {}),
+      startedAt: agent.startedT,
+      ...(agent.finishedT !== undefined ? { finishedAt: agent.finishedT } : {}),
       status: agent.state === "failed" ? "error" : displayStatus(base, attention),
       ...(attention !== undefined ? { attention } : {}),
       agentId: agent.agentId,
@@ -194,6 +207,9 @@ export function nodes(state: GraphState): GraphNode[] {
       id: `turn:${state.turn.n}`,
       kind: "turn",
       title: "Current turn",
+      ...(state.turn.summary !== undefined ? { summary: state.turn.summary } : {}),
+      ...(state.turn.startedT !== undefined ? { startedAt: state.turn.startedT } : {}),
+      ...(state.turn.finishedT !== undefined ? { finishedAt: state.turn.finishedT } : {}),
       // A turn that ended on errors stays red until the next turn starts.
       status:
         state.turn.attention?.kind === "error"
@@ -285,11 +301,13 @@ function onTaskCreate(state: GraphState, event: GraphEvent, input: Record<string
   state.planSource = "tasks";
   const id = `task:${taskId}`;
   const activeForm = text(input["activeForm"]);
+  const description = text(input["description"]);
   state.entries.set(id, {
     id,
     kind: "task",
     title: text(task["subject"]) ?? text(input["subject"]) ?? id,
     ...(activeForm !== undefined ? { activeForm } : {}),
+    ...(description !== undefined ? { description } : {}),
     base: "pending",
     ...(event.agentId !== undefined ? { agentId: event.agentId } : {}),
     blockedBy: [],
@@ -318,10 +336,11 @@ function onTaskUpdate(state: GraphState, event: GraphEvent, input: Record<string
     return;
   }
   if (status === "pending" || status === "in_progress" || status === "completed") {
-    setBase(state, entry, status);
+    setBase(state, entry, status, event.t);
   }
   entry.title = text(input["subject"]) ?? entry.title;
   entry.activeForm = text(input["activeForm"]) ?? entry.activeForm;
+  entry.description = text(input["description"]) ?? entry.description;
   for (const blocker of strings(input["addBlockedBy"])) {
     addEdge(entry, `task:${blocker}`);
   }
@@ -370,7 +389,7 @@ function upsertTask(state: GraphState, event: GraphEvent, task: Record<string, u
   entry.title = text(task["subject"]) ?? entry.title;
   const status = task["status"];
   if (status === "pending" || status === "in_progress" || status === "completed") {
-    setBase(state, entry, status);
+    setBase(state, entry, status, event.t);
   }
   if (Array.isArray(task["blockedBy"])) {
     entry.blockedBy = strings(task["blockedBy"]).map((blocker) => `task:${blocker}`);
@@ -411,9 +430,10 @@ function onFlowPlan(state: GraphState, event: GraphEvent, input: Record<string, 
       state.entries.set(id, entry);
     }
     entry.title = text(step["title"]) ?? entry.title;
+    entry.description = text(step["description"]) ?? entry.description;
     const status = step["status"];
     if (status === "pending" || status === "in_progress" || status === "completed") {
-      setBase(state, entry, status);
+      setBase(state, entry, status, event.t);
     }
     if (Array.isArray(step["blockedBy"])) {
       entry.blockedBy = strings(step["blockedBy"]).map((blocker) => `plan:${blocker}`);
@@ -421,7 +441,7 @@ function onFlowPlan(state: GraphState, event: GraphEvent, input: Record<string, 
   }
 }
 
-function onAgentSpawn(state: GraphState, input: Record<string, unknown>, result: Record<string, unknown>): void {
+function onAgentSpawn(state: GraphState, event: GraphEvent, input: Record<string, unknown>, result: Record<string, unknown>): void {
   const agentId = text(result["agentId"]);
   if (agentId === undefined) {
     return;
@@ -433,6 +453,7 @@ function onAgentSpawn(state: GraphState, input: Record<string, unknown>, result:
     agentId,
     title,
     state: "running",
+    startedT: event.t,
     ...(parent !== undefined ? { parent } : {}),
     createdAt: state.clock
   });
@@ -452,23 +473,34 @@ function onTurnComplete(
       if (agent === undefined) {
         continue;
       }
-      if (info["status"] === "completed") {
+      if (info["status"] === "completed" && agent.state === "running") {
         agent.state = "done";
-      } else if (info["status"] === "failed" || info["status"] === "killed") {
+        agent.finishedT = event.t;
+      } else if ((info["status"] === "failed" || info["status"] === "killed") && agent.state === "running") {
         agent.state = "failed";
+        agent.finishedT = event.t;
       }
     }
   }
 
+  const summary = text(input["summary"]);
   if (agentId !== undefined) {
     const agent = state.agents.get(agentId);
-    if (agent !== undefined && agent.state === "running") {
-      agent.state = "done";
+    if (agent !== undefined) {
+      if (agent.state === "running") {
+        agent.state = "done";
+        agent.finishedT = event.t;
+      }
+      agent.summary = summary ?? agent.summary;
     }
     return;
   }
 
   state.turn.running = false;
+  state.turn.finishedT = event.t;
+  if (summary !== undefined) {
+    state.turn.summary = summary;
+  }
   const reason = input["reason"];
   if (reason === "aborted") {
     // Esc: what was running stops, it did not fail.
@@ -487,8 +519,13 @@ function onTurnComplete(
 
 function onPermissionRequest(state: GraphState, input: Record<string, unknown>, t: number): void {
   const tool = text(input["tool_name"]) ?? "tool";
-  const loop = state.askedBy.get(tool) ?? MAIN;
-  setAttention(state, loop, { kind: tool === "AskUserQuestion" ? "question" : "permission", detail: tool, since: t });
+  const asked = state.askedBy.get(tool);
+  setAttention(state, asked?.loop ?? MAIN, {
+    kind: tool === "AskUserQuestion" ? "question" : "permission",
+    detail: tool,
+    ...(asked?.reason !== undefined ? { reason: asked.reason } : {}),
+    since: t
+  });
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -538,9 +575,13 @@ function clearAttention(state: GraphState, match: (attention: Attention) => bool
   }
 }
 
-function setBase(state: GraphState, entry: PlanEntry, base: BaseStatus): void {
+function setBase(state: GraphState, entry: PlanEntry, base: BaseStatus, t: number): void {
   if (base === "in_progress" && entry.base !== "in_progress") {
     entry.startedAt = state.clock;
+    entry.startedT = t;
+  }
+  if (base === "completed" && entry.base !== "completed") {
+    entry.finishedT = t;
   }
   entry.base = base;
   entry.paused = false;

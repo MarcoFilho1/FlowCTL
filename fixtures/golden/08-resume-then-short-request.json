@@ -11,6 +11,8 @@
       "id": "turn:1",
       "kind": "turn",
       "title": "Current turn",
+      "startedAt": 1791512943343,
+      "finishedAt": 1791512947376,
       "status": "done",
       "blockedBy": []
     }

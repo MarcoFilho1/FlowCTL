@@ -33,7 +33,9 @@ const dropped = new Set([
   "tool_input",
   "tool_response",
   "prompt",
-  "delta"
+  "delta",
+  "summary",
+  "reason"
 ]);
 
 function scrub(value) {

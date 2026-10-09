@@ -3,13 +3,14 @@
 
 import { layout } from "./layout.ts";
 import { nodes, sessionState, type GraphState } from "./reduce.ts";
-import { SNAPSHOT_SCHEMA, type Layout, type Snapshot } from "./types.ts";
+import { SNAPSHOT_SCHEMA, type Layout, type Snapshot, type TerminalInfo } from "./types.ts";
 
 export interface SnapshotMeta {
   seq: number;
   now: number;
   /** The previous snapshot's layout, so nodes keep their places. */
   previous?: Layout;
+  terminal?: TerminalInfo;
 }
 
 export function snapshot(state: GraphState, meta: SnapshotMeta): Snapshot {
@@ -26,6 +27,7 @@ export function snapshot(state: GraphState, meta: SnapshotMeta): Snapshot {
     cwd: state.cwd ?? "",
     updatedAt: meta.now,
     sessionState: sessionState(state),
+    ...(meta.terminal !== undefined ? { terminal: meta.terminal } : {}),
     planSource: state.planSource,
     nodes: shown,
     layout: placed.layout,
