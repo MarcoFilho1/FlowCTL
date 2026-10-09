@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { GraphNode } from "../../../mod/graph/types.ts";
 import { App } from "./App.tsx";
+import { EFFECT_MS } from "./GraphView.tsx";
 import type { Replay } from "./DevControls.tsx";
 import { agent, golden, snapshotOf, task } from "./goldens.ts";
 import { loadFixture, replaySnapshots } from "./player.ts";
@@ -296,5 +297,52 @@ describe("looks", () => {
     expect(node(container, "a").querySelector("circle.dot")).not.toBeNull();
     expect(node(container, "a").querySelector(".pulse")).not.toBeNull();
     expect(container.querySelector("svg")?.getAttribute("shape-rendering")).toBeNull();
+  });
+});
+
+describe("transitions and the camera", () => {
+  const steps = (a: string, b: string, state: "working" | "idle" = "working", seq = 1) =>
+    snapshotOf([task("a", { status: a as never }), task("b", { status: b as never, blockedBy: ["a"] })], {
+      seq,
+      sessionState: state,
+      layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 } }
+    });
+
+  test("a finished step bursts and hands off to the next, then the effects clear", () => {
+    vi.useFakeTimers();
+    try {
+      const { container, store } = mount(steps("running", "pending"));
+      expect(container.querySelector(".burst-px")).toBeNull();
+      act(() => {
+        store.push(steps("done", "running", "working", 2));
+      });
+      expect(container.querySelector(".burst-px")).not.toBeNull();
+      expect(container.querySelectorAll(".packet")).toHaveLength(1);
+      expect(container.querySelector(".packet animateMotion")?.getAttribute("path")).toMatch(/^M /);
+      act(() => {
+        vi.advanceTimersByTime(EFFECT_MS + 10);
+      });
+      expect(container.querySelector(".burst-px")).toBeNull();
+      expect(container.querySelector(".packet")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("while the session works the camera follows; at rest it shows the whole graph", () => {
+    const wide = (state: "working" | "idle", seq: number) =>
+      snapshotOf(
+        Array.from({ length: 12 }, (_, i) => task(`t${i}`, { blockedBy: i > 0 ? [`t${i - 1}`] : [], status: i < 6 ? "done" : i === 6 ? "running" : "pending" })),
+        { seq, sessionState: state, layout: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`t${i}`, { rank: i, order: 0 }])) }
+      );
+    const { container, store } = mount(wide("working", 1));
+    const canvas = container.querySelector(".canvas")!;
+    expect(canvas.getAttribute("data-mode")).toBe("follow");
+    expect(canvas.getAttribute("data-scale")).toBe("1");
+    act(() => {
+      store.push(wide("idle", 2));
+    });
+    expect(canvas.getAttribute("data-mode")).toBe("overview");
+    expect(Number(canvas.getAttribute("data-scale"))).toBeLessThan(1);
   });
 });

@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NodeStatus, Snapshot } from "../../../mod/graph/types.ts";
-import { buildScene, centerOn, circleBox, clampPan, focusNode, linkPath, type Box, type NodeShape } from "./geometry.ts";
+import { buildScene, cameraFor, centerOn, circleBox, clampPan, linkPath, type Box, type Camera, type NodeShape } from "./geometry.ts";
 import { hoverCard } from "./hover.ts";
 import { BANG, discSprite, PX, ringPixels, snap, steppedPath } from "./pixel.ts";
 import { tellNative, type Look } from "./store.ts";
+import { statusesOf, transitions } from "./transitions.ts";
 import { useTween } from "./useTween.ts";
+
+/** How long a finish burst and a handoff packet stay on screen. */
+export const EFFECT_MS = 1000;
+
+interface Effect {
+  key: string;
+  kind: "burst" | "packet";
+  from: string;
+  to?: string;
+}
 
 const FALLBACK_VIEWPORT = { width: 360, height: 200 };
 /** A press that moves less than this is a click, not a drag. */
@@ -40,8 +51,8 @@ function useViewport(): [React.RefObject<HTMLDivElement | null>, Size] {
   return [ref, size];
 }
 
-/** Eases the drawn pan toward `target`; follows it exactly while dragging or when motion is reduced. */
-function useGlide(target: Point, instant: boolean): Point {
+/** Eases the drawn camera toward `target`; follows it exactly while dragging or when motion is reduced. */
+function useGlide(target: Camera, instant: boolean): Camera {
   const [shown, setShown] = useState(target);
   const shownRef = useRef(shown);
   shownRef.current = shown;
@@ -57,14 +68,18 @@ function useGlide(target: Point, instant: boolean): Point {
     let frame = 0;
     const step = () => {
       const at = shownRef.current;
-      const next = { x: at.x + (target.x - at.x) * 0.18, y: at.y + (target.y - at.y) * 0.18 };
-      const settled = Math.abs(next.x - target.x) < 0.5 && Math.abs(next.y - target.y) < 0.5;
+      const next = {
+        x: at.x + (target.x - at.x) * 0.12,
+        y: at.y + (target.y - at.y) * 0.12,
+        s: at.s + (target.s - at.s) * 0.12
+      };
+      const settled = Math.abs(next.x - target.x) < 0.5 && Math.abs(next.y - target.y) < 0.5 && Math.abs(next.s - target.s) < 0.005;
       setShown(settled ? target : next);
       if (!settled) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [target.x, target.y, instant]);
+  }, [target.x, target.y, target.s, instant]);
   return shown;
 }
 
@@ -72,7 +87,9 @@ function useGlide(target: Point, instant: boolean): Point {
  * The graph in a fixed window: nodes only, flowing left to right. Drag (or
  * scroll) to move around it; a click on a node brings its session forward;
  * hovering a node shows what it is about. Until the person moves the view,
- * it follows the node that matters (needs you, failing, running).
+ * the camera follows the current step while the session works and pulls back
+ * to the whole graph when it rests. A finished step bursts and hands off to
+ * the step it unblocked with a packet along the edge.
  */
 export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; look?: Look }) {
   const pixel = look === "pixel";
@@ -82,24 +99,37 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   const boxes = useTween(targets);
 
   const [hovered, setHovered] = useState<string | null>(null);
-  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  const [cam, setCam] = useState<Camera>({ x: 0, y: 0, s: 1 });
   const [dragging, setDragging] = useState(false);
-  const press = useRef<{ start: Point; pan: Point; moved: boolean; node: string | null } | null>(null);
+  const press = useRef<{ start: Point; cam: Camera; moved: boolean; node: string | null } | null>(null);
   const lastManual = useRef(-Infinity);
 
-  const focus = focusNode(scene);
+  // Working: follow the current step. Resting: the whole graph ("idle" mode).
+  const mode = snapshot.sessionState === "working" || snapshot.sessionState === "waiting_you" ? "follow" : "overview";
+  const auto = useMemo(() => cameraFor(scene, viewport, mode, pixel), [scene, viewport, mode, pixel]);
   useEffect(() => {
     if (performance.now() - lastManual.current < FOLLOW_PAUSE_MS) return;
-    const fits = scene.width <= viewport.width && scene.height <= viewport.height;
-    const wanted = fits
-      ? { x: (viewport.width - scene.width) / 2, y: (viewport.height - scene.height) / 2 }
-      : focus
-        ? centerOn(focus, viewport)
-        : { x: 0, y: 0 };
-    setPan(clampPan(wanted, scene, viewport));
-  }, [scene, viewport, focus?.id, focus?.node.status]);
+    setCam(auto);
+  }, [auto.x, auto.y, auto.s]);
 
-  const drawn = useGlide(pan, dragging);
+  const drawn = useGlide(cam, dragging);
+
+  // Transition effects: compare each snapshot with the one before.
+  const [effects, setEffects] = useState<Effect[]>([]);
+  const previous = useRef<ReturnType<typeof statusesOf> | undefined>(undefined);
+  useEffect(() => {
+    const change = transitions(previous.current, snapshot);
+    previous.current = statusesOf(snapshot);
+    const born: Effect[] = [
+      ...change.finished.map((id) => ({ key: `burst:${id}:${snapshot.seq}`, kind: "burst" as const, from: id })),
+      ...change.handoffs.map(([from, to]) => ({ key: `packet:${from}->${to}:${snapshot.seq}`, kind: "packet" as const, from, to }))
+    ];
+    if (born.length === 0) return;
+    setEffects((current) => [...current, ...born]);
+    const keys = new Set(born.map((effect) => effect.key));
+    const timer = setTimeout(() => setEffects((current) => current.filter((effect) => !keys.has(effect.key))), EFFECT_MS);
+    return () => clearTimeout(timer);
+  }, [snapshot]);
 
   if (snapshot.nodes.length === 0) {
     return (
@@ -110,15 +140,16 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   }
 
   const shapes = new Map(scene.nodes.map((shape) => [shape.id, shape]));
+  const sized = (s: number) => ({ width: scene.width * s, height: scene.height * s });
   const moveTo = (next: Point) => {
     lastManual.current = performance.now();
-    setPan(clampPan(next, scene, viewport));
+    setCam((current) => ({ ...clampPan(next, sized(current.s), viewport), s: current.s }));
   };
 
   const onPointerDown = (event: React.PointerEvent) => {
     if (event.button !== 0) return;
     const node = (event.target as Element).closest?.("[data-node]")?.getAttribute("data-node") ?? null;
-    press.current = { start: { x: event.clientX, y: event.clientY }, pan, moved: false, node };
+    press.current = { start: { x: event.clientX, y: event.clientY }, cam, moved: false, node };
     try {
       (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
     } catch {
@@ -136,7 +167,7 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
       setDragging(true);
       setHovered(null);
     }
-    moveTo({ x: held.pan.x + dx, y: held.pan.y + dy });
+    moveTo({ x: held.cam.x + dx, y: held.cam.y + dy });
   };
   const onPointerUp = () => {
     const held = press.current;
@@ -147,13 +178,13 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
       tellNative({ type: "focus", sessionId: snapshot.sessionId, nodeId: held.node });
     }
   };
-  const onWheel = (event: React.WheelEvent) => moveTo({ x: pan.x - event.deltaX, y: pan.y - event.deltaY });
+  const onWheel = (event: React.WheelEvent) => moveTo({ x: cam.x - event.deltaX, y: cam.y - event.deltaY });
 
   const hoveredShape = hovered && !dragging ? shapes.get(hovered) : undefined;
   const offscreen = scene.nodes.filter((shape) => {
     if (shape.node.status !== "needs_you" && shape.node.status !== "error") return false;
-    const x = shape.cx + drawn.x;
-    const y = shape.cy + drawn.y;
+    const x = shape.cx * drawn.s + drawn.x;
+    const y = shape.cy * drawn.s + drawn.y;
     return x < 0 || y < 0 || x > viewport.width || y > viewport.height;
   });
 
@@ -167,7 +198,9 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onWheel={onWheel}
-        data-pan={`${Math.round(pan.x)},${Math.round(pan.y)}`}
+        data-pan={`${Math.round(cam.x)},${Math.round(cam.y)}`}
+        data-scale={cam.s}
+        data-mode={mode}
       >
         <svg
           role="img"
@@ -191,7 +224,13 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
               </marker>
             )}
           </defs>
-          <g transform={pixel ? `translate(${snap(drawn.x)} ${snap(drawn.y)})` : `translate(${drawn.x} ${drawn.y})`}>
+          <g
+            transform={
+              pixel
+                ? `translate(${snap(drawn.x)} ${snap(drawn.y)}) scale(${drawn.s})`
+                : `translate(${drawn.x} ${drawn.y}) scale(${drawn.s})`
+            }
+          >
             {/* A faint grid that moves with the graph, so a drag reads as a drag. */}
             <rect className="grid" x={-2000} y={-2000} width={scene.width + 4000} height={scene.height + 4000} fill="url(#dots)" />
             {scene.links.map((link) => {
@@ -218,18 +257,29 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
                 onHover={(on) => setHovered(on ? shape.id : (current) => (current === shape.id ? null : current))}
               />
             ))}
+            {effects.map((effect) => {
+              const from = boxes.get(effect.from);
+              if (!from) return null;
+              if (effect.kind === "burst") return <Burst key={effect.key} box={from} pixel={pixel} />;
+              const to = effect.to !== undefined ? boxes.get(effect.to) : undefined;
+              if (!to) return null;
+              return <Packet key={effect.key} path={pixel ? steppedLink(from, to) : linkPath(from, to, "dependency")} pixel={pixel} />;
+            })}
           </g>
         </svg>
         {offscreen.map((shape) => (
           <Beacon
             key={shape.id}
             shape={shape}
-            pan={drawn}
+            cam={drawn}
             viewport={viewport}
-            onGo={() => moveTo(centerOn(shape, viewport))}
+            onGo={() => {
+              const at = centerOn({ cx: shape.cx * cam.s, cy: shape.cy * cam.s }, viewport);
+              moveTo(at);
+            }}
           />
         ))}
-        {hoveredShape && <Card shape={hoveredShape} snapshot={snapshot} pan={drawn} viewport={viewport} />}
+        {hoveredShape && <Card shape={hoveredShape} snapshot={snapshot} cam={drawn} viewport={viewport} />}
       </div>
     </div>
   );
@@ -311,9 +361,9 @@ function Node({ shape, box, onHover }: { shape: NodeShape; box: Box; onHover: (o
 }
 
 /** A marker on the edge of the view pointing at a node that needs attention out of sight. */
-function Beacon({ shape, pan, viewport, onGo }: { shape: NodeShape; pan: Point; viewport: Size; onGo: () => void }) {
-  const sx = shape.cx + pan.x;
-  const sy = shape.cy + pan.y;
+function Beacon({ shape, cam, viewport, onGo }: { shape: NodeShape; cam: Camera; viewport: Size; onGo: () => void }) {
+  const sx = shape.cx * cam.s + cam.x;
+  const sy = shape.cy * cam.s + cam.y;
   const x = Math.min(Math.max(sx, 10), viewport.width - 10);
   const y = Math.min(Math.max(sy, 10), viewport.height - 10);
   const angle = (Math.atan2(sy - viewport.height / 2, sx - viewport.width / 2) * 180) / Math.PI;
@@ -332,10 +382,10 @@ function Beacon({ shape, pan, viewport, onGo }: { shape: NodeShape; pan: Point; 
   );
 }
 
-function Card({ shape, snapshot, pan, viewport }: { shape: NodeShape; snapshot: Snapshot; pan: Point; viewport: Size }) {
+function Card({ shape, snapshot, cam, viewport }: { shape: NodeShape; snapshot: Snapshot; cam: Camera; viewport: Size }) {
   const card = hoverCard(shape.node, snapshot);
-  const x = shape.cx + pan.x;
-  const y = shape.cy + pan.y;
+  const x = shape.cx * cam.s + cam.x;
+  const y = shape.cy * cam.s + cam.y;
   const width = Math.min(CARD_W, viewport.width - 12);
   // Beside the node, on whichever side has room, kept inside the window.
   const left = x + shape.r + 10 + width <= viewport.width ? x + shape.r + 10 : Math.max(6, x - shape.r - 10 - width);
@@ -348,5 +398,34 @@ function Card({ shape, snapshot, pan, viewport }: { shape: NodeShape; snapshot: 
       <div className="hover-status">{card.status}</div>
       {card.body && <div className="hover-body">{card.body}</div>}
     </div>
+  );
+}
+
+/** A finished step flashes: rings spread out from it, in whole frames for the pixel look. */
+function Burst({ box, pixel }: { box: Box; pixel: boolean }) {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  if (!pixel) return <circle className="burst" cx={cx} cy={cy} r={box.w / 2 + 2} />;
+  const size = Math.round(box.w / PX);
+  const left = snap(cx - (size * PX) / 2);
+  const top = snap(cy - (size * PX) / 2);
+  return (
+    <g className="burst-px" transform={`translate(${left} ${top}) scale(${PX})`}>
+      {[1, 3, 5].map((gap, ring) =>
+        ringPixels(size, gap).map(([x, y], i) => (
+          <rect key={`${ring}:${i}`} x={x} y={y} width={1} height={1} style={{ animationDelay: `${ring * 0.12}s` }} />
+        ))
+      )}
+    </g>
+  );
+}
+
+/** The handoff: a packet travels the edge from the finished step to the next one. */
+function Packet({ path, pixel }: { path: string; pixel: boolean }) {
+  return (
+    <g className={pixel ? "packet packet-px" : "packet"}>
+      {pixel ? <rect x={-2} y={-2} width={4} height={4} /> : <circle r={3} />}
+      <animateMotion dur="0.7s" path={path} fill="freeze" calcMode={pixel ? "discrete" : "spline"} {...(pixel ? { keyPoints: "0;0.2;0.4;0.6;0.8;1", keyTimes: "0;0.2;0.4;0.6;0.8;1" } : { keySplines: "0.4 0 0.2 1", keyTimes: "0;1", keyPoints: "0;1" })} />
+    </g>
   );
 }

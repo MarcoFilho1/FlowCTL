@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { layout } from "../../../mod/graph/layout.ts";
 import type { GraphNode, Snapshot } from "../../../mod/graph/types.ts";
-import { buildScene, centerOn, circleBox, clampPan, focusNode, linkPath, NODE_R, SATELLITE_R, type Box, type Scene } from "./geometry.ts";
+import { buildScene, cameraFor, centerOn, circleBox, clampPan, currentNodes, focusNode, linkPath, NODE_R, SATELLITE_R, type Box, type Scene } from "./geometry.ts";
 import { GOLDENS, agent, golden, snapshotOf, task } from "./goldens.ts";
 
 function overlaps(a: Box, b: Box): boolean {
@@ -133,5 +133,46 @@ describe("the view onto the scene", () => {
 
   test("a graph smaller than the window stays wholly inside it", () => {
     expect(clampPan({ x: -50, y: 500 }, { width: 100, height: 60 }, { width: 360, height: 220 })).toEqual({ x: 0, y: 160 });
+  });
+});
+
+describe("the camera", () => {
+  const view = { width: 360, height: 220 };
+  const chain = (n: number, running: number[]) =>
+    buildScene(laidOut(Array.from({ length: n }, (_, i) => task(`t${i}`, { blockedBy: i > 0 ? [`t${i - 1}`] : [], status: running.includes(i) ? "running" : i < Math.min(...running, n) ? "done" : "pending" }))));
+
+  test("while working it follows the running node at full size", () => {
+    const scene = chain(12, [8]);
+    const cam = cameraFor(scene, view, "follow", true);
+    const t8 = scene.nodes.find((shape) => shape.id === "t8")!;
+    expect(cam.s).toBe(1);
+    expect(t8.cx * cam.s + cam.x).toBeCloseTo(180, 0);
+  });
+
+  test("parallel running steps are framed together", () => {
+    const scene = buildScene(laidOut([task("a", { status: "done" }), task("b", { blockedBy: ["a"], status: "running" }), task("c", { blockedBy: ["a"], status: "running" })]));
+    expect(currentNodes(scene).map((shape) => shape.id)).toEqual(["b", "c"]);
+  });
+
+  test("a node that needs the person takes the camera over running ones", () => {
+    const scene = buildScene(laidOut([task("a", { status: "running" }), task("b", { status: "needs_you" })]));
+    expect(currentNodes(scene).map((shape) => shape.id)).toEqual(["b"]);
+  });
+
+  test("at rest it pulls back to show the whole graph, in quarter steps for pixels", () => {
+    const scene = chain(12, []);
+    const cam = cameraFor(scene, view, "overview", true);
+    expect(cam.s).toBeLessThan(1);
+    expect(cam.s % 0.25).toBe(0);
+    expect(cam.s).toBeGreaterThanOrEqual(0.5);
+    const smooth = cameraFor(scene, view, "overview", false);
+    expect(smooth.s).toBeGreaterThanOrEqual(cam.s);
+  });
+
+  test("a small graph at rest stays at full size, centered", () => {
+    const scene = chain(2, []);
+    const cam = cameraFor(scene, view, "overview", true);
+    expect(cam.s).toBe(1);
+    expect(cam.x).toBeCloseTo((view.width - scene.width) / 2, 5);
   });
 });
