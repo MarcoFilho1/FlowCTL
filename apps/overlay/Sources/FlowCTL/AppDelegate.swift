@@ -87,7 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     /// Deletes ended and day-old snapshot files; returns the plan it followed.
     @discardableResult
     private func cleanUpFiles() -> SessionFiles.Plan {
-        let plan = SessionFiles.plan(SessionFiles.read(directory: paths.sessions), now: Date())
+        let plan = SessionFiles.plan(SessionFiles.read(directory: paths.sessions), now: Date(), isAlive: ProcessLiveness.isAlive)
         for name in plan.delete {
             try? FileManager.default.removeItem(at: paths.sessions.appendingPathComponent(name))
         }
@@ -141,6 +141,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
     private func tick() {
         let now = Date()
+        // A session whose process is gone ends now: its tab leaves as an ended one's does.
+        for id in registry.reconcile(now: now) {
+            log("session \(id) ended: its process is gone")
+        }
         let expired = registry.expireEnded(now: now)
         for id in expired {
             log("closing the ended session tab \(id)")
@@ -218,7 +222,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
     var isPanelVisible: Bool { panel?.isVisible ?? false }
     var activeSessionCount: Int { registry.activeCount(now: Date()) }
-    var isAnySessionWaiting: Bool { registry.isAnyWaiting }
+    /// Only a live session waiting on the person lights the icon.
+    var isAnySessionWaiting: Bool { registry.isAnyWaiting(now: Date()) }
 
     func togglePanel() {
         if isPanelVisible { hidePanel(byUser: true) } else { showPanel() }
@@ -318,9 +323,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             ],
             "sessions": registry.order.map { id -> [String: Any] in
                 let session = registry.sessions[id]
-                return ["id": id, "seq": session?.info.seq ?? 0, "state": session?.info.state.rawValue ?? "?", "nodes": session?.info.nodeCount ?? 0]
+                var row: [String: Any] = ["id": id, "seq": session?.info.seq ?? 0, "state": session?.info.state.rawValue ?? "?", "nodes": session?.info.nodeCount ?? 0]
+                if let session {
+                    row["effective"] = registry.effectiveState(of: session, now: Date()).rawValue
+                }
+                if let pid = session?.info.pid { row["pid"] = Int(pid) }
+                return row
             },
             "activeSessions": activeSessionCount,
+            "waitingIcon": isAnySessionWaiting,
             "anchor": ["corner": anchor.corner.rawValue, "x": Double(anchor.point.x), "y": Double(anchor.point.y)],
             "panelSize": preferences.panelSize.rawValue,
             "look": preferences.look.rawValue,
