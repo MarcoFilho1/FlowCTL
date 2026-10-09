@@ -112,6 +112,11 @@ Settings > Privacy & Security > Automation.
   that it is neither active nor waiting, so it neither lights the icon nor
   keeps the panel from hiding when idle.
 - **Icon**: the `!` lights only for a live session that is waiting on you.
+- **What the viewer is sent**: each session's effective state, not the file's:
+  `ended` when its process is gone, `idle` after 30 min without a pid. The
+  overlay stamps those snapshots with a seq of its own that always rises, so
+  the viewer takes every update. Sent on open, on each new snapshot, and when a
+  session's effective state changes on a tick.
 - **Click on a node** (`postMessage({ type: "focus", sessionId, nodeId })`):
   brings that session's terminal forward from the snapshot's `terminal`
   field. Terminal.app and iTerm2 get the session's own tab selected by
