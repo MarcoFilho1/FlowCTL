@@ -134,7 +134,10 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       state.ended = true;
       break;
     case "prompt.submit":
-      state.request += 1;
+      // Only the person's prompts start a new request. A background agent's
+      // result arrives as a submission too (origin "task-notification"), and
+      // must not split the request it belongs to.
+      if (isPersonPrompt(input["origin"])) state.request += 1;
       clearAttention(state, (attention) => attention.kind !== "error");
       break;
     case "turn.start":
@@ -285,6 +288,13 @@ export function sessionState(state: GraphState): SessionState {
  * request depends on end it.
  */
 /** The steps that end the latest request with a plan: nothing in it depends on them. */
+/** The person's own prompts; recordings from before the origin was kept count as theirs. */
+const PERSON_ORIGINS = new Set(["composer", "bridge", "sdk", "channel"]);
+
+function isPersonPrompt(origin: unknown): boolean {
+  return typeof origin !== "string" || PERSON_ORIGINS.has(origin);
+}
+
 function lastEnds(main: readonly PlanEntry[]): string[] {
   if (main.length === 0) return [];
   const latest = Math.max(...main.map((entry) => entry.request));

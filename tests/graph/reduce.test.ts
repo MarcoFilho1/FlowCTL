@@ -358,3 +358,16 @@ test("a step id reused in a later request is new work, not the old step again", 
   const placed = snapshot(state, { seq: 1, now: 0 });
   assert.deepEqual(placed.warnings, []);
 });
+
+test("a background agent's result is not a new request: its steps stay in the same part of the graph", () => {
+  const state = initialState();
+  const plan = (steps: object[]): GraphEvent => ({ t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps }, result: { result: [] } });
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 50, origin: "composer" } });
+  apply(state, plan([{ id: "review", title: "Review", status: "in_progress" }]));
+  apply(state, { t: 1, event: "prompt.submit", input: { chars: 900, origin: "task-notification" } });
+  apply(state, plan([{ id: "found", title: "Found work", blockedBy: ["review"] }, { id: "more", title: "More work" }]));
+  assert.equal(nodes(state).find((node) => node.id === "plan:more")?.after, undefined);
+  apply(state, { t: 2, event: "prompt.submit", input: { chars: 20, origin: "composer" } });
+  apply(state, plan([{ id: "next", title: "Next request" }]));
+  assert.deepEqual(nodes(state).find((node) => node.id === "plan:next")?.after, ["plan:found", "plan:more"]);
+});
