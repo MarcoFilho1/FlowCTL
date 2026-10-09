@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { DevControls, type Replay } from "./DevControls.tsx";
 import { GraphView } from "./GraphView.tsx";
-import { Header, Pager } from "./Header.tsx";
+import { Close, Grip, Header, Pager } from "./Header.tsx";
 import { sessionKey, withoutSubagents, type SessionStore } from "./store.ts";
 
 export function App({
@@ -24,10 +24,15 @@ export function App({
   return (
     <main className={`app ${replays ? "dev" : "overlay"} look-${look}`}>
       {replays && <DevControls replays={replays} store={store} {...(startAt !== undefined ? { startAt } : {})} />}
-      <Pager sessions={sessions} active={current ? sessionKey(current) : null} onSelect={store.select} />
+      {/* One top bar: the session, the handle to drag the window by, the pager, close. */}
+      <div className="topbar">
+        {current ? <Header snapshot={current} showWarnings={replays !== undefined} /> : <span className="header" />}
+        <Grip />
+        <Pager sessions={sessions} active={current ? sessionKey(current) : null} onSelect={store.select} />
+        <Close />
+      </div>
       {current ? (
         <>
-          <Header snapshot={current} showWarnings={replays !== undefined} />
           {/* Keyed per session: each tab keeps its own orientation and tweens. */}
           <GraphView key={sessionKey(current)} snapshot={current} look={look} />
         </>

@@ -23,6 +23,11 @@ export const DRAG_THRESHOLD = 4;
 /** After the person pans, the view stops following the work for this long. */
 export const FOLLOW_PAUSE_MS = 8000;
 const CARD_W = 210;
+/**
+ * Scroll zooms only once the pointer has rested on the window this long, so
+ * scrolling the page underneath and passing over the overlay does not zoom.
+ */
+export const ZOOM_ARM_MS = 400;
 /** Scroll distance (px) that makes one zoom step. */
 export const WHEEL_STEP = 50;
 /** How far the person can zoom. */
@@ -137,6 +142,8 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   // events, every 15% of pinch is one zoom step.
   const zoomRef = useRef<((direction: 1 | -1) => void) | undefined>(undefined);
   const wheelSum = useRef(0);
+  /** When the pointer came onto the window (Date.now), or null while it is away. */
+  const hoverSince = useRef<number | null>(null);
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -257,6 +264,12 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   const onWheel = (event: React.WheelEvent) => {
     const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
     if (delta === 0) return;
+    if (hoverSince.current === null || Date.now() - hoverSince.current < ZOOM_ARM_MS) {
+      // Not armed yet: the person may be scrolling something else and passing by.
+      hoverSince.current ??= Date.now();
+      wheelSum.current = 0;
+      return;
+    }
     const held = wheelSum.current;
     wheelSum.current = Math.sign(held) === Math.sign(delta) || held === 0 ? held + delta : delta;
     if (Math.abs(wheelSum.current) < WHEEL_STEP) return;
@@ -284,6 +297,13 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onWheel={onWheel}
+        onMouseEnter={() => {
+          hoverSince.current = Date.now();
+        }}
+        onMouseLeave={() => {
+          hoverSince.current = null;
+          wheelSum.current = 0;
+        }}
         data-pan={`${Math.round(cam.x)},${Math.round(cam.y)}`}
         data-scale={cam.s}
         data-mode={mode}

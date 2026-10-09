@@ -1,5 +1,6 @@
+import { useEffect, useRef } from "react";
 import type { SessionState, Snapshot } from "../../../mod/graph/types.ts";
-import { sessionKey } from "./store.ts";
+import { sessionKey, tellNative } from "./store.ts";
 
 const STATE_LABEL: Record<SessionState, string> = {
   working: "Working",
@@ -70,5 +71,41 @@ export function Pager({
       </button>
       {othersWaiting && <span className="pager-waiting" title="Another session needs you" aria-label="Another session needs you" />}
     </nav>
+  );
+}
+
+/**
+ * The handle the window is dragged by, between the session's name and the
+ * pager. The overlay app does the dragging: it is told where the handle is.
+ */
+export function Grip() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const report = () => {
+      const box = element.getBoundingClientRect();
+      tellNative({ type: "grip", x: box.left, y: box.top, width: box.width, height: box.height });
+    };
+    report();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(report) : undefined;
+    observer?.observe(element);
+    observer?.observe(document.body);
+    window.addEventListener("resize", report);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", report);
+      tellNative({ type: "grip", x: 0, y: 0, width: 0, height: 0 });
+    };
+  }, []);
+  return <div ref={ref} className="grip" title="Drag to move the overlay" aria-hidden="true" />;
+}
+
+/** Closes the overlay; it comes back for a new session or one that needs you. */
+export function Close() {
+  return (
+    <button type="button" className="close" aria-label="Close the overlay" onClick={() => tellNative({ type: "close" })}>
+      ×
+    </button>
   );
 }

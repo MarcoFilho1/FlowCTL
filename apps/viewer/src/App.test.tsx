@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { GraphNode } from "../../../mod/graph/types.ts";
 import { App } from "./App.tsx";
-import { EFFECT_MS, zoomStep } from "./GraphView.tsx";
+import { EFFECT_MS, ZOOM_ARM_MS, zoomStep } from "./GraphView.tsx";
 import type { Replay } from "./DevControls.tsx";
 import { agent, golden, snapshotOf, task } from "./goldens.ts";
 import { loadFixture, replaySnapshots } from "./player.ts";
@@ -15,6 +15,14 @@ function mount(...snapshots: unknown[]) {
   snapshots.forEach((snapshot) => store.push(snapshot));
   const view = render(<App store={store} />);
   return { store, ...view };
+}
+
+/** Rests the pointer on the window long enough for scroll to zoom. */
+function arm(canvas: Element): void {
+  const now = Date.now();
+  const spy = vi.spyOn(Date, "now").mockReturnValue(now - ZOOM_ARM_MS - 1);
+  fireEvent.mouseEnter(canvas);
+  spy.mockRestore();
 }
 
 function node(container: HTMLElement, id: string): Element {
@@ -169,6 +177,7 @@ describe("moving around the graph", () => {
   test("scrolling zooms while the session works too (drag is what moves)", () => {
     const { container } = mount(wide());
     const before = Number(canvas(container).getAttribute("data-scale"));
+    arm(canvas(container));
     fireEvent.wheel(canvas(container), { deltaY: 100, clientX: 100, clientY: 100 });
     expect(Number(canvas(container).getAttribute("data-scale"))).toBe(before - 0.25);
   });
@@ -475,6 +484,7 @@ describe("arrows and zoom", () => {
     });
     const canvas = container.querySelector(".canvas")!;
     const before = Number(canvas.getAttribute("data-scale"));
+    arm(canvas);
     fireEvent.wheel(canvas, { deltaY: -100, clientX: 100, clientY: 100 });
     const zoomed = Number(canvas.getAttribute("data-scale"));
     expect(zoomed).toBe(before + 0.25);
@@ -492,6 +502,7 @@ describe("arrows and zoom", () => {
     const { container } = mount(chain("idle", 6));
     const canvas = container.querySelector(".canvas")!;
     const before = Number(canvas.getAttribute("data-scale"));
+    arm(canvas);
     for (let i = 0; i < 4; i += 1) fireEvent.wheel(canvas, { deltaY: -10 });
     expect(Number(canvas.getAttribute("data-scale"))).toBe(before);
     for (let i = 0; i < 2; i += 1) fireEvent.wheel(canvas, { deltaY: -10 });
@@ -506,4 +517,42 @@ test("zoom steps stay on quarter steps for pixels, within half and double size",
   expect(zoomStep(0.5, -1, true)).toBe(0.5);
   expect(zoomStep(2, 1, true)).toBe(2);
   expect(zoomStep(1, 1, false)).toBeCloseTo(1.25);
+});
+
+describe("the top bar", () => {
+  const messages: unknown[] = [];
+  beforeEach(() => {
+    messages.length = 0;
+    window.webkit = { messageHandlers: { flowctl: { postMessage: (message) => void messages.push(message) } } };
+  });
+  afterEach(() => {
+    delete window.webkit;
+  });
+
+  test("the drag handle sits between the session's name and the pager, and the overlay is told where", () => {
+    const { container } = mount(snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/api" }), snapshotOf([task("b")], { sessionId: "s2", cwd: "/w/web" }));
+    const bar = container.querySelector(".topbar")!;
+    expect([...bar.children].map((child) => child.className)).toEqual(["header", "grip", "pager", "close"]);
+    expect(messages.some((message) => (message as { type: string }).type === "grip")).toBe(true);
+  });
+
+  test("the × asks the overlay to close", () => {
+    mount(snapshotOf([task("a")]));
+    fireEvent.click(screen.getByLabelText("Close the overlay"));
+    expect(messages).toContainEqual({ type: "close" });
+  });
+});
+
+test("scroll does not zoom until the pointer has rested on the window for 400 ms", () => {
+  const { container } = mount(snapshotOf([task("a"), task("b", { blockedBy: ["a"] })], { sessionState: "idle", layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 } } }));
+  const canvas = container.querySelector(".canvas")!;
+  const before = canvas.getAttribute("data-scale");
+  // Passing by while scrolling something else: no zoom.
+  fireEvent.mouseEnter(canvas);
+  fireEvent.wheel(canvas, { deltaY: -100 });
+  expect(canvas.getAttribute("data-scale")).toBe(before);
+  // Resting there: zoom.
+  arm(canvas);
+  fireEvent.wheel(canvas, { deltaY: -100 });
+  expect(canvas.getAttribute("data-scale")).not.toBe(before);
 });
