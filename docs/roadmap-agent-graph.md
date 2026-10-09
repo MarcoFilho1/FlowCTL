@@ -167,7 +167,7 @@ fixtures.
 | Amarelo: pergunta | `tool.call` `AskUserQuestion` | Gatilho primário; limpa quando o resultado traz `answers`. Notifications `agent_needs_input` / `elicitation_*` reconciliam. |
 | Sessão esperando | Notification `idle_prompt` | `sessionState = "waiting_you"` (cabeçalho do overlay, não um nó). |
 | Vermelho | `turn.complete` com `reason: "error"` ou `"refusal"` e task `in_progress`; subagente `failed`; `classic.StopFailure`; ≥ N `isError` seguidos na mesma task | N configurável (`userConfig`, padrão 3). `reason: "aborted"` (Esc do usuário) **não** é erro: a task volta a pendente. Volta a azul se a task progredir com sucesso. |
-| Sem tasks | `turn.start` / `turn.complete` | Nó implícito `turn:<n>` ("Turno atual") para o grafo nunca ficar vazio. |
+| Sem tasks | `turn.start` / `turn.complete` | Nó implícito `turn:<n>` ("Current turn") para o grafo nunca ficar vazio. |
 | Sessão retomada | `session.start` após `--resume` / `/clear` | Reconstrói pelo `TaskList`; caso de teste obrigatório. |
 
 ---
@@ -253,7 +253,7 @@ Nota para a Fase 4: o layout trata subagentes como nós comuns, então numa cama
 ### Fase 3: Mod ao vivo + bridge (3 dias) ✅
 **Objetivo:** o mod roda o motor numa sessão real e publica o estado.
 - [ ] `register.ts` liga os eventos ao `reduce`; estado em `$.state`.
-- [ ] Status line (`$.ui.status`): `◆ 3/7 · 1 aguardando você`.
+- [ ] Status line (`$.ui.status`): `◆ 3/7 · 1 waiting for you`.
 - [ ] Toast (`$.ui.toast`) quando um nó fica amarelo ou vermelho.
 - [ ] `bridge/socket.ts`: `POST` do snapshot com debounce de 100 ms, fire-and-forget; falha silenciosa se o overlay não estiver aberto.
 - [ ] `bridge/file.ts`: grava `~/.flowctl/sessions/<sessionId>.json` (fallback), com `seq` crescente.
@@ -369,3 +369,4 @@ economizando cerca de 3 dias.
 - Toda regra nova em `mod/graph/` precisa de um teste com fixture.
 - Mudança no formato do `Snapshot` sobe `schema` e atualiza viewer e overlay no mesmo PR.
 - Os tipos gerados do Claude Code valem mais que a documentação.
+- Todo texto que o usuário vê (status line, avisos, viewer, overlay, ferramenta FlowPlan) é em **inglês**.

@@ -193,7 +193,7 @@ export function nodes(state: GraphState): GraphNode[] {
     out.push({
       id: `turn:${state.turn.n}`,
       kind: "turn",
-      title: "Turno atual",
+      title: "Current turn",
       // A turn that ended on errors stays red until the next turn starts.
       status:
         state.turn.attention?.kind === "error"
@@ -426,7 +426,7 @@ function onAgentSpawn(state: GraphState, input: Record<string, unknown>, result:
   if (agentId === undefined) {
     return;
   }
-  const title = text(input["description"]) ?? "subagente";
+  const title = text(input["description"]) ?? "subagent";
   const parent = parentFor(state, title);
   state.agents.set(agentId, {
     id: `agent:${agentId}`,

@@ -15,14 +15,14 @@ test("the status line shows progress and what needs the person", () => {
   assert.equal(statusLine(snap([node("a", "done"), node("b", "running"), node("c", "pending")])), "◆ 1/3");
   assert.equal(
     statusLine(snap([node("a", "done"), node("b", "needs_you"), node("c", "error")], "waiting_you")),
-    "◆ 1/3 · 1 aguardando você · 1 com erro"
+    "◆ 1/3 · 1 waiting for you · 1 failed"
   );
 });
 
 test("with no plan the status line stays quiet unless the session waits", () => {
   const turn = node("turn:1", "running", { kind: "turn" });
   assert.equal(statusLine(snap([turn])), undefined);
-  assert.equal(statusLine(snap([turn], "waiting_you")), "aguardando você");
+  assert.equal(statusLine(snap([turn], "waiting_you")), "waiting for you");
 });
 
 test("alerts fire once, when a node turns yellow or red", () => {
@@ -31,7 +31,7 @@ test("alerts fire once, when a node turns yellow or red", () => {
     node("a", "needs_you", { attention: { kind: "permission", detail: "Bash", since: 0 } }),
     node("b", "error", { attention: { kind: "error", detail: "Exit code 1", since: 0 } })
   ]);
-  assert.deepEqual(alerts(before, after), ['"a" precisa de você (Bash)', '"b" falhou: Exit code 1']);
+  assert.deepEqual(alerts(before, after), ['"a" needs you (Bash)', '"b" failed: Exit code 1']);
   assert.deepEqual(alerts(after, after), []);
 });
 

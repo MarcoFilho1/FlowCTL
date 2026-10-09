@@ -10,7 +10,7 @@
     {
       "id": "turn:1",
       "kind": "turn",
-      "title": "Turno atual",
+      "title": "Current turn",
       "status": "error",
       "attention": {
         "kind": "error",
