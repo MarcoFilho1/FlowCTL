@@ -74,7 +74,7 @@ describe("golden 03: four tasks and three subagents", () => {
     mount({ ...golden("03-subagents-with-task-graph"), cwd: "/Users/me/shop" });
     const header = screen.getByRole("banner");
     expect(within(header).getByText("shop")).toBeTruthy();
-    expect(within(header).getByText("Idle")).toBeTruthy();
+    expect(within(header).getByText("Ended")).toBeTruthy();
     expect(within(header).getByText("7/7")).toBeTruthy();
   });
 

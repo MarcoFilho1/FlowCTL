@@ -125,9 +125,10 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       break;
     case "session.end":
     case "classic.SessionEnd":
-      if (input["reason"] !== "clear") {
-        state.ended = true;
-      }
+      // /clear ends this session too: its last snapshot must say so, or it
+      // stays frozen in whatever state it had. The new one starts at the
+      // SessionStart that follows (source "clear"), which resets the graph.
+      state.ended = true;
       break;
     case "prompt.submit":
       state.request += 1;
