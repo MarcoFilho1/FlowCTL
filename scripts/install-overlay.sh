@@ -8,6 +8,8 @@
 #
 # Needs pnpm, Node 22 and Swift (the Command Line Tools are enough; no Xcode).
 # An app already at the destination is shown, quit if running, then replaced.
+# After installing, the local build is unregistered from Launch Services and
+# removed, so `open -a FlowCTL` opens the installed app (--build-only keeps it).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,6 +27,7 @@ while [ $# -gt 0 ]; do
 done
 
 APP_ID="dev.flowctl.overlay"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 OVERLAY="$ROOT/apps/overlay"
 APP="$OVERLAY/build/FlowCTL.app"
 
@@ -62,6 +65,13 @@ else
   mkdir -p "$DEST"
   ditto "$APP" "$TARGET"
   echo "installed $TARGET"
+  # `open -a FlowCTL` (how the mod opens the overlay) must find the installed
+  # app, not this build. Unregistering alone does not last (Spotlight finds a
+  # freshly built bundle and registers it again), so the staged copy goes too.
+  "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+  rm -rf "$APP"
+  "$LSREGISTER" -f "$TARGET" >/dev/null 2>&1 || true
+  echo "registered $TARGET with Launch Services; the local build was unregistered and removed"
 fi
 
 if [ "$OPEN" = 1 ]; then
