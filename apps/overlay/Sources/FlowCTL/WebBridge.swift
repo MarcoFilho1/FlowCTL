@@ -22,6 +22,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var currentShowSubagents: () -> Bool = { true }
     /// Whether the viewer plays its sounds (on by default).
     var currentSound: () -> Bool = { true }
+    /// Whether the graph forms its shapes when idle (on by default).
+    var currentIdleAnimation: () -> Bool = { true }
     /// The palette the person picked (auto by default).
     var currentTheme: () -> String = { ThemeChoice.standard.rawValue }
     /// The style of the sounds (look by default).
@@ -112,6 +114,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             self.applyShowSubagents(self.currentShowSubagents())
             self.applySound(self.currentSound())
             self.applySoundStyle(self.currentSoundStyle())
+            self.applyIdleAnimation(self.currentIdleAnimation())
             let pending = self.queued
             self.queued.removeAll()
             pending.forEach(self.send)
@@ -129,6 +132,11 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     /// load, and logged as not applied to a viewer that does not have it yet.
     func applyShowSubagents(_ show: Bool) {
         setPageOption("setShowSubagents", value: show, what: "subagents \(show ? "shown" : "hidden")", missing: "the viewer has no setShowSubagents yet")
+    }
+
+    /// `window.flowctl.setIdleAnimation(on)`, the same way: applied on every load.
+    func applyIdleAnimation(_ on: Bool) {
+        setPageOption("setIdleAnimation", value: on, what: "idle animation \(on ? "on" : "off")", missing: "the viewer has no setIdleAnimation yet")
     }
 
     /// `window.flowctl.setTheme(theme)`, the same way, right after the look.
