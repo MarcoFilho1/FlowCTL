@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NodeStatus, Snapshot } from "../../../mod/graph/types.ts";
-import { buildScene, circleBox, fitScale, linkPath, type Box, type NodeShape, type Scene } from "./geometry.ts";
+import { buildScene, centerOn, circleBox, clampPan, focusNode, linkPath, type Box, type NodeShape } from "./geometry.ts";
 import { hoverCard } from "./hover.ts";
 import { tellNative } from "./store.ts";
 import { useTween } from "./useTween.ts";
 
-const FALLBACK_VIEWPORT = { width: 360, height: 420 };
+const FALLBACK_VIEWPORT = { width: 360, height: 200 };
+/** A press that moves less than this is a click, not a drag. */
+export const DRAG_THRESHOLD = 4;
+/** After the person pans, the view stops following the work for this long. */
+export const FOLLOW_PAUSE_MS = 8000;
+const CARD_W = 210;
 
 export const STATUS_LABEL: Record<NodeStatus, string> = {
   pending: "Pending",
@@ -15,7 +20,10 @@ export const STATUS_LABEL: Record<NodeStatus, string> = {
   done: "Done"
 };
 
-function useViewport(): [React.RefObject<HTMLDivElement | null>, { width: number; height: number }] {
+type Point = { x: number; y: number };
+type Size = { width: number; height: number };
+
+function useViewport(): [React.RefObject<HTMLDivElement | null>, Size] {
   const ref = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState(FALLBACK_VIEWPORT);
   useEffect(() => {
@@ -31,27 +39,65 @@ function useViewport(): [React.RefObject<HTMLDivElement | null>, { width: number
   return [ref, size];
 }
 
-/** The room the graph wants at full size, the open hover card included. */
-export interface Extent {
-  width: number;
-  height: number;
+/** Eases the drawn pan toward `target`; follows it exactly while dragging or when motion is reduced. */
+function useGlide(target: Point, instant: boolean): Point {
+  const [shown, setShown] = useState(target);
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  useEffect(() => {
+    const motion =
+      typeof requestAnimationFrame === "function" &&
+      typeof matchMedia === "function" &&
+      !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (instant || !motion) {
+      setShown(target);
+      return;
+    }
+    let frame = 0;
+    const step = () => {
+      const at = shownRef.current;
+      const next = { x: at.x + (target.x - at.x) * 0.18, y: at.y + (target.y - at.y) * 0.18 };
+      const settled = Math.abs(next.x - target.x) < 0.5 && Math.abs(next.y - target.y) < 0.5;
+      setShown(settled ? target : next);
+      if (!settled) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [target.x, target.y, instant]);
+  return shown;
 }
 
-export function GraphView({ snapshot, onExtent }: { snapshot: Snapshot; onExtent?: (extent: Extent) => void }) {
+/**
+ * The graph in a fixed window: nodes only, flowing left to right. Drag (or
+ * scroll) to move around it; a click on a node brings its session forward;
+ * hovering a node shows what it is about. Until the person moves the view,
+ * it follows the node that matters (needs you, failing, running).
+ */
+export function GraphView({ snapshot }: { snapshot: Snapshot }) {
   const [ref, viewport] = useViewport();
   const scene = useMemo(() => buildScene(snapshot), [snapshot]);
-  const [hovered, setHovered] = useState<string | null>(null);
-  const hoveredNode = hovered ? scene.nodes.find((shape) => shape.id === hovered) : undefined;
-
-  useEffect(() => {
-    if (!onExtent) return;
-    if (!hoveredNode) return onExtent({ width: scene.width, height: scene.height });
-    const card = cardExtent(hoveredNode, snapshot);
-    onExtent({ width: Math.max(scene.width, card.width), height: Math.max(scene.height, card.height) });
-  }, [scene, hoveredNode, snapshot, onExtent]);
-
   const targets = useMemo(() => new Map<string, Box>(scene.nodes.map((shape) => [shape.id, circleBox(shape)])), [scene]);
   const boxes = useTween(targets);
+
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const press = useRef<{ start: Point; pan: Point; moved: boolean; node: string | null } | null>(null);
+  const lastManual = useRef(-Infinity);
+
+  const focus = focusNode(scene);
+  useEffect(() => {
+    if (performance.now() - lastManual.current < FOLLOW_PAUSE_MS) return;
+    const fits = scene.width <= viewport.width && scene.height <= viewport.height;
+    const wanted = fits
+      ? { x: (viewport.width - scene.width) / 2, y: (viewport.height - scene.height) / 2 }
+      : focus
+        ? centerOn(focus, viewport)
+        : { x: 0, y: 0 };
+    setPan(clampPan(wanted, scene, viewport));
+  }, [scene, viewport, focus?.id, focus?.node.status]);
+
+  const drawn = useGlide(pan, dragging);
 
   if (snapshot.nodes.length === 0) {
     return (
@@ -61,73 +107,119 @@ export function GraphView({ snapshot, onExtent }: { snapshot: Snapshot; onExtent
     );
   }
 
-  // The overlay grows to fit the graph up to its limit; past it, the graph shrinks.
-  const scale = fitScale(scene, viewport);
   const shapes = new Map(scene.nodes.map((shape) => [shape.id, shape]));
-  const hoveredShape = hovered ? shapes.get(hovered) : undefined;
-  const focus = (shape: NodeShape) => tellNative({ type: "focus", sessionId: snapshot.sessionId, nodeId: shape.id });
+  const moveTo = (next: Point) => {
+    lastManual.current = performance.now();
+    setPan(clampPan(next, scene, viewport));
+  };
+
+  const onPointerDown = (event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    const node = (event.target as Element).closest?.("[data-node]")?.getAttribute("data-node") ?? null;
+    press.current = { start: { x: event.clientX, y: event.clientY }, pan, moved: false, node };
+    try {
+      (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+    } catch {
+      // Synthetic events from the overlay have no capturable pointer.
+    }
+  };
+  const onPointerMove = (event: React.PointerEvent) => {
+    const held = press.current;
+    if (!held) return;
+    const dx = event.clientX - held.start.x;
+    const dy = event.clientY - held.start.y;
+    if (!held.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    if (!held.moved) {
+      held.moved = true;
+      setDragging(true);
+      setHovered(null);
+    }
+    moveTo({ x: held.pan.x + dx, y: held.pan.y + dy });
+  };
+  const onPointerUp = () => {
+    const held = press.current;
+    press.current = null;
+    setDragging(false);
+    // A press that did not move is a click: on a node, bring its session forward.
+    if (held && !held.moved && held.node) {
+      tellNative({ type: "focus", sessionId: snapshot.sessionId, nodeId: held.node });
+    }
+  };
+  const onWheel = (event: React.WheelEvent) => moveTo({ x: pan.x - event.deltaX, y: pan.y - event.deltaY });
+
+  const hoveredShape = hovered && !dragging ? shapes.get(hovered) : undefined;
+  const offscreen = scene.nodes.filter((shape) => {
+    if (shape.node.status !== "needs_you" && shape.node.status !== "error") return false;
+    const x = shape.cx + drawn.x;
+    const y = shape.cy + drawn.y;
+    return x < 0 || y < 0 || x > viewport.width || y > viewport.height;
+  });
 
   return (
     <div className="graph">
-      <div ref={ref} className="canvas">
-        <div className="stage" style={{ width: scene.width * scale, height: scene.height * scale }}>
-          <svg
-            role="img"
-            aria-label={`Task graph, ${snapshot.nodes.length} nodes`}
-            width={scene.width * scale}
-            height={scene.height * scale}
-            viewBox={`0 0 ${scene.width} ${scene.height}`}
-          >
-            <defs>
-              <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 0 0 L 8 4 L 0 8 z" className="arrow-head" />
-              </marker>
-            </defs>
+      <div
+        ref={ref}
+        className={`canvas${dragging ? " dragging" : ""}`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onWheel={onWheel}
+        data-pan={`${Math.round(pan.x)},${Math.round(pan.y)}`}
+      >
+        <svg role="img" aria-label={`Task graph, ${snapshot.nodes.length} nodes`} width="100%" height="100%">
+          <defs>
+            <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
+              <circle cx="1" cy="1" r="0.8" className="grid-dot" />
+            </pattern>
+            <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+              <path d="M 0 0 L 8 4 L 0 8 z" className="arrow-head" />
+            </marker>
+          </defs>
+          <g transform={`translate(${drawn.x} ${drawn.y})`}>
+            {/* A faint grid that moves with the graph, so a drag reads as a drag. */}
+            <rect className="grid" x={-2000} y={-2000} width={scene.width + 4000} height={scene.height + 4000} fill="url(#dots)" />
             {scene.links.map((link) => {
               const from = boxes.get(link.from);
               const to = boxes.get(link.to);
               if (!from || !to) return null;
+              const live = link.kind === "dependency" && shapes.get(link.to)?.node.status === "running";
               return (
                 <path
                   key={`${link.kind}:${link.from}->${link.to}`}
-                  className={`link link-${link.kind}${link.inferred ? " inferred" : ""}`}
+                  className={`link link-${link.kind}${link.inferred ? " inferred" : ""}${live ? " live" : ""}`}
                   data-link={`${link.from}->${link.to}`}
-                  d={linkPath(from, to, link.kind, shapes.get(link.from)?.tail ?? 0)}
+                  d={linkPath(from, to, link.kind)}
                   {...(link.kind === "dependency" ? { markerEnd: "url(#arrow)" } : {})}
                 />
               );
             })}
-            {scene.nodes.map((shape) => {
-              const box = boxes.get(shape.id) ?? circleBox(shape);
-              return (
-                <Node
-                  key={shape.id}
-                  shape={shape}
-                  box={box}
-                  onHover={(on) => setHovered(on ? shape.id : (current) => (current === shape.id ? null : current))}
-                  onSelect={() => focus(shape)}
-                />
-              );
-            })}
-          </svg>
-          {hoveredShape && <Card shape={hoveredShape} snapshot={snapshot} scale={scale} scene={scene} />}
-        </div>
+            {scene.nodes.map((shape) => (
+              <Node
+                key={shape.id}
+                shape={shape}
+                box={boxes.get(shape.id) ?? circleBox(shape)}
+                onHover={(on) => setHovered(on ? shape.id : (current) => (current === shape.id ? null : current))}
+              />
+            ))}
+          </g>
+        </svg>
+        {offscreen.map((shape) => (
+          <Beacon
+            key={shape.id}
+            shape={shape}
+            pan={drawn}
+            viewport={viewport}
+            onGo={() => moveTo(centerOn(shape, viewport))}
+          />
+        ))}
+        {hoveredShape && <Card shape={hoveredShape} snapshot={snapshot} pan={drawn} viewport={viewport} />}
       </div>
     </div>
   );
 }
 
-function Node({
-  shape,
-  box,
-  onHover,
-  onSelect
-}: {
-  shape: NodeShape;
-  box: Box;
-  onHover: (on: boolean) => void;
-  onSelect: () => void;
-}) {
+function Node({ shape, box, onHover }: { shape: NodeShape; box: Box; onHover: (on: boolean) => void }) {
   const { node } = shape;
   const cx = box.x + box.w / 2;
   const cy = box.y + box.h / 2;
@@ -143,43 +235,50 @@ function Node({
       onMouseLeave={() => onHover(false)}
       onFocus={() => onHover(true)}
       onBlur={() => onHover(false)}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") onSelect();
-      }}
     >
-      {node.status === "needs_you" && <circle className="pulse" cx={cx} cy={cy} r={r + 3} />}
+      <circle className="glow" cx={cx} cy={cy} r={r + 5} />
+      {node.status === "needs_you" && <circle className="pulse" cx={cx} cy={cy} r={r + 2} />}
+      {node.status === "running" && <circle className="orbit" cx={cx} cy={cy} r={r + 3.5} style={{ transformOrigin: `${cx}px ${cy}px` }} />}
       <circle className="dot" cx={cx} cy={cy} r={r} />
-      <text className="label" x={cx + r + 6} y={cy + 4}>
-        {shape.label}
-      </text>
+      <circle className="shine" cx={cx - r * 0.3} cy={cy - r * 0.35} r={r * 0.35} />
       {/* A generous hit area: circles are small. */}
-      <rect className="hit" x={box.x - 4} y={cy - 10} width={box.w + 10 + shape.labelWidth} height={20} />
+      <circle className="hit" cx={cx} cy={cy} r={r + 7} />
     </g>
   );
 }
 
-const CARD_W = 220;
-
-/** Where the hover card reaches at full size, so the overlay can make room for it. */
-function cardExtent(shape: NodeShape, snapshot: Snapshot): Extent {
-  const card = hoverCard(shape.node, snapshot);
-  const bodyLines = card.body ? Math.min(6, Math.ceil(card.body.length / 34)) : 0;
-  const height = 44 + bodyLines * 15;
-  return { width: shape.cx - shape.r + CARD_W, height: shape.cy + shape.r + 6 + height };
+/** A marker on the edge of the view pointing at a node that needs attention out of sight. */
+function Beacon({ shape, pan, viewport, onGo }: { shape: NodeShape; pan: Point; viewport: Size; onGo: () => void }) {
+  const sx = shape.cx + pan.x;
+  const sy = shape.cy + pan.y;
+  const x = Math.min(Math.max(sx, 10), viewport.width - 10);
+  const y = Math.min(Math.max(sy, 10), viewport.height - 10);
+  const angle = (Math.atan2(sy - viewport.height / 2, sx - viewport.width / 2) * 180) / Math.PI;
+  return (
+    <button
+      type="button"
+      className={`beacon status-${shape.node.status}`}
+      data-beacon={shape.id}
+      aria-label={`${shape.node.title}: ${STATUS_LABEL[shape.node.status]}, out of view`}
+      style={{ left: x - 8, top: y - 8, transform: `rotate(${angle}deg)` }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={onGo}
+    >
+      ➤
+    </button>
+  );
 }
 
-function Card({ shape, snapshot, scale, scene }: { shape: NodeShape; snapshot: Snapshot; scale: number; scene: Scene }) {
+function Card({ shape, snapshot, pan, viewport }: { shape: NodeShape; snapshot: Snapshot; pan: Point; viewport: Size }) {
   const card = hoverCard(shape.node, snapshot);
-  // Below the node, flipped above when it would leave the stage.
-  const stageW = scene.width * scale;
-  const stageH = scene.height * scale;
-  const left = Math.max(0, Math.min((shape.cx - shape.r) * scale, stageW - CARD_W));
-  const below = (shape.cy + shape.r + 6) * scale;
-  const style: React.CSSProperties =
-    below + 60 > stageH && shape.cy * scale > stageH / 2
-      ? { left, bottom: stageH - (shape.cy - shape.r - 6) * scale, width: CARD_W }
-      : { left, top: below, width: CARD_W };
+  const x = shape.cx + pan.x;
+  const y = shape.cy + pan.y;
+  const width = Math.min(CARD_W, viewport.width - 12);
+  // Beside the node, on whichever side has room, kept inside the window.
+  const left = x + shape.r + 10 + width <= viewport.width ? x + shape.r + 10 : Math.max(6, x - shape.r - 10 - width);
+  const style: React.CSSProperties = { left, width };
+  if (y < viewport.height / 2) style.top = Math.max(6, y - 14);
+  else style.bottom = Math.max(6, viewport.height - y - 14);
   return (
     <div className={`hover-card status-${shape.node.status}`} role="tooltip" style={style}>
       <div className="hover-title">{card.title}</div>
