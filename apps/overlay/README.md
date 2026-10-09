@@ -14,7 +14,8 @@ scripts/install-overlay.sh --build-only   # leaves it in apps/overlay/build
 
 Needs pnpm, Node 22 and Swift (the Command Line Tools are enough, no Xcode).
 An app already installed is shown (version, date), quit if running, then
-replaced. The app is signed ad hoc, not notarized: if macOS says it cannot be
+replaced. The local build is then unregistered from Launch Services and
+removed, so `open -a FlowCTL` finds the installed app. The app is signed ad hoc, not notarized: if macOS says it cannot be
 opened (an app downloaded rather than built here), clear the quarantine flag:
 
 ```
@@ -31,8 +32,9 @@ It can always be closed:
 - the **×** at the top-left of the window hides it (so does **⌘W** once you
   have clicked the window);
 - the **menu bar item** (the graph icon; a yellow warning while a session waits
-  on you) has **Show/Hide Panel**, **Opacity**, **Always on Top**, **Show
-  Automatically**, **Hide When Idle** and **Quit FlowCTL**;
+  on you) has **Show/Hide Panel**, **Opacity**, **Size** (Small 280×180,
+  Medium 360×220, Large 480×300), **Always on Top**, **Show Automatically**,
+  **Hide When Idle** and **Quit FlowCTL**;
 - **⌘Q** quits once you have clicked the window.
 
 Hidden by you, it comes back only for a new session or one that starts
@@ -64,12 +66,17 @@ Settings > Privacy & Security > Automation.
   overlay's always is. An always-on tracking area relays each move to a small
   script the overlay adds to the page, which raises the `mouseover`/`mouseout`
   a real move would; the viewer's hover cards work over any app.
-- **Size**: starts at 120×120 and follows the size the viewer asks for
-  (`postMessage({ type: "size", width, height })`, larger while a hover card
-  shows), up to 480×640 or 40% of
-  the screen each way, animated over 200 ms. It grows away from its anchor
-  corner (top-right at first); after a drag the anchor is the nearest screen
-  corner. Anchor and settings live in UserDefaults (`dev.flowctl.overlay`).
+- **Size**: fixed, picked in the menu bar (Medium, 360×220, by default). It
+  keeps one corner (its anchor) where it is: top-right at first, and after a
+  drag the nearest screen corner. Size, anchor and settings live in
+  UserDefaults (`dev.flowctl.overlay`). The viewer pans and zooms the graph
+  inside it.
+- **Drag and scroll**: pressing and dragging in the graph, and two-finger or
+  wheel scrolling, reach the page as WebKit's own pointer and wheel events
+  even while the app is inactive, and never make the panel key. The page
+  also has `__flowctlDrag(phase, x, y)` and `__flowctlWheel(dx, dy, x?, y?)`,
+  which raise the same events synthetically (pointerId 1, buttons 1 while
+  pressed), should a WebKit version stop delivering them.
 - **Socket**: `~/.flowctl/overlay.sock` (0600, in `~/.flowctl`, 0700), HTTP
   with one request per connection. `GET /health` answers `ok`; `POST /snapshot`
   takes a schema 1 snapshot and hands it to `window.flowctl.push` as an
@@ -78,7 +85,8 @@ Settings > Privacy & Security > Automation.
   one finds the first answering `/health` and quits.
 - **Sessions**: on launch it shows the snapshots in `~/.flowctl/sessions`
   that are neither ended nor older than a day, and deletes those (again every
-  hour). An ended session's tab closes 30 s after it ended.
+  hour). An ended session's tab closes 30 s after it ended, through
+  `window.flowctl.remove(sessionId)` (a page without it is reloaded instead).
 - **Click on a node** (`postMessage({ type: "focus", sessionId, nodeId })`):
   brings that session's terminal forward from the snapshot's `terminal`
   field. Terminal.app and iTerm2 get the session's own tab selected by

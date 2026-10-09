@@ -9,9 +9,14 @@ import FlowCTLCore
 ///   POST /debug/close            clicks the panel's close button
 ///   POST /debug/menu?item=Title  runs a menu bar item, as a click on it would
 ///   POST /debug/click            clicks the panel's strip (it becomes key, as on a real click)
-///   POST /debug/size?w=&h=       the page posts { type: "size" } through the real message handler
 ///   POST /debug/focus?session=   the page posts { type: "focus" } through the real message handler
 ///   POST /debug/drag?x=&y=       moves the panel there and re-anchors, as after a drag
+///   GET  /debug/page-events      counts of pointer/mouse/wheel events the page saw
+///                                (trusted = from WebKit, synthetic = from a relay)
+///   POST /debug/drag-page?x=&y=&dx=&dy=&steps=   a press, drag and release in the page,
+///                                through NSApp.sendEvent
+///   POST /debug/wheel?x=&y=&dx=&dy=   a two-finger scroll at a page point, through NSApp.sendEvent
+///   POST /debug/page-relays      calls __flowctlDrag (down, 3 moves, up) and __flowctlWheel in the page
 ///   POST /debug/mouse?x=&y=&type=move|click   a mouse event at a point of the page
 ///                                (from its top-left): a click through NSApp.sendEvent,
 ///                                a move through the hover relay
@@ -39,10 +44,6 @@ enum DebugHooks {
                 // After the reply: "Quit FlowCTL" would end the process before it.
                 DispatchQueue.main.async { _ = app.debugMenu(title) }
                 return .ok()
-            case ("POST", "/debug/size"):
-                guard let w = query["w"].flatMap(Double.init), let h = query["h"].flatMap(Double.init) else { return .badRequest("w= and h= are required") }
-                app.debugBridge?.postFromPage(["type": "size", "width": w, "height": h])
-                return .ok()
             case ("POST", "/debug/focus"):
                 guard let session = query["session"] else { return .badRequest("session= is required") }
                 app.debugBridge?.postFromPage(["type": "focus", "sessionId": session, "nodeId": query["node"] ?? ""])
@@ -51,6 +52,44 @@ enum DebugHooks {
                 guard let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else { return .badRequest("x= and y= are required") }
                 app.debugDrag(to: CGPoint(x: x, y: y))
                 return .ok()
+            case ("GET", "/debug/page-events"):
+                return pageEvents(app)
+            case ("POST", "/debug/page-relays"):
+                let script = """
+                window.__flowctlDrag("down", 150, 100);
+                for (const x of [170, 190, 210]) window.__flowctlDrag("move", x, 110);
+                window.__flowctlDrag("up", 210, 110);
+                window.__flowctlWheel(0, -40, 150, 100);
+                """
+                app.debugBridge?.webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+                    if case .failure(let error) = result { log("page relays failed: \(error.localizedDescription)") }
+                }
+                return .ok()
+            case ("POST", "/debug/drag-page"):
+                guard let panel = app.debugPanel, let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else {
+                    return .badRequest("x= and y= are required")
+                }
+                let dx = query["dx"].flatMap(Double.init) ?? 60, dy = query["dy"].flatMap(Double.init) ?? 0
+                let steps = max(1, query["steps"].flatMap(Int.init) ?? 6)
+                let start = pagePoint(x, y, in: panel)
+                guard mouse([.leftMouseDown], at: start, in: panel) else { return .badRequest("could not make the event") }
+                // One step a frame, as a hand drags; WebKit coalesces moves sent together.
+                for step in 1...steps {
+                    let k = Double(step) / Double(steps)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.016 * Double(step)) {
+                        _ = mouse([.leftMouseDragged], at: NSPoint(x: start.x + dx * k, y: start.y - dy * k), in: panel)
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.016 * Double(steps + 1)) {
+                    _ = mouse([.leftMouseUp], at: NSPoint(x: start.x + dx, y: start.y - dy), in: panel)
+                }
+                return .ok()
+            case ("POST", "/debug/wheel"):
+                guard let panel = app.debugPanel, let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else {
+                    return .badRequest("x= and y= are required")
+                }
+                let dx = query["dx"].flatMap(Int32.init) ?? 0, dy = query["dy"].flatMap(Int32.init) ?? -40
+                return wheel(dx: dx, dy: dy, at: pagePoint(x, y, in: panel), in: panel) ? .ok() : .badRequest("could not make the event")
             case ("POST", "/debug/mouse"):
                 guard let panel = app.debugPanel, let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else {
                     return .badRequest("x= and y= are required")
@@ -102,12 +141,60 @@ enum DebugHooks {
         mouse([.leftMouseDown, .leftMouseUp], at: NSPoint(x: panel.frame.width / 2, y: panel.frame.height - 9), in: panel)
     }
 
+    /// Page point (top-left origin, below the strip) to window point (bottom-left).
+    private static func pagePoint(_ x: Double, _ y: Double, in panel: NSPanel) -> NSPoint {
+        NSPoint(x: x, y: panel.frame.height - OverlayPanel.stripHeight - y)
+    }
+
+    /// A pixel scroll as a trackpad makes, made with CGEvent (NSEvent has no
+    /// scroll constructor). Such an event carries no window, so it is handed
+    /// to the view under the point, as AppKit does with a real one; its screen
+    /// location is set so that its window location is the page point.
+    private static func wheel(dx: Int32, dy: Int32, at point: NSPoint, in panel: NSPanel) -> Bool {
+        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else { return false }
+        cg.location = CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.height ?? 0) - point.y)
+        guard let event = NSEvent(cgEvent: cg), let view = panel.contentView?.hitTest(point) else { return false }
+        view.scrollWheel(with: event)
+        log("debug wheel: \(type(of: view)) at \(event.locationInWindow)")
+        return true
+    }
+
+    /// Installs a counter in the page on first call, then reads it.
+    private static func pageEvents(_ app: AppDelegate) -> HTTPResponse {
+        guard let webView = app.debugBridge?.webView else { return .badRequest("no page") }
+        let script = """
+        if (!window.__flowctlProbe) {
+          window.__flowctlProbe = {};
+          for (const type of ["pointerdown", "pointermove", "pointerup", "mousedown", "mousemove", "mouseup", "click", "wheel"]) {
+            document.addEventListener(type, (event) => {
+              const key = type + (event.isTrusted ? ".trusted" : ".synthetic");
+              window.__flowctlProbe[key] = (window.__flowctlProbe[key] || 0) + 1;
+            }, true);
+          }
+        }
+        return JSON.stringify(window.__flowctlProbe);
+        """
+        let done = DispatchSemaphore(value: 0)
+        var text = "{}"
+        webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+            if case .success(let value) = result, let value = value as? String { text = value }
+            done.signal()
+        }
+        // On the main thread already: spin the run loop while the page answers.
+        let deadline = Date().addingTimeInterval(2)
+        while done.wait(timeout: .now()) == .timedOut, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return .ok(text + "\n")
+    }
+
     private static func mouse(_ types: [NSEvent.EventType], at point: NSPoint, in panel: NSPanel) -> Bool {
         for type in types {
             guard let event = NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1,
-                pressure: type == .leftMouseDown ? 1 : 0
+                windowNumber: panel.windowNumber, context: nil, eventNumber: 0,
+                clickCount: type == .mouseMoved || type == .leftMouseDragged ? 0 : 1,
+                pressure: type == .leftMouseUp || type == .mouseMoved ? 0 : 1
             ) else { return false }
             NSApp.sendEvent(event)
         }

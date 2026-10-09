@@ -1,4 +1,5 @@
 import AppKit
+import FlowCTLCore
 
 protocol StatusMenuActions: AnyObject {
     var isPanelVisible: Bool { get }
@@ -59,6 +60,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         opacity.submenu = levels
         menu.addItem(opacity)
+
+        let size = NSMenuItem(title: "Size", action: nil, keyEquivalent: "")
+        let sizes = NSMenu()
+        for option in PanelSize.allCases {
+            let item = entry(option.title, #selector(setSize(_:)))
+            item.representedObject = option.rawValue
+            item.state = actions.preferences.panelSize == option ? .on : .off
+            sizes.addItem(item)
+        }
+        size.submenu = sizes
+        menu.addItem(size)
         menu.addItem(toggle("Always on Top", actions.preferences.alwaysOnTop, #selector(toggleAlwaysOnTop)))
         menu.addItem(toggle("Show Automatically", actions.preferences.showAutomatically, #selector(toggleShowAutomatically)))
         menu.addItem(toggle("Hide When Idle", actions.preferences.hideWhenIdle, #selector(toggleHideWhenIdle)))
@@ -115,6 +127,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func setOpacity(_ sender: NSMenuItem) {
         guard let value = sender.representedObject as? Double, let actions else { return }
         actions.preferences.opacity = value
+        actions.preferencesChanged()
+    }
+
+    @objc private func setSize(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let size = PanelSize(rawValue: raw), let actions else { return }
+        actions.preferences.panelSize = size
         actions.preferencesChanged()
     }
 

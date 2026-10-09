@@ -209,19 +209,14 @@ private let files: [Check] = [
 // MARK: - Panel geometry
 
 private let laptop = CGRect(x: 0, y: 0, width: 1470, height: 923)
-private let desktop = CGRect(x: 0, y: 0, width: 2560, height: 1415)
 
 private let geometry: [Check] = [
-    Check(group: "geometry", name: "the cap is 480x640 or 40% of the screen, whichever is smaller") { expect in
-        expect.equal(PanelGeometry.cap(screen: desktop), CGSize(width: 480, height: 566))
-        expect.equal(PanelGeometry.cap(screen: laptop), CGSize(width: 480, height: 369))
-        expect.equal(PanelGeometry.cap(screen: CGRect(x: 0, y: 0, width: 200, height: 200)), PanelGeometry.minSize, "never below the minimum")
-    },
-    Check(group: "geometry", name: "the size follows the graph between the minimum and the cap") { expect in
-        expect.equal(PanelGeometry.size(desired: CGSize(width: 40, height: 30), chrome: 18, screen: desktop), CGSize(width: 120, height: 120))
-        expect.equal(PanelGeometry.size(desired: CGSize(width: 250.2, height: 300), chrome: 18, screen: desktop), CGSize(width: 251, height: 318), "the strip is added, sizes round up")
-        expect.equal(PanelGeometry.size(desired: CGSize(width: 2000, height: 2000), chrome: 18, screen: desktop), CGSize(width: 480, height: 566))
-        expect.equal(PanelGeometry.size(desired: CGSize(width: CGFloat.nan, height: CGFloat.infinity), chrome: 18, screen: desktop), PanelGeometry.minSize)
+    Check(group: "geometry", name: "three fixed sizes, medium by default, cut to a small screen") { expect in
+        expect.equal(PanelSize.allCases.map(\.size), [CGSize(width: 280, height: 180), CGSize(width: 360, height: 220), CGSize(width: 480, height: 300)])
+        expect.equal(PanelSize.standard, .medium)
+        expect.equal(PanelSize.allCases.map(\.title), ["Small", "Medium", "Large"])
+        expect.equal(PanelGeometry.fit(PanelSize.large.size, screen: laptop), PanelSize.large.size)
+        expect.equal(PanelGeometry.fit(PanelSize.large.size, screen: CGRect(x: 0, y: 0, width: 400, height: 250)), CGSize(width: 400, height: 250))
     },
     Check(group: "geometry", name: "a top-right anchor grows left and down") { expect in
         let corner = CGPoint(x: 1458, y: 911)

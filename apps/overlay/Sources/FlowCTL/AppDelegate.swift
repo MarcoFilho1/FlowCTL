@@ -12,8 +12,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     private var timers: [Timer] = []
     /// The person hid the panel; only a new session or one waiting on them brings it back.
     private var userHidden = false
-    /// The room the viewer last asked for; the window starts at the minimum.
-    private var desiredPageSize = CGSize(width: PanelGeometry.minSize.width, height: PanelGeometry.minSize.height - OverlayPanel.stripHeight)
     /// The corner the panel keeps fixed while it grows, and where that corner is.
     private var anchor: (corner: Corner, point: CGPoint) = (.topRight, .zero)
 
@@ -32,7 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         NSApp.mainMenu = Self.mainMenu()
         let bridge = WebBridge(page: paths.viewerPage)
         bridge.currentBodies = { [weak self] in self?.registry.bodies ?? [] }
-        bridge.onSize = { [weak self] size in self?.resize(toFit: size) }
         bridge.onFocus = { [weak self] sessionId, nodeId in self?.focusTerminal(of: sessionId, node: nodeId) }
         self.bridge = bridge
         let panel = OverlayPanel(content: bridge.webView)
@@ -135,9 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     private func tick() {
         let now = Date()
         let expired = registry.expireEnded(now: now)
-        if !expired.isEmpty {
-            log("closing ended session tab(s): \(expired.joined(separator: ", "))")
-            bridge?.reload(replaying: registry.bodies)
+        for id in expired {
+            log("closing the ended session tab \(id)")
+            bridge?.remove(id) { [weak self] in self?.registry.bodies ?? [] }
         }
         if preferences.hideWhenIdle, isPanelVisible, registry.isIdle(now: now) {
             hidePanel(byUser: false)
@@ -147,17 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
     // MARK: Size and place
 
-    /// The viewer asked for room for its graph: grow or shrink toward it,
-    /// keeping the anchored corner where it is.
-    private func resize(toFit pageSize: CGSize) {
-        desiredPageSize = pageSize
-        layOut(animated: true)
-    }
-
     private func layOut(animated: Bool) {
         guard let panel else { return }
         let screen = screenFrame(containing: anchor.point)
-        let size = PanelGeometry.size(desired: desiredPageSize, chrome: OverlayPanel.stripHeight, screen: screen)
+        let size = PanelGeometry.fit(preferences.panelSize.size, screen: screen)
         let frame = PanelGeometry.frame(size: size, corner: anchor.corner, at: anchor.point, screen: screen)
         guard frame != panel.frame else { return }
         if animated, panel.isVisible {
@@ -226,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
     func preferencesChanged() {
         applyPreferences()
+        layOut(animated: true)
     }
 
     private func showPanel() {
@@ -284,7 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             },
             "activeSessions": activeSessionCount,
             "anchor": ["corner": anchor.corner.rawValue, "x": Double(anchor.point.x), "y": Double(anchor.point.y)],
-            "desiredPageSize": [Double(desiredPageSize.width), Double(desiredPageSize.height)],
+            "panelSize": preferences.panelSize.rawValue,
             "hoverMovesRelayed": bridge?.hover.moves ?? 0,
             "menu": statusMenu?.describe() ?? []
         ]
