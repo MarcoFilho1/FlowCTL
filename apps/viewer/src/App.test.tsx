@@ -142,7 +142,7 @@ describe("talking to the overlay app", () => {
   test("asks for a small window for a small graph, and more as it grows", () => {
     const { store } = mount(snapshotOf([task("a")]));
     const first = messages.filter((m): m is { type: "size"; width: number; height: number } => (m as { type: string }).type === "size").at(-1);
-    expect(first!.width).toBeLessThan(150);
+    expect(first!.width).toBeLessThanOrEqual(150);
     expect(first!.height).toBeLessThan(90);
     act(() => {
       store.push(
@@ -218,5 +218,55 @@ describe("fixture player", () => {
     expect(store.getState().sessions[0]?.seq).toBe(events.length);
     fireEvent.click(screen.getByTitle("Restart"));
     expect(store.getState().sessions[0]?.seq).toBe(1);
+  });
+});
+
+test("window.flowctl.remove drops an expired session's tab without a reload", () => {
+  const store = createSessionStore();
+  installBridge(store);
+  render(<App store={store} />);
+  act(() => {
+    window.flowctl?.push(snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/api" }));
+    window.flowctl?.push(snapshotOf([task("b")], { sessionId: "s2", cwd: "/w/web" }));
+  });
+  expect(screen.getAllByRole("tab")).toHaveLength(2);
+  act(() => window.flowctl?.remove("s1"));
+  expect(screen.queryAllByRole("tab")).toHaveLength(0);
+  expect(store.getState().sessions.map((session) => session.sessionId)).toEqual(["s2"]);
+});
+
+test("past the overlay's limit the graph scales down instead of spilling", () => {
+  const wide = Array.from({ length: 12 }, (_, i) => task(`t${i}`, { title: `A fairly long step title ${i}` }));
+  const { container } = mount(snapshotOf(wide));
+  const svg = container.querySelector("svg");
+  // jsdom measures nothing, so the canvas falls back to a 360 × 420 panel.
+  expect(Number(svg?.getAttribute("width"))).toBeLessThanOrEqual(360);
+  expect(svg?.getAttribute("viewBox")).toMatch(/^0 0 \d{4,}/);
+});
+
+describe("size requests stay above what the chrome needs", () => {
+  const sizes: Array<{ width: number; height: number }> = [];
+  beforeEach(() => {
+    sizes.length = 0;
+    window.webkit = {
+      messageHandlers: { flowctl: { postMessage: (message) => void (message.type === "size" && sizes.push(message)) } }
+    };
+  });
+  afterEach(() => {
+    delete window.webkit;
+  });
+
+  test("an empty session still asks for room for its header", () => {
+    mount(snapshotOf([], { sessionState: "idle" }));
+    expect(sizes.at(-1)!.width).toBeGreaterThanOrEqual(150);
+    expect(sizes.at(-1)!.height).toBeGreaterThanOrEqual(60);
+  });
+
+  test("with several sessions the window is at least as wide as the tabs", () => {
+    mount(
+      snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/a-rather-long-project-name" }),
+      snapshotOf([task("b")], { sessionId: "s2", cwd: "/w/another-long-project-name" })
+    );
+    expect(sizes.at(-1)!.width).toBeGreaterThan(350);
   });
 });
