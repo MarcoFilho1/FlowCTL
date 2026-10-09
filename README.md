@@ -1,45 +1,49 @@
 # FlowCTL
 
-FlowCTL is a visual and control layer for coding-agent workflows.
+A live graph of what Claude Code is doing and what comes next.
 
-```text
-Codex ──────┐
-Claude ─────┼──→ FlowCTL Core ──→ Desktop / Overlay
-OpenCode ───┘
+FlowCTL is a read-only [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview)
+that turns the agent's own tasks (`TaskCreate` / `TaskUpdate`, subagents,
+permission prompts) into a dependency graph, and streams it to a floating
+macOS overlay. It never changes how the agent plans; it only draws it.
+
+| Color  | Meaning                              |
+| ------ | ------------------------------------ |
+| white  | pending                              |
+| blue   | in progress                          |
+| yellow | needs your input or permission       |
+| red    | unrecoverable error                  |
+| green  | done                                 |
+
+**Status:** Phase 0 of the [v2 roadmap](docs/roadmap-agent-graph.md). The mod
+loads but does not observe anything yet. The v0 orchestrator lives in the
+`v0-orchestrator` tag.
+
+## Layout
+
+```
+mod/             the Claude Code mod (plugin)
+  hooks/         hooks module: register.ts
+  graph/         graph logic, pure TypeScript with no imports
+  tests/         mod tests, run by `claude plugin test`
+  types-vendor/  Claude Code's API types, versioned for CI
+tests/graph/     unit tests for mod/graph, run by node --test
+docs/            roadmap and design notes
 ```
 
-**Status:** Protocol v0.2, Core v0, Control Plane v0, and Developer Graph
-Playground v0
+## Develop
 
-This repository contains:
+Requires Node 22.6+, pnpm and Claude Code 2.1.295+.
 
-- `@flowctl/protocol` — Protocol v0.2, with shared TypeScript contracts for
-  projects, tasks, workers, leases, commands, events, and proposed graph
-  mutations;
-- `@flowctl/core` — Core v0, currently implementing structural graph
-  validation, strict hierarchy validation, dependency and cycle validation,
-  readiness, the `TaskStatus` state machine, and controlled in-memory
-  `CoreState`.
-- `@flowctl/control-plane` — Control Plane v0, currently supporting
-  `task.claim`, Lease authority, `task.start`, `task.complete` into `review`,
-  and `task.review.approve` from `review` into `completed`. Approval delegates
-  global readiness reconciliation to Core, emits `task.completed` followed by
-  any resulting `task.ready` Events, and records protocol Events in an
-  in-memory Event Log. It also exposes a pull-oriented scheduling-policy
-  boundary that only selects ready task IDs; it does not claim tasks, manage
-  leases, assign workers, poll, or execute work.
-- `@flowctl/playground` — browser-only developer harness for the deterministic
-  A → B/C → D graph. It exposes task inspection, the supported lifecycle,
-  materialized ready tasks, scheduling-policy candidates, public Events, and
-  Reset without adding scheduler automation or another domain authority.
+```sh
+pnpm install
+pnpm typecheck   # tsc over the mod and the tests
+pnpm test        # graph unit tests
+pnpm validate    # claude plugin validate + claude plugin test
 
-The following are not implemented: review rejection or rework, a scheduler
-daemon or worker assignment/execution system, real Workers or adapters,
-heartbeat/expiry/recovery, persistence/networking, Desktop/Overlay,
-Planner/LLM/Intent Layer, Verifier, or GraphMutation application.
+claude --plugin-dir ./mod   # run a session with the mod, hot-reloaded
+```
 
-Run `pnpm install --frozen-lockfile`, then `pnpm dev`, and open the Vite URL
-printed in the terminal. Use `pnpm test`, `pnpm typecheck`, and `pnpm build`
-for repository-wide validation.
-
-See [Protocol v0.2](docs/protocol-v0.md) for the public contract.
+After a Claude Code upgrade, refresh `mod/types-vendor/claude-code.d.ts` from
+`mod/.claude-plugin/types/claude-code/index.d.ts` (written each time a session
+loads the mod) and bump `CLAUDE_CODE_VERSION` in CI.

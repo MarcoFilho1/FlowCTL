@@ -8,3 +8,6 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+
+# Written by Claude Code each time it loads the mod; mod/types-vendor is the versioned copy
+mod/.claude-plugin/types/

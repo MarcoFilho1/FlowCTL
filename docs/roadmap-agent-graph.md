@@ -104,7 +104,8 @@ FlowCTL/
 │  ├─ types/index.d.ts          # contrato de $.state
 │  ├─ types-vendor/             # cópia versionada dos tipos do Claude Code (CI)
 │  ├─ .claude-plugin/types/     # gerado pelo engine a cada load (.gitignore)
-│  └─ test/*.test.ts            # claude plugin test
+│  └─ tests/*.test.ts           # claude plugin test (kit claude-code/testing)
+├─ tests/graph/                 # testes puros de mod/graph (node --test)
 ├─ fixtures/                    # sessões reais gravadas (JSONL)
 ├─ apps/viewer/                 # React + SVG, build estático
 ├─ apps/overlay/                # Swift (Xcode/SwiftPM)
