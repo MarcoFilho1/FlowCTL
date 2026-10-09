@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         let bridge = WebBridge(page: paths.viewerPage)
         bridge.currentBodies = { [weak self] in self?.registry.bodies ?? [] }
         bridge.onFocus = { [weak self] sessionId, nodeId in self?.focusTerminal(of: sessionId, node: nodeId) }
+        bridge.currentLook = { [weak self] in self?.preferences.look ?? .standard }
         self.bridge = bridge
         let panel = OverlayPanel(content: bridge.webView)
         panel.onHide = { [weak self] in self?.hidePanel(byUser: true) }
@@ -216,6 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
     func preferencesChanged() {
         applyPreferences()
+        bridge?.applyLook(preferences.look)
         layOut(animated: true)
     }
 
@@ -276,6 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             "activeSessions": activeSessionCount,
             "anchor": ["corner": anchor.corner.rawValue, "x": Double(anchor.point.x), "y": Double(anchor.point.y)],
             "panelSize": preferences.panelSize.rawValue,
+            "look": preferences.look.rawValue,
             "hoverMovesRelayed": bridge?.hover.moves ?? 0,
             "menu": statusMenu?.describe() ?? []
         ]
