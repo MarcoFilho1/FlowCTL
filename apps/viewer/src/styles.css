@@ -79,9 +79,14 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .app.overlay, .app.overlay * { -webkit-user-select: none; user-select: none; }
 .topbar button { -webkit-user-select: none; user-select: none; }
 .topbar button::selection, .topbar *::selection { background: transparent; }
-.topbar > .grip, .topbar > .pager, .topbar > .close { pointer-events: auto; }
+.topbar > .drag-zone, .topbar > .pager, .topbar > .close { pointer-events: auto; }
+/* The drag zone: everything in the bar but the pager and the ×. A long folder
+   name takes up to 70% and ends in an ellipsis (the full name on hover); the
+   dots fill what is left, never under 24 px. */
+.drag-zone { flex: 1 1 auto; min-width: 0; height: 22px; display: flex; align-items: center; gap: 6px; cursor: grab; }
+.drag-zone:hover .grip { opacity: 0.9; }
 .header {
-  flex: 0 1 auto; max-width: 55%;
+  flex: 0 1 auto; max-width: 70%;
   display: flex; align-items: center; gap: 6px; height: 18px; min-width: 0; font-size: 11px; color: var(--muted);
 }
 /* The handle the window is dragged by: a field of dots, clearer on hover. */
@@ -89,7 +94,6 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
   flex: 1 1 auto; min-width: 24px; height: 14px; cursor: grab; opacity: 0.45; transition: opacity 150ms ease;
   background-image: radial-gradient(circle, var(--muted) 1px, transparent 1.2px); background-size: 4px 4px; background-position: center;
 }
-.grip:hover { opacity: 0.9; }
 /* Pixel look: square dots on a 4 px grid. */
 .app.look-pixel .grip {
   background-image: conic-gradient(var(--muted) 0 25%, transparent 0 100%);
