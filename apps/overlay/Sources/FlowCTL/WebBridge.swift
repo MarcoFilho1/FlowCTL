@@ -29,7 +29,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         let messages = MessageProxy()
         configuration.userContentController.add(messages, name: "flowctl")
         configuration.userContentController.addUserScript(WKUserScript(source: HoverRelay.pageScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        let view = PageView(frame: .zero, configuration: configuration)
+        webView = view
         super.init()
         messages.bridge = self
         webView.navigationDelegate = self
@@ -42,6 +43,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         webView.underPageBackgroundColor = .clear
         // WKWebView tracks the mouse only while its app is active, and the
         // overlay's never is: relay moves from a tracking area that is always on.
+        view.bridge = self
         hover.webView = webView
         webView.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: hover))
         load()
@@ -145,6 +147,44 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// A pinch, phase by phase: the page gets gesturestart, gesturechange (the
+    /// running scale) and gestureend, with the point the pinch is at.
+    private var pinchScale: CGFloat = 1
+
+    func receivePinch(_ event: NSEvent) {
+        var point = webView.convert(event.locationInWindow, from: nil)
+        if !webView.isFlipped { point.y = webView.bounds.height - point.y }
+        switch event.phase {
+        case .began:
+            pinchScale = 1
+            pinch("start", scale: 1, at: point)
+        case .changed:
+            pinchScale *= 1 + event.magnification
+            pinch("change", scale: pinchScale, at: point)
+        case .ended, .cancelled:
+            pinch("end", scale: pinchScale, at: point)
+        default:
+            break
+        }
+    }
+
+    /// A pinch made of these per-event magnifications, from a page point (debug hooks).
+    func debugPinch(_ magnifications: [Double], atPage point: CGPoint) {
+        pinchScale = 1
+        pinch("start", scale: 1, at: point)
+        for magnification in magnifications {
+            pinchScale *= 1 + CGFloat(magnification)
+            pinch("change", scale: pinchScale, at: point)
+        }
+        pinch("end", scale: pinchScale, at: point)
+    }
+
+    private func pinch(_ phase: String, scale: CGFloat, at point: CGPoint) {
+        webView.callAsyncJavaScript("window.__flowctlPinch && window.__flowctlPinch(phase, scale, x, y)", arguments: ["phase": phase, "scale": Double(scale), "x": Double(point.x), "y": Double(point.y)], in: nil, in: .page) { result in
+            if case .failure(let error) = result { log("pinch \(phase) failed: \(error.localizedDescription)") }
+        }
+    }
+
     /// Posts a message from inside the page, as the viewer does (debug hooks).
     func postFromPage(_ message: [String: Any]) {
         webView.callAsyncJavaScript("window.webkit.messageHandlers.flowctl.postMessage(message)", arguments: ["message": message], in: nil, in: .page) { result in
@@ -172,6 +212,17 @@ private final class MessageProxy: NSObject, WKScriptMessageHandler {
     }
 }
 
+/// The page's web view. A trackpad pinch arrives here as `magnify(with:)`; it
+/// is passed to the page as the gesture events the viewer listens to, and not
+/// to WebKit, so no gesture is raised twice.
+final class PageView: WKWebView {
+    weak var bridge: WebBridge?
+
+    override func magnify(with event: NSEvent) {
+        bridge?.receivePinch(event)
+    }
+}
+
 /// Owner of the web view's always-on tracking area. WebKit ignores mouse
 /// moves while its app is inactive, and the overlay's always is, so hover
 /// would never reach the page; this hands each move to `pageScript`, which
@@ -192,6 +243,18 @@ final class HoverRelay: NSResponder {
         if (last && last.isConnected) last.dispatchEvent(new MouseEvent("mouseout", init(target)));
         if (target) target.dispatchEvent(new MouseEvent("mouseover", init(last)));
         last = target;
+      };
+
+      // Pinch: a trackpad pinch as the gesture events the viewer listens to.
+      // `scale` is the running scale of the pinch, starting at 1 on "start".
+      window.__flowctlPinch = (phase, scale, x, y) => {
+        const target = (x >= 0 && document.elementFromPoint(x, y)) || document.body;
+        const type = phase === "start" ? "gesturestart" : phase === "end" ? "gestureend" : "gesturechange";
+        const event = new Event(type, { bubbles: true, cancelable: true, composed: true });
+        Object.defineProperty(event, "scale", { value: scale });
+        Object.defineProperty(event, "clientX", { value: x });
+        Object.defineProperty(event, "clientY", { value: y });
+        target.dispatchEvent(event);
       };
 
       // Drag: pointerdown, pointermove (buttons 1) and pointerup on the element
