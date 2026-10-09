@@ -167,12 +167,33 @@ public struct SessionRegistry {
     }
 }
 
-/// Whether a snapshot should bring the panel up.
+/// Why the panel is hidden, which decides what may bring it back.
+public enum HiddenBy: Equatable {
+    /// Not hidden.
+    case nobody
+    /// The person closed it (× or the menu): only a new session, or one that starts waiting on them, brings it back.
+    case user
+    /// No session was working or waiting for five minutes: only a session that
+    /// is working or waiting again brings it back. Using the Mac does not.
+    case idle
+}
+
+/// Whether a snapshot should bring the panel up, and whether opening the app should.
 public enum AutoShow {
-    /// `userHidden`: the person closed the panel. Then only a new session, or
-    /// one that starts waiting on them, brings it back.
-    public static func shouldShow(outcome: SessionRegistry.Outcome, state: SessionState, enabled: Bool, userHidden: Bool) -> Bool {
+    /// A snapshot brings the panel up only when its session is working or
+    /// waiting (`state.isActive`) and the panel is not hidden in a way that
+    /// the snapshot does not lift.
+    public static func shouldShow(outcome: SessionRegistry.Outcome, state: SessionState, enabled: Bool, hiddenBy: HiddenBy) -> Bool {
         guard enabled, state.isActive, case let .accepted(isNew, startedWaiting) = outcome else { return false }
-        return !userHidden || isNew || startedWaiting
+        switch hiddenBy {
+        case .nobody, .idle: return true
+        case .user: return isNew || startedWaiting
+        }
+    }
+
+    /// Opening the app (Finder, Spotlight, the Dock, `open -a`) shows the panel,
+    /// except when it went away for idleness: nothing has resumed then.
+    public static func reopenShows(_ hiddenBy: HiddenBy) -> Bool {
+        hiddenBy != .idle
     }
 }
