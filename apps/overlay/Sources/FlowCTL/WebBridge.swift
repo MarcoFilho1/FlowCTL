@@ -18,6 +18,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var onFocus: ((_ sessionId: String, _ nodeId: String?) -> Void)?
     /// The look the person picked (pixel by default), applied on every load.
     var currentLook: () -> PageLook = { .standard }
+    /// Whether the person wants subagents drawn (on by default).
+    var currentShowSubagents: () -> Bool = { true }
     /// Hands the page hover moves while the app is inactive.
     let hover = HoverRelay()
 
@@ -96,6 +98,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             self.isReady = true
             // The look first, so the sessions below are drawn in it.
             self.applyLook(self.currentLook())
+            self.applyShowSubagents(self.currentShowSubagents())
             let pending = self.queued
             self.queued.removeAll()
             pending.forEach(self.send)
@@ -106,17 +109,25 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     /// an older viewer keeps drawing as it does and the overlay logs that).
     /// Waits for the page: a look picked while it loads is applied on load.
     func applyLook(_ look: PageLook) {
+        setPageOption("setLook", value: look.rawValue, what: "look \(look.rawValue)", missing: "the viewer has no setLook yet")
+    }
+
+    /// `window.flowctl.setShowSubagents(show)`, the same way: applied on every
+    /// load, and logged as not applied to a viewer that does not have it yet.
+    func applyShowSubagents(_ show: Bool) {
+        setPageOption("setShowSubagents", value: show, what: "subagents \(show ? "shown" : "hidden")", missing: "the viewer has no setShowSubagents yet")
+    }
+
+    /// Calls `window.flowctl.<name>(value)` when the page has it. `name` is
+    /// always one of the literals above, so it is safe to put in the script.
+    private func setPageOption(_ name: String, value: Any, what: String, missing: String) {
         guard isReady else { return }
-        let script = "if (window.flowctl && typeof window.flowctl.setLook === 'function') { window.flowctl.setLook(look); return true } return false"
-        webView.callAsyncJavaScript(script, arguments: ["look": look.rawValue], in: nil, in: .page) { result in
+        let script = "if (window.flowctl && typeof window.flowctl.\(name) === 'function') { window.flowctl.\(name)(value); return true } return false"
+        webView.callAsyncJavaScript(script, arguments: ["value": value], in: nil, in: .page) { result in
             switch result {
-            case .failure(let error): log("look \(look.rawValue) failed: \(error.localizedDescription)")
+            case .failure(let error): log("\(what) failed: \(error.localizedDescription)")
             case .success(let applied):
-                if (applied as? Bool) == true {
-                    log("look: \(look.rawValue)")
-                } else {
-                    log("look \(look.rawValue) not applied: the viewer has no setLook yet")
-                }
+                log((applied as? Bool) == true ? "\(what) applied" : "\(what) not applied: \(missing)")
             }
         }
     }
