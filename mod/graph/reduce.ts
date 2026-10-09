@@ -85,6 +85,8 @@ export interface GraphState {
   };
   /** The person's requests so far (prompt submissions); plan entries remember theirs. */
   request: number;
+  /** FlowPlan step id → the node it names now (a step re-planned in a later request gets a new node). */
+  steps: Map<string, string>;
   ended: boolean;
   warnings: string[];
   errorThreshold: number;
@@ -100,6 +102,7 @@ export function initialState(options: { errorThreshold?: number } = {}): GraphSt
     askedBy: new Map(),
     turn: { n: 0, running: false },
     request: 0,
+    steps: new Map(),
     ended: false,
     warnings: [],
     errorThreshold: options.errorThreshold ?? DEFAULT_ERROR_THRESHOLD,
@@ -499,7 +502,21 @@ function onFlowPlan(state: GraphState, event: GraphEvent, input: Record<string, 
     if (stepId === undefined) {
       continue;
     }
-    const id = `plan:${stepId}`;
+    // A step finished in an earlier request and planned again (to run, or with
+    // new dependencies) is new work: "run the tests" again. It gets its own
+    // node instead of pulling the old one forward, which would tie the
+    // requests in a loop.
+    let id = state.steps.get(stepId) ?? `plan:${stepId}`;
+    const earlier = state.entries.get(id);
+    const replanned =
+      earlier !== undefined &&
+      earlier.request < state.request &&
+      earlier.base === "completed" &&
+      (step["status"] === "pending" || step["status"] === "in_progress" || Array.isArray(step["blockedBy"]));
+    if (replanned) {
+      id = `plan:${stepId}#${state.request}`;
+    }
+    state.steps.set(stepId, id);
     let entry = state.entries.get(id);
     if (entry === undefined) {
       entry = {
@@ -522,7 +539,7 @@ function onFlowPlan(state: GraphState, event: GraphEvent, input: Record<string, 
       setBase(state, entry, status, event.t);
     }
     if (Array.isArray(step["blockedBy"])) {
-      entry.blockedBy = strings(step["blockedBy"]).map((blocker) => `plan:${blocker}`);
+      entry.blockedBy = strings(step["blockedBy"]).map((blocker) => state.steps.get(blocker) ?? `plan:${blocker}`);
     }
   }
 }

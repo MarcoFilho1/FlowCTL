@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { apply, FLOWPLAN_TOOL, initialState, nodes, replay, sessionState } from "../../mod/graph/reduce.ts";
+import { snapshot } from "../../mod/graph/snapshot.ts";
 import type { GraphEvent, GraphNode } from "../../mod/graph/types.ts";
 
 function fixture(name: string): GraphEvent[] {
@@ -331,4 +332,29 @@ test("/clear ends the old session before the new one starts", () => {
   assert.deepEqual([state.sessionId, sessionState(state)], ["old", "ended"]);
   apply(state, { t: 4, event: "classic.SessionStart", input: { source: "clear", session_id: "new" } });
   assert.deepEqual([state.sessionId, sessionState(state)], ["new", "idle"]);
+});
+
+test("a step id reused in a later request is new work, not the old step again", () => {
+  const state = initialState();
+  const plan = (steps: object[]): GraphEvent => ({ t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps }, result: { result: [] } });
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 5 } });
+  apply(state, plan([{ id: "edit", title: "Edit", status: "completed" }, { id: "npm-test", title: "Run tests", status: "completed", blockedBy: ["edit"] }]));
+  apply(state, { t: 1, event: "prompt.submit", input: { chars: 5 } });
+  apply(state, plan([
+    { id: "add-vip", title: "Add VIP", status: "in_progress" },
+    { id: "vip-test", title: "Test VIP", blockedBy: ["add-vip"] },
+    { id: "npm-test", title: "Run tests", blockedBy: ["vip-test"] }
+  ]));
+  apply(state, plan([{ id: "npm-test", status: "in_progress" }]));
+  const shown = nodes(state);
+  assert.deepEqual(shown.map((node) => [node.id, node.status, node.blockedBy.join()]), [
+    ["plan:edit", "done", ""],
+    ["plan:npm-test", "done", "plan:edit"],
+    ["plan:add-vip", "running", ""],
+    ["plan:vip-test", "pending", "plan:add-vip"],
+    ["plan:npm-test#2", "running", "plan:vip-test"]
+  ]);
+  assert.deepEqual(shown.find((node) => node.id === "plan:add-vip")?.after, ["plan:npm-test"]);
+  const placed = snapshot(state, { seq: 1, now: 0 });
+  assert.deepEqual(placed.warnings, []);
 });
