@@ -26,6 +26,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     init(page: URL) {
         self.page = page
         let configuration = WKWebViewConfiguration()
+        // The overlay's sounds play without a click: no media type needs a user gesture.
+        configuration.mediaTypesRequiringUserActionForPlayback = []
         let messages = MessageProxy()
         configuration.userContentController.add(messages, name: "flowctl")
         configuration.userContentController.addUserScript(WKUserScript(source: HoverRelay.pageScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
