@@ -346,6 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             },
             "activeSessions": activeSessionCount,
             "waitingIcon": isAnySessionWaiting,
+            "pageViewChain": pageViewChain(),
             "anchor": ["corner": anchor.corner.rawValue, "x": Double(anchor.point.x), "y": Double(anchor.point.y)],
             "panelSize": preferences.panelSize.rawValue,
             "look": preferences.look.rawValue,
@@ -353,6 +354,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             "hoverMovesRelayed": bridge?.hover.moves ?? 0,
             "menu": statusMenu?.describe() ?? []
         ]
+    }
+
+    /// The views a gesture over the middle of the page would reach, innermost first.
+    func pageViewChain() -> [String] {
+        guard let panel, let content = panel.contentView else { return [] }
+        let point = NSPoint(x: panel.frame.width / 2, y: panel.frame.height / 2)
+        var names: [String] = []
+        var view: NSView? = content.hitTest(point)
+        while let current = view {
+            names.append(String(describing: type(of: current)))
+            view = current.superview
+        }
+        return names
     }
 
     /// For ⌘Q and ⌘W while the panel is key, and for copying from the page.

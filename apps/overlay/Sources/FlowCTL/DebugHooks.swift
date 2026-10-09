@@ -19,6 +19,7 @@ import FlowCTLCore
 ///                                through NSApp.sendEvent
 ///   POST /debug/wheel?x=&y=&dx=&dy=   a two-finger scroll at a page point, through NSApp.sendEvent
 ///   POST /debug/page-relays      calls __flowctlDrag (down, 3 moves, up) and __flowctlWheel in the page
+///   POST /debug/pinch?x=&y=&m=0.1,0.1,-0.05   a pinch with these per-event magnifications, through the page view
 ///   POST /debug/mouse?x=&y=&type=move|click   a mouse event at a point of the page
 ///                                (from its top-left): a click through NSApp.sendEvent,
 ///                                a move through the hover relay
@@ -95,7 +96,17 @@ enum DebugHooks {
                     return .badRequest("x= and y= are required")
                 }
                 let dx = query["dx"].flatMap(Int32.init) ?? 0, dy = query["dy"].flatMap(Int32.init) ?? -40
-                return wheel(dx: dx, dy: dy, at: pagePoint(x, y, in: panel), in: panel) ? .ok() : .badRequest("could not make the event")
+                var flags: CGEventFlags = []
+                if query["ctrl"] == "1" { flags.insert(.maskControl) }
+                if query["cmd"] == "1" { flags.insert(.maskCommand) }
+                return wheel(dx: dx, dy: dy, flags: flags, at: pagePoint(x, y, in: panel), in: panel) ? .ok() : .badRequest("could not make the event")
+            case ("POST", "/debug/pinch"):
+                guard let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else {
+                    return .badRequest("x= and y= are required")
+                }
+                let steps = (query["m"] ?? "0.1").split(separator: ",").compactMap { Double($0) }
+                app.debugBridge?.debugPinch(steps, atPage: CGPoint(x: x, y: y))
+                return .ok()
             case ("POST", "/debug/mouse"):
                 guard let panel = app.debugPanel, let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else {
                     return .badRequest("x= and y= are required")
@@ -156,8 +167,9 @@ enum DebugHooks {
     /// scroll constructor). Such an event carries no window, so it is handed
     /// to the view under the point, as AppKit does with a real one; its screen
     /// location is set so that its window location is the page point.
-    private static func wheel(dx: Int32, dy: Int32, at point: NSPoint, in panel: NSPanel) -> Bool {
+    private static func wheel(dx: Int32, dy: Int32, flags: CGEventFlags = [], at point: NSPoint, in panel: NSPanel) -> Bool {
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else { return false }
+        cg.flags = flags
         cg.location = CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.height ?? 0) - point.y)
         guard let event = NSEvent(cgEvent: cg), let view = panel.contentView?.hitTest(point) else { return false }
         view.scrollWheel(with: event)
@@ -186,9 +198,10 @@ enum DebugHooks {
         let script = """
         if (!window.__flowctlProbe) {
           window.__flowctlProbe = {};
-          for (const type of ["pointerdown", "pointermove", "pointerup", "mousedown", "mousemove", "mouseup", "click", "wheel"]) {
+          for (const type of ["pointerdown", "pointermove", "pointerup", "mousedown", "mousemove", "mouseup", "click", "wheel", "gesturestart", "gesturechange"]) {
             document.addEventListener(type, (event) => {
-              const key = type + (event.isTrusted ? ".trusted" : ".synthetic");
+              const mods = type === "wheel" && (event.ctrlKey || event.metaKey) ? ".mod" : "";
+              const key = type + mods + (event.isTrusted ? ".trusted" : ".synthetic");
               window.__flowctlProbe[key] = (window.__flowctlProbe[key] || 0) + 1;
             }, true);
           }
