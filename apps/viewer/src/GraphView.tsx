@@ -132,7 +132,9 @@ export function GraphView({
   const layoutBoxes = useMemo(() => new Map<string, Box>(scene.nodes.map((shape) => [shape.id, circleBox(shape)])), [scene]);
 
   // The dream: the nodes leave the graph for a shape, centered on the graph's middle.
-  const elapsed = useDreamClock(dreaming, pixel);
+  const [hovered, setHovered] = useState<string | null>(null);
+  // Hovering a node holds the dream still, so its card can be read.
+  const elapsed = useDreamClock(dreaming, pixel, hovered !== null);
   const center = { x: scene.width / 2, y: scene.height / 2 };
   const fit = dreamFit(scene.nodes.length, Math.max(1, ...scene.nodes.map((shape) => shape.r)), viewport, pixel);
   const dreamBoxes = useMemo(() => {
@@ -163,7 +165,6 @@ export function GraphView({
   // Back from the dream, the nodes fly home a little slower than a layout change.
   const boxes = useTween(dreamBoxes, { instant: dreaming, ms: dreaming ? undefined : 900 });
 
-  const [hovered, setHovered] = useState<string | null>(null);
   const [cam, setCam] = useState<Camera>({ x: 0, y: 0, s: 1 });
   const [dragging, setDragging] = useState(false);
   const press = useRef<{ start: Point; cam: Camera; moved: boolean; node: string | null } | null>(null);
@@ -350,7 +351,7 @@ export function GraphView({
     zoom(direction, { x: event.clientX - box.left, y: event.clientY - box.top });
   };
 
-  const hoveredShape = hovered && !dragging && !dreaming ? shapes.get(hovered) : undefined;
+  const hoveredShape = hovered && !dragging ? shapes.get(hovered) : undefined;
   const offscreen = scene.nodes.filter((shape) => {
     if (dreaming) return false;
     if (shape.node.status !== "needs_you" && shape.node.status !== "error") return false;
@@ -476,7 +477,9 @@ export function GraphView({
             }}
           />
         ))}
-        {hoveredShape && <Card shape={hoveredShape} snapshot={snapshot} cam={drawn} viewport={viewport} />}
+        {hoveredShape && (
+          <Card shape={hoveredShape} box={boxes.get(hoveredShape.id) ?? circleBox(hoveredShape)} snapshot={snapshot} cam={drawn} viewport={viewport} />
+        )}
       </div>
     </div>
   );
@@ -485,15 +488,19 @@ export function GraphView({
 /**
  * Milliseconds since the dream began, ticking while it lasts: every frame for
  * the smooth look, at 12 fps for pixel art (its shapes step like a sprite).
- * With reduced motion the shape is shown still, already formed.
+ * With reduced motion the shape is shown still, already formed. While
+ * `paused` the clock holds, and it goes on from there.
  */
-function useDreamClock(dreaming: boolean, pixel: boolean): number {
+function useDreamClock(dreaming: boolean, pixel: boolean, paused: boolean): number {
   const [elapsed, setElapsed] = useState(0);
+  const elapsedRef = useRef(0);
   useEffect(() => {
     if (!dreaming) {
+      elapsedRef.current = 0;
       setElapsed(0);
       return;
     }
+    if (paused) return;
     const motion =
       typeof requestAnimationFrame === "function" &&
       typeof matchMedia === "function" &&
@@ -502,20 +509,21 @@ function useDreamClock(dreaming: boolean, pixel: boolean): number {
       setElapsed(MORPH_MS);
       return;
     }
-    const began = performance.now();
+    const began = performance.now() - elapsedRef.current;
     const every = pixel ? 1000 / 12 : 1000 / 30;
     let last = -Infinity;
     let frame = 0;
     const step = (now: number) => {
       if (now - last >= every) {
         last = now;
+        elapsedRef.current = now - began;
         setElapsed(now - began);
       }
       frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [dreaming, pixel]);
+  }, [dreaming, pixel, paused]);
   return elapsed;
 }
 
@@ -632,10 +640,11 @@ function Beacon({ shape, cam, viewport, onGo }: { shape: NodeShape; cam: Camera;
   );
 }
 
-function Card({ shape, snapshot, cam, viewport }: { shape: NodeShape; snapshot: Snapshot; cam: Camera; viewport: Size }) {
+function Card({ shape, box, snapshot, cam, viewport }: { shape: NodeShape; box: Box; snapshot: Snapshot; cam: Camera; viewport: Size }) {
   const card = hoverCard(shape.node, snapshot);
-  const x = shape.cx * cam.s + cam.x;
-  const y = shape.cy * cam.s + cam.y;
+  // Where the node is drawn now: in the dream, away from its place in the graph.
+  const x = (box.x + box.w / 2) * cam.s + cam.x;
+  const y = (box.y + box.h / 2) * cam.s + cam.y;
   const width = Math.min(CARD_W, viewport.width - 12);
   // Beside the node, on whichever side has room, kept inside the window.
   const left = x + shape.r + 10 + width <= viewport.width ? x + shape.r + 10 : Math.max(6, x - shape.r - 10 - width);

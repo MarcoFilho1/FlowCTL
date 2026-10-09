@@ -589,6 +589,22 @@ describe("the idle animation", () => {
     }
   });
 
+  test("hovering a node in the shape shows its card", () => {
+    vi.useFakeTimers();
+    try {
+      const store = createSessionStore();
+      store.push(graph("idle"));
+      const { container } = render(<App store={store} />);
+      act(() => vi.advanceTimersByTime(DREAM_AFTER_MS + 10));
+      expect(canvas(container).getAttribute("data-mode")).toBe("dream");
+      expect(hover(container, "c")).not.toBeNull();
+      fireEvent.mouseLeave(node(container, "c"));
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("the overlay can turn it off", () => {
     vi.useFakeTimers();
     try {
