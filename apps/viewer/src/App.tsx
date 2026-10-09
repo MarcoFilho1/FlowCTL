@@ -13,7 +13,7 @@ export function App({
   replays?: readonly Replay[];
   startAt?: number | "end";
 }) {
-  const { sessions: all, active } = useSyncExternalStore(store.subscribe, store.getState);
+  const { sessions: all, active, look } = useSyncExternalStore(store.subscribe, store.getState);
   // A session with nothing drawn that is not working (a fresh one gone idle, a
   // stale file restored at launch) would only be an empty tab.
   const sessions = all.filter(
@@ -21,14 +21,14 @@ export function App({
   );
   const current = sessions.find((session) => sessionKey(session) === active) ?? sessions[0];
   return (
-    <main className={`app ${replays ? "dev" : "overlay"}`}>
+    <main className={`app ${replays ? "dev" : "overlay"} look-${look}`}>
       {replays && <DevControls replays={replays} store={store} {...(startAt !== undefined ? { startAt } : {})} />}
       <Tabs sessions={sessions} active={current ? sessionKey(current) : null} onSelect={store.select} />
       {current ? (
         <>
           <Header snapshot={current} />
           {/* Keyed per session: each tab keeps its own orientation and tweens. */}
-          <GraphView key={sessionKey(current)} snapshot={current} />
+          <GraphView key={sessionKey(current)} snapshot={current} look={look} />
         </>
       ) : (
         <p className="empty">Waiting for a Claude Code session…</p>
