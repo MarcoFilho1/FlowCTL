@@ -178,7 +178,7 @@ Cada fase é **uma branch `feat/*` + PR**, com CI verde antes do merge.
 Estimativas para uma pessoa com o Claude ajudando, já com folga de ~35% (a
 API de mods é early access e muda entre versões).
 
-### Fase 0: Recomeço do repositório (1 dia)
+### Fase 0: Recomeço do repositório (1 dia) ✅
 **Objetivo:** repositório limpo para a v2.
 - [ ] Remover `packages/`, `apps/playground/`, `docs/superpowers/`, `docs/protocol-v0.md` e o workspace pnpm antigo (tudo preservado em `v0-orchestrator`).
 - [ ] Esqueleto do mod **escrito à mão** (`claude plugin init` gera outro tipo de plugin):
@@ -193,7 +193,7 @@ API de mods é early access e muda entre versões).
 
 **Pronto quando:** `claude --plugin-dir ./mod` carrega o mod sem erros e o CI está verde.
 
-### Fase 1: Spikes e gate (3 dias)
+### Fase 1: Spikes e gate (3 dias) ✅
 Os dois maiores riscos são validados antes de qualquer código definitivo.
 
 **1a. Eventos e fixtures (2 dias)**
@@ -230,7 +230,7 @@ Os dois maiores riscos são validados antes de qualquer código definitivo.
 - **`nudgeTasks` desligado por padrão** (`userConfig`). Quem quiser o grafo sempre preenchido liga.
 - Consequência: o nó implícito de turno é o caminho **normal** quando não há plano, não uma exceção.
 
-### Fase 2: Motor do grafo em TS puro (5 dias)
+### Fase 2: Motor do grafo em TS puro (5 dias) ✅
 **Objetivo:** `mod/graph/` completo e testado só com fixtures, sem UI. Ao fim,
 o formato do `Snapshot` fica **congelado** (`schema: 1`).
 - [ ] `types.ts`: modelo da seção 3, ajustado ao que a Fase 1 revelou.
@@ -247,6 +247,8 @@ o formato do `Snapshot` fica **congelado** (`schema: 1`).
   - layout de 50 nós em < 5 ms.
 
 **Pronto quando:** todos os fixtures geram o golden esperado e o CI está verde.
+
+Nota para a Fase 4: o layout trata subagentes como nós comuns, então numa camada eles podem se intercalar com tasks (fixture 03: `consolidar` entre os agentes). O viewer deve desenhá-los agrupados sob a task `parent`.
 
 ### Fase 3: Mod ao vivo + bridge (3 dias)
 **Objetivo:** o mod roda o motor numa sessão real e publica o estado.

@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "seq": 174,
+  "sessionId": "3287a4e0-b6b6-43d3-8d32-80ddae698a6f",
+  "cwd": "<project>",
+  "updatedAt": 1791512533894,
+  "sessionState": "ended",
+  "planSource": "none",
+  "nodes": [
+    {
+      "id": "agent:a457c56c27db61ac6",
+      "kind": "agent",
+      "title": "Revisar módulo cart",
+      "status": "done",
+      "agentId": "a457c56c27db61ac6",
+      "blockedBy": []
+    },
+    {
+      "id": "agent:a3d0e66e18b902e47",
+      "kind": "agent",
+      "title": "Revisar módulo user",
+      "status": "done",
+      "agentId": "a3d0e66e18b902e47",
+      "blockedBy": []
+    },
+    {
+      "id": "agent:aa810dc38ffb6f847",
+      "kind": "agent",
+      "title": "Revisar módulo report",
+      "status": "done",
+      "agentId": "aa810dc38ffb6f847",
+      "blockedBy": []
+    }
+  ],
+  "layout": {
+    "agent:a457c56c27db61ac6": {
+      "rank": 0,
+      "order": 0
+    },
+    "agent:a3d0e66e18b902e47": {
+      "rank": 0,
+      "order": 1
+    },
+    "agent:aa810dc38ffb6f847": {
+      "rank": 0,
+      "order": 2
+    }
+  },
+  "warnings": []
+}
