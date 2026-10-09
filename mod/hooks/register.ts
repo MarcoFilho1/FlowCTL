@@ -300,7 +300,9 @@ export const register: Register = (on, options) => {
   });
 
   on("prompt.submit", async ($, e, next) => {
-    observe($, "prompt.submit", { input: { chars: e.text.length } });
+    // Where it came from: the person (composer, bridge, sdk) or the engine
+    // (a background agent's task notification, an auto-continuation...).
+    observe($, "prompt.submit", { input: { chars: e.text.length, ...(e.origin ? { origin: e.origin.kind } : {}) } });
     return next(e);
   });
 
