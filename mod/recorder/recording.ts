@@ -55,7 +55,27 @@ export function trim(value: unknown, depth = 0): unknown {
 }
 
 /**
- * Events in numbered JSONL chunks (`rec-0001.jsonl`, ...). The engine's file
+ * A copy of `value` without the given keys, at any depth: classic events nest
+ * tool payloads (PostToolBatch's `tool_calls[].tool_input`).
+ */
+export function omitKeys(value: unknown, keys: ReadonlySet<string>): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => omitKeys(item, keys));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !keys.has(key))
+        .map(([key, item]) => [key, omitKeys(item, keys)])
+    );
+  }
+  return value;
+}
+
+/**
+ * Events in numbered JSONL chunks (`rec-<run>-0001.jsonl`, ...), `run` naming
+ * this recording so a resumed session (same folder) never overwrites an
+ * earlier one's chunks. The engine's file
  * API has no append, so each flush rewrites only the chunks touched since the
  * last one: the cost of a flush stays bounded by the chunk size.
  */
@@ -63,10 +83,12 @@ export class Recording {
   private readonly events: RecordedEvent[] = [];
   private dirtyFrom: number | undefined;
   private readonly directory: string;
+  private readonly run: string;
   private readonly chunkSize: number;
 
-  constructor(directory: string, chunkSize = 200) {
+  constructor(directory: string, run: string, chunkSize = 200) {
     this.directory = directory;
+    this.run = run;
     this.chunkSize = chunkSize;
   }
 
@@ -92,7 +114,7 @@ export class Recording {
     for (let chunk = first; chunk <= last; chunk += 1) {
       const slice = this.events.slice(chunk * this.chunkSize, (chunk + 1) * this.chunkSize);
       writes.push({
-        file: `${this.directory}/rec-${String(chunk + 1).padStart(4, "0")}.jsonl`,
+        file: `${this.directory}/rec-${this.run}-${String(chunk + 1).padStart(4, "0")}.jsonl`,
         text: slice.map((event) => JSON.stringify(event)).join("\n") + "\n"
       });
     }

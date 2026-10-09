@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from "claude-code";
-import { Recording, trim } from "../recorder/recording.ts";
+import { omitKeys, Recording, trim } from "../recorder/recording.ts";
 
 // Phase 1: record the events the graph will be built from, one session per
 // folder under ~/.flowctl/recordings/<sessionId>/. Observe only: every hook
@@ -19,9 +19,19 @@ const GRAPH_TOOLS = new Set([
   "SendMessage"
 ]);
 
-// Fields of classic events that carry prompts, the model's text, tool
-// payloads or paths.
-const CLASSIC_DROPPED = ["prompt", "delta", "tool_input", "tool_response", "transcript_path", "cwd", "last_assistant_message"];
+// Fields of classic events, at any depth, that carry prompts, the model's
+// text, tool payloads or paths.
+const CLASSIC_DROPPED = new Set([
+  "prompt",
+  "delta",
+  "tool_input",
+  "tool_response",
+  "transcript_path",
+  "agent_transcript_path",
+  "scratchpad_dir",
+  "cwd",
+  "last_assistant_message"
+]);
 
 const FLUSH_DELAY_MS = 500;
 
@@ -67,7 +77,7 @@ function followSession($: EngineInterface, sessionId: string): void {
   }
   void flush($);
   currentSessionId = sessionId;
-  recording = new Recording(`${recordingsRoot}/${sessionId}`);
+  recording = new Recording(`${recordingsRoot}/${sessionId}`, String(Date.now()));
 }
 
 function flush($: EngineInterface): Promise<void> {
@@ -89,7 +99,7 @@ export const register: Register = (on) => {
       const sessionId = await $.session.id();
       recordingsRoot = `${home}/.flowctl/recordings`;
       currentSessionId ??= sessionId;
-      recording ??= new Recording(`${recordingsRoot}/${currentSessionId}`);
+      recording ??= new Recording(`${recordingsRoot}/${currentSessionId}`, String(Date.now()));
       for (const entry of pending.splice(0)) {
         recording.add(entry);
       }
@@ -175,12 +185,9 @@ export const register: Register = (on) => {
     if (!("hook_event_name" in e)) {
       return result;
     }
-    const fields: Record<string, unknown> = { ...(e as Record<string, unknown>) };
+    const fields = omitKeys(e, CLASSIC_DROPPED) as Record<string, unknown>;
     if (typeof fields["session_id"] === "string") {
       followSession($, fields["session_id"]);
-    }
-    for (const key of CLASSIC_DROPPED) {
-      delete fields[key];
     }
     record($, `classic.${String(fields["hook_event_name"])}`, { input: trim(fields) });
     return result;
