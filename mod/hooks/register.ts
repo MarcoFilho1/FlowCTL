@@ -58,7 +58,7 @@ interface Settings {
   recordEvents: boolean;
 }
 
-let settings: Settings = { errorThreshold: 3, nudge: false, autoOpenOverlay: true, recordEvents: false };
+let settings: Settings = { errorThreshold: 3, nudge: true, autoOpenOverlay: true, recordEvents: false };
 let graph: GraphState = initialState();
 let flowctlDir: string | undefined;
 // Readers drop a snapshot whose seq is not above the last one, and a reload
@@ -81,7 +81,8 @@ function readSettings(options: PluginOptions): Settings {
   const threshold = Number(options["errorThreshold"]);
   return {
     errorThreshold: Number.isFinite(threshold) && threshold >= 1 ? threshold : 3,
-    nudge: options["nudge"] === true,
+    // On unless turned off: without it the agent rarely declares a plan.
+    nudge: options["nudge"] !== false,
     autoOpenOverlay: options["autoOpenOverlay"] !== false,
     recordEvents: options["recordEvents"] === true
   };

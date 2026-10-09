@@ -25,13 +25,13 @@ test("the mod serves its FlowPlan tool itself", async ($) => {
   expect(answer.result).toEqual([{ type: "text", text: answer.text }]);
 });
 
-test("the nudge stays out of the system prompt by default", async ($, on) => {
+test("with the nudge turned off, the system prompt is untouched", { options: { nudge: false } }, async ($, on) => {
   on("prompt.compose", () => ({ sections: [{ id: "base", text: "base", scope: "shared" as const }] }));
   const { sections } = await $.prompt.compose(COMPOSE);
   expect(sections.map((section) => section.id)).toEqual(["base"]);
 });
 
-test("with the nudge on, one session section asks for a plan", { options: { nudge: true } }, async ($, on) => {
+test("by default the nudge adds one session section asking for a plan", async ($, on) => {
   on("prompt.compose", () => ({ sections: [{ id: "base", text: "base", scope: "shared" as const }] }));
   const { sections } = await $.prompt.compose(COMPOSE);
   expect(sections.map((section) => [section.id, section.scope])).toEqual([

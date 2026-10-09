@@ -260,3 +260,24 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
   .chaser, .halo-px, .bang, .node.pixel.status-needs_you .px-outline, .app.look-pixel .link.live { animation: none; }
   .chaser { opacity: 0.8; }
 }
+
+/* ── Transitions: a finished step bursts, then hands off along the edge ── */
+.burst { fill: none; stroke: var(--done); stroke-width: 2.5; transform-box: fill-box; transform-origin: center; animation: burst 0.8s ease-out both; pointer-events: none; }
+@keyframes burst {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.burst-px rect { fill: var(--done); opacity: 0; animation: burst-px 0.6s steps(1, end) both; pointer-events: none; }
+@keyframes burst-px {
+  0% { opacity: 1; }
+  40% { opacity: 0.6; }
+  70%, 100% { opacity: 0; }
+}
+.packet { pointer-events: none; }
+.packet circle { fill: var(--running); filter: drop-shadow(0 0 4px var(--running)); }
+.packet-px rect { fill: var(--running); }
+
+@media (prefers-reduced-motion: reduce) {
+  .burst, .burst-px rect { animation: none; opacity: 0; }
+  .packet { display: none; }
+}

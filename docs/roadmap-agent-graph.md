@@ -227,7 +227,7 @@ Os dois maiores riscos são validados antes de qualquer código definitivo.
   - se `TaskCreate` existe na sessão (`$.tool.list()` no `session.start`), o mod lê as tasks nativas;
   - se não existe, o mod registra a própria ferramenta de plano (`$.tool.register`, ex.: `FlowPlan` com nós, `blockedBy` e status), que alimenta o mesmo reducer;
   - nunca as duas ao mesmo tempo, para o agente não receber duas listas.
-- **`nudgeTasks` desligado por padrão** (`userConfig`). Quem quiser o grafo sempre preenchido liga.
+- **Nudge ligado por padrão** (decidido após a demo ao vivo, out/2026: sem ele o grafo quase sempre fica com um nó só). Desligável no `/config`.
 - Consequência: o nó implícito de turno é o caminho **normal** quando não há plano, não uma exceção.
 
 ### Fase 2: Motor do grafo em TS puro (5 dias) ✅

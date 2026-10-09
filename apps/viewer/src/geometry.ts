@@ -185,3 +185,47 @@ export function clampPan(
 export function centerOn(shape: Pick<NodeShape, "cx" | "cy">, viewport: { width: number; height: number }): { x: number; y: number } {
   return { x: viewport.width / 2 - shape.cx, y: viewport.height / 2 - shape.cy };
 }
+
+/** Where the view looks and how close: screen = scene × s + (x, y). */
+export interface Camera {
+  x: number;
+  y: number;
+  s: number;
+}
+
+/** The nodes the work is on now: those that need the person, else everything running. */
+export function currentNodes(scene: Scene): NodeShape[] {
+  const waiting = scene.nodes.filter((shape) => shape.node.status === "needs_you");
+  if (waiting.length > 0) return waiting;
+  return scene.nodes.filter((shape) => shape.node.status === "running" && !shape.isSatellite);
+}
+
+const MIN_OVERVIEW_SCALE = 0.5;
+const OVERVIEW_PAD = 14;
+
+/**
+ * The camera for a session. While it works it follows the current nodes at
+ * full size (their middle, so parallel steps stay in view together); when it
+ * rests it pulls back to show the whole graph, down to half size, in steps
+ * of a quarter for the pixel look so art pixels stay whole.
+ */
+export function cameraFor(
+  scene: Scene,
+  viewport: { width: number; height: number },
+  mode: "follow" | "overview",
+  pixel: boolean
+): Camera {
+  if (mode === "overview") {
+    let s = Math.min(1, (viewport.width - 2 * OVERVIEW_PAD) / scene.width, (viewport.height - 2 * OVERVIEW_PAD) / scene.height);
+    if (pixel) s = Math.floor(s * 4) / 4;
+    s = Math.max(MIN_OVERVIEW_SCALE, s);
+    const sized = { width: scene.width * s, height: scene.height * s };
+    return { ...clampPan({ x: (viewport.width - sized.width) / 2, y: (viewport.height - sized.height) / 2 }, sized, viewport), s };
+  }
+  const current = currentNodes(scene);
+  const target = current.length > 0 ? current : scene.nodes.slice(-1);
+  if (target.length === 0) return { x: 0, y: 0, s: 1 };
+  const cx = target.reduce((sum, shape) => sum + shape.cx, 0) / target.length;
+  const cy = target.reduce((sum, shape) => sum + shape.cy, 0) / target.length;
+  return { ...clampPan(centerOn({ cx, cy }, viewport), scene, viewport), s: 1 };
+}

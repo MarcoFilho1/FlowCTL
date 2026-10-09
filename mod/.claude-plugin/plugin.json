@@ -15,8 +15,8 @@
     "nudge": {
       "type": "boolean",
       "title": "Ask the agent to declare its plan",
-      "description": "Add a short instruction asking the agent to declare a plan for work of 3 or more steps",
-      "default": false
+      "description": "Add a short instruction asking the agent to declare and update a plan for work of 3 or more steps (on by default; without it the graph is usually one node)",
+      "default": true
     },
     "errorThreshold": {
       "type": "number",
