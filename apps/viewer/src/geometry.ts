@@ -11,6 +11,8 @@ import type { GraphNode, Snapshot } from "../../../mod/graph/types.ts";
 export const NODE_R = 9;
 export const SATELLITE_R = 5;
 const COLUMN_GAP = 68;
+/** Before the column where a new request starts: twice the room, so requests read apart from afar. */
+const REQUEST_GAP = 2 * COLUMN_GAP;
 const ROW_GAP = 36;
 const SATELLITE_DX = 12;
 const SATELLITE_STEP = 15;
@@ -104,9 +106,18 @@ export function buildScene(snapshot: Snapshot): Scene {
   );
   const tallest = Math.max(0, ...columnHeight);
 
+  // A column that starts a new request (a node there comes after the last
+  // request's ends) sits further from the one before it.
+  const columnX: number[] = [];
+  columns.forEach((column, i) => {
+    const startsRequest = column.some((slot) => (slot.node.after ?? []).length > 0);
+    const previous = columnX[i - 1];
+    columnX.push(previous === undefined ? MARGIN + NODE_R : previous + (startsRequest ? REQUEST_GAP : COLUMN_GAP));
+  });
+
   const shapes: NodeShape[] = [];
   columns.forEach((column, i) => {
-    const cx = MARGIN + NODE_R + i * COLUMN_GAP;
+    const cx = columnX[i] ?? MARGIN + NODE_R;
     // Each column is centered on the tallest, so a lone node lines up with its neighbors.
     let y = MARGIN + (tallest - (columnHeight[i] ?? 0)) / 2;
     for (const slot of column) {
@@ -147,7 +158,7 @@ export function buildScene(snapshot: Snapshot): Scene {
     }
   }
 
-  const width = columns.length === 0 ? 2 * MARGIN : MARGIN * 2 + 2 * NODE_R + (columns.length - 1) * COLUMN_GAP + SATELLITE_DX;
+  const width = columns.length === 0 ? 2 * MARGIN : (columnX.at(-1) ?? 0) + NODE_R + MARGIN + SATELLITE_DX;
   return { width, height: Math.max(tallest, 0) + 2 * MARGIN, nodes: shapes, links };
 }
 
