@@ -20,6 +20,9 @@ test("the mod serves its FlowPlan tool itself", async ($) => {
   });
   expect(answer.isError).toBeUndefined();
   expect(answer.text).toContain("2 step(s)");
+  // The engine accepts only text or content blocks from a plugin's tool; an
+  // object makes every call fail for the model (seen in a real session).
+  expect(answer.result).toEqual([{ type: "text", text: answer.text }]);
 });
 
 test("the nudge stays out of the system prompt by default", async ($, on) => {
