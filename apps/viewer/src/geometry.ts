@@ -202,6 +202,8 @@ export function currentNodes(scene: Scene): NodeShape[] {
 
 const MIN_OVERVIEW_SCALE = 0.5;
 const OVERVIEW_PAD = 14;
+/** Room kept around the followed nodes. */
+const FOLLOW_PAD = 28;
 
 /**
  * The camera for a session. While it works it follows the current nodes at
@@ -223,9 +225,25 @@ export function cameraFor(
     return { ...clampPan({ x: (viewport.width - sized.width) / 2, y: (viewport.height - sized.height) / 2 }, sized, viewport), s };
   }
   const current = currentNodes(scene);
-  const target = current.length > 0 ? current : scene.nodes.slice(-1);
+  // Between steps (one just finished, the next not marked yet) aim at the
+  // steps that are now free to start, rather than at the end of the graph.
+  const status = new Map(scene.nodes.map((shape) => [shape.id, shape.node.status]));
+  const ready = scene.nodes.filter(
+    (shape) => !shape.isSatellite && shape.node.status === "pending" && shape.node.blockedBy.every((id) => status.get(id) === "done")
+  );
+  const target = current.length > 0 ? current : ready.length > 0 ? ready.slice(0, 1) : scene.nodes.slice(-1);
   if (target.length === 0) return { x: 0, y: 0, s: 1 };
-  const cx = target.reduce((sum, shape) => sum + shape.cx, 0) / target.length;
-  const cy = target.reduce((sum, shape) => sum + shape.cy, 0) / target.length;
-  return { ...clampPan(centerOn({ cx, cy }, viewport), scene, viewport), s: 1 };
+  // Frame the current nodes: centered on them, zoomed out only as far as
+  // needed to fit them all (parallel steps), never in past full size. No
+  // clamping here: the node in the middle matters more than the graph's edge.
+  const left = Math.min(...target.map((shape) => shape.cx - shape.r)) - FOLLOW_PAD;
+  const right = Math.max(...target.map((shape) => shape.cx + shape.r)) + FOLLOW_PAD;
+  const top = Math.min(...target.map((shape) => shape.cy - shape.r)) - FOLLOW_PAD;
+  const bottom = Math.max(...target.map((shape) => shape.cy + shape.r)) + FOLLOW_PAD;
+  let s = Math.min(1, viewport.width / (right - left), viewport.height / (bottom - top));
+  if (pixel) s = Math.floor(s * 4) / 4;
+  s = Math.max(MIN_OVERVIEW_SCALE, s);
+  const cx = (left + right) / 2;
+  const cy = (top + bottom) / 2;
+  return { x: viewport.width / 2 - cx * s, y: viewport.height / 2 - cy * s, s };
 }
