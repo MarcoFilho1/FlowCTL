@@ -71,7 +71,8 @@ test("fixture 04: a permission prompt turns the work yellow until it is answered
     // Denied: the person stopped it, so not an error.
     "tool.call:running:-"
   ]);
-  assert.equal(sessionState(state), "idle");
+  // The recording ends with /clear, which ends the session.
+  assert.equal(sessionState(state), "ended");
 });
 
 test("fixture 05: a question to the person is yellow with kind 'question'", () => {
@@ -319,4 +320,15 @@ test("a new request shows the turn after the last plan until its own plan arrive
   apply(state, { t: 4, event: "tool.call", input: { tool: "AskUserQuestion" }, result: { result: { answers: {} } } });
   apply(state, plan([{ id: "b", title: "B", status: "in_progress" }]));
   assert.deepEqual(nodes(state).map((node) => node.id), ["plan:a", "plan:b"]);
+});
+
+test("/clear ends the old session before the new one starts", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "classic.SessionStart", input: { source: "startup", session_id: "old" } });
+  apply(state, { t: 1, event: "turn.start", input: { turnId: "a" } });
+  apply(state, { t: 2, event: "turn.complete", input: { reason: "answer" }, result: { agents: [] } });
+  apply(state, { t: 3, event: "classic.SessionEnd", input: { reason: "clear", session_id: "old" } });
+  assert.deepEqual([state.sessionId, sessionState(state)], ["old", "ended"]);
+  apply(state, { t: 4, event: "classic.SessionStart", input: { source: "clear", session_id: "new" } });
+  assert.deepEqual([state.sessionId, sessionState(state)], ["new", "idle"]);
 });
