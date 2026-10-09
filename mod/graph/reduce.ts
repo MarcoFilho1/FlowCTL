@@ -613,24 +613,51 @@ function addEdge(entry: PlanEntry, blocker: string): void {
 }
 
 /**
- * The task a new subagent works for: an in_progress task of the main loop
- * whose title matches the agent's description, else the latest started one.
+ * The task a new subagent works for, among the main loop's in-progress
+ * entries: the one whose title shares the most words with the agent's
+ * description ("Testes node:test para cart" → "Testes do cart"); on a tie, or
+ * with no word in common, the one with the fewest subagents so far, then the
+ * one started last.
  */
 function parentFor(state: GraphState, description: string): string | undefined {
-  const wanted = description.trim().toLowerCase();
-  let latest: PlanEntry | undefined;
-  for (const entry of state.entries.values()) {
-    if (entry.agentId !== undefined || entry.base !== "in_progress") {
-      continue;
-    }
-    if (entry.title.trim().toLowerCase() === wanted) {
-      return entry.id;
-    }
-    if (latest === undefined || (entry.startedAt ?? 0) >= (latest.startedAt ?? 0)) {
-      latest = entry;
-    }
+  const wanted = words(description);
+  const helpers = new Map<string, number>();
+  for (const agent of state.agents.values()) {
+    if (agent.parent !== undefined) helpers.set(agent.parent, (helpers.get(agent.parent) ?? 0) + 1);
   }
-  return latest?.id;
+  let best: { entry: PlanEntry; score: number } | undefined;
+  for (const entry of state.entries.values()) {
+    if (entry.agentId !== undefined || entry.base !== "in_progress") continue;
+    const own = words(`${entry.title} ${entry.description ?? ""}`);
+    const score = [...wanted].filter((word) => own.has(word)).length;
+    if (best === undefined || isBetterParent(entry, score, best, helpers)) best = { entry, score };
+  }
+  return best?.entry.id;
+}
+
+function isBetterParent(
+  entry: PlanEntry,
+  score: number,
+  best: { entry: PlanEntry; score: number },
+  helpers: ReadonlyMap<string, number>
+): boolean {
+  if (score !== best.score) return score > best.score;
+  const load = helpers.get(entry.id) ?? 0;
+  const bestLoad = helpers.get(best.entry.id) ?? 0;
+  if (load !== bestLoad) return load < bestLoad;
+  return (entry.startedAt ?? 0) >= (best.entry.startedAt ?? 0);
+}
+
+// Words too common in step titles to tell steps apart.
+const FILLER = new Set(["the", "and", "for", "with", "from", "into", "para", "com", "dos", "das", "uma", "por", "que", "test", "tests", "node"]);
+
+function words(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word.length >= 3 && !FILLER.has(word))
+  );
 }
 
 function loopOf(state: GraphState, loop: string): LoopState {
