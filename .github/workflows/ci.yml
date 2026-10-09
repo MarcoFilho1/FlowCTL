@@ -40,6 +40,9 @@ jobs:
       - name: Test graph logic
         run: pnpm test
 
+      - name: Test and build the viewer
+        run: pnpm viewer:test && pnpm viewer:build
+
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
