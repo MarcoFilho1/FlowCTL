@@ -115,6 +115,9 @@ swift test --package-path apps/overlay                 # the same checks under X
 FLOWCTL_VIEWER_DIR=apps/viewer/dist .build/debug/FlowCTL   # run against a local viewer build
 ```
 
+With `FLOWCTL_DEBUG=1`, `FLOWCTL_IDLE_SECONDS=20` shortens the idle limit
+(five minutes by default), to see the hide and show without waiting.
+
 `FlowCTLCore` holds the logic without AppKit (HTTP parsing, snapshots,
 sessions, file cleanup, window geometry, terminal focus plans);
 `OverlayChecks` holds its checks. With `FLOWCTL_DEBUG=1` the app also serves
