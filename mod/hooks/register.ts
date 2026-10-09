@@ -224,10 +224,15 @@ function flushRecording($: EngineInterface): Promise<void> {
   return recordFlushing;
 }
 
-/** Serves the FlowPlan tool: the plan itself reaches the graph as the call is observed. */
+/**
+ * Serves the FlowPlan tool: the plan itself reaches the graph as the call is
+ * observed. A plugin tool's result must be text or MCP content blocks; any
+ * other shape fails the call for the model, which then stops updating the plan.
+ */
 function serveFlowPlan(e: Record<string, unknown>): ToolCallResult {
   const steps = Array.isArray(e["steps"]) ? e["steps"].length : 0;
-  return { result: { accepted: steps }, text: `Plan updated: ${steps} step(s). The person sees it as a live graph.` };
+  const text = `Plan updated: ${steps} step(s). The person sees it as a live graph.`;
+  return { result: [{ type: "text", text }], text };
 }
 
 export const register: Register = (on, options) => {
