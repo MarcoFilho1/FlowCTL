@@ -1,23 +1,24 @@
-// Turns a Snapshot's layout (rank, order) into pixels. Pure, so it is tested
-// on the golden snapshots without a browser.
+// Turns a Snapshot's layout (rank, order) into a node-link drawing: each node
+// a circle with a short label beside it, ranks from top to bottom. Pure, so
+// it is tested on the golden snapshots without a browser.
 //
 // The layout treats subagents as ordinary nodes, so in a rank they can sit
 // between tasks. Here an agent whose `parent` is on screen leaves the layout
-// and is drawn inside its parent's cluster instead, stacked under it.
+// and becomes a satellite: a smaller circle stacked under its parent.
 
 import type { GraphNode, Snapshot } from "../../../mod/graph/types.ts";
 
-export type Orientation = "rows" | "columns";
-
-export const CARD_W = 184;
-export const CARD_H = 48;
-const CHILD_INDENT = 14;
-const MIN_CARD_W = 128;
-const CHILD_GAP = 6;
-const FRAME_PAD = 6;
-const SLOT_GAP = 14;
-const RANK_GAP = 40;
-const MARGIN = 12;
+export const NODE_R = 8;
+export const SATELLITE_R = 5;
+const LABEL_GAP = 6;
+const LABEL_CHARS = 22;
+const LABEL_CHAR_W = 6.4;
+const SATELLITE_LABEL_CHAR_W = 5.6;
+const SATELLITE_INDENT = 14;
+const SATELLITE_STEP = 18;
+const SLOT_GAP = 18;
+const RANK_GAP = 34;
+const MARGIN = 10;
 
 export interface Box {
   x: number;
@@ -26,151 +27,175 @@ export interface Box {
   h: number;
 }
 
-export interface CardBox extends Box {
+export interface NodeShape {
   id: string;
   node: GraphNode;
-  /** Drawn inside a parent's cluster. */
-  isChild: boolean;
+  /** The circle. */
+  cx: number;
+  cy: number;
+  r: number;
+  /** The short label drawn right of the circle, and its estimated width. */
+  label: string;
+  labelWidth: number;
+  /** Drawn under its parent, not in a rank of its own. */
+  isSatellite: boolean;
+  /** How far below the circle its dependencies leave: past its satellites. */
+  tail: number;
 }
 
-export interface FrameBox extends Box {
-  /** The parent node the frame belongs to. */
-  id: string;
-}
-
-export interface EdgeLine {
+export interface Link {
   from: string;
   to: string;
+  /** A dependency (arrow, `blockedBy`) or a subagent hanging off its task. */
+  kind: "dependency" | "agent";
   inferred: boolean;
 }
 
 export interface Scene {
-  orientation: Orientation;
   width: number;
   height: number;
-  cards: CardBox[];
-  frames: FrameBox[];
-  edges: EdgeLine[];
+  nodes: NodeShape[];
+  links: Link[];
 }
 
-interface Cluster {
-  node: GraphNode;
-  w: number;
-  h: number;
-  children: Cluster[];
+/** A label short enough to sit beside a node; the hover card has the rest. */
+export function shortLabel(title: string, max = LABEL_CHARS): string {
+  const chars = Array.from(title.trim());
+  return chars.length <= max ? chars.join("") : `${chars.slice(0, max - 1).join("")}…`;
 }
 
-export function buildScene(snapshot: Snapshot, orientation: Orientation): Scene {
-  const byId = new Map(snapshot.nodes.map((node) => [node.id, node]));
-  const childrenOf = new Map<string, GraphNode[]>();
-  const nests = (node: GraphNode) =>
-    node.kind === "agent" && node.parent !== undefined && node.parent !== node.id && byId.has(node.parent);
-  // A child only if its chain of parents ends at a top-level node: agents
-  // that name each other as parents would otherwise never be drawn.
-  const childFlag = new Map<string, boolean>();
-  const isChild = (node: GraphNode): boolean => {
-    const known = childFlag.get(node.id);
-    if (known !== undefined) return known;
-    const chain = new Set<string>();
-    let at: GraphNode | undefined = node;
-    while (at && nests(at) && !chain.has(at.id)) {
-      chain.add(at.id);
-      at = byId.get(at.parent as string);
-    }
-    const anchored = at !== undefined && !chain.has(at.id);
-    childFlag.set(node.id, nests(node) && anchored);
-    return childFlag.get(node.id) as boolean;
+/** The circle's bounding box, the unit the tween moves. */
+export function circleBox(shape: Pick<NodeShape, "cx" | "cy" | "r">): Box {
+  return { x: shape.cx - shape.r, y: shape.cy - shape.r, w: 2 * shape.r, h: 2 * shape.r };
+}
+
+/** Circle and label together: what must not overlap another node. */
+export function footprint(shape: NodeShape): Box {
+  return {
+    x: shape.cx - shape.r,
+    y: shape.cy - Math.max(shape.r, 7),
+    w: 2 * shape.r + LABEL_GAP + shape.labelWidth,
+    h: 2 * Math.max(shape.r, 7)
   };
+}
 
+interface Slot {
+  node: GraphNode;
+  satellites: GraphNode[];
+  width: number;
+  height: number;
+}
+
+export function buildScene(snapshot: Snapshot): Scene {
+  const byId = new Map(snapshot.nodes.map((node) => [node.id, node]));
+  const order = (node: GraphNode) => snapshot.layout[node.id]?.order ?? 0;
+  const rankOf = (node: GraphNode) => snapshot.layout[node.id]?.rank ?? 0;
+
+  // A satellite hangs off a top-level node: an agent whose parent is an agent
+  // hangs off that agent's own top-level ancestor, and agents that name each
+  // other as parents stay top-level, so every node is drawn.
+  const anchorOf = (node: GraphNode): GraphNode | undefined => {
+    const seen = new Set<string>([node.id]);
+    let at: GraphNode | undefined = node;
+    while (at?.kind === "agent" && at.parent !== undefined && byId.has(at.parent)) {
+      if (seen.has(at.parent)) return undefined;
+      seen.add(at.parent);
+      at = byId.get(at.parent);
+    }
+    return at === node ? undefined : at;
+  };
+  const satellitesOf = new Map<string, GraphNode[]>();
+  const tops: GraphNode[] = [];
   for (const node of snapshot.nodes) {
-    if (isChild(node)) {
-      const siblings = childrenOf.get(node.parent as string) ?? [];
-      siblings.push(node);
-      childrenOf.set(node.parent as string, siblings);
+    const anchor = anchorOf(node);
+    if (anchor === undefined) {
+      tops.push(node);
+    } else {
+      satellitesOf.set(anchor.id, [...(satellitesOf.get(anchor.id) ?? []), node]);
     }
   }
-  const order = (node: GraphNode) => snapshot.layout[node.id]?.order ?? 0;
-  childrenOf.forEach((siblings) => siblings.sort((a, b) => order(a) - order(b)));
 
-  const visiting = new Set<string>();
-  const cluster = (node: GraphNode, width: number): Cluster => {
-    visiting.add(node.id);
-    const kids = (childrenOf.get(node.id) ?? []).filter((kid) => !visiting.has(kid.id));
-    const childWidth = Math.max(MIN_CARD_W, width - CHILD_INDENT);
-    const children = kids.map((kid) => cluster(kid, childWidth));
-    visiting.delete(node.id);
-    if (children.length === 0) {
-      return { node, w: width, h: CARD_H, children };
-    }
-    const inner = Math.max(width, ...children.map((child) => CHILD_INDENT + child.w));
-    const h = CARD_H + children.reduce((sum, child) => sum + CHILD_GAP + child.h, 0);
-    return { node, w: inner + 2 * FRAME_PAD, h: h + 2 * FRAME_PAD, children };
+  const labelWidth = (node: GraphNode, satellite: boolean) =>
+    Array.from(shortLabel(node.title)).length * (satellite ? SATELLITE_LABEL_CHAR_W : LABEL_CHAR_W);
+  const slotOf = (node: GraphNode): Slot => {
+    const satellites = (satellitesOf.get(node.id) ?? []).sort((a, b) => order(a) - order(b));
+    const own = 2 * NODE_R + LABEL_GAP + labelWidth(node, false);
+    const hanging = satellites.map((s) => SATELLITE_INDENT + 2 * SATELLITE_R + LABEL_GAP + labelWidth(s, true));
+    return {
+      node,
+      satellites,
+      width: Math.max(own, ...hanging),
+      height: 2 * NODE_R + satellites.length * SATELLITE_STEP
+    };
   };
 
-  // Top-level clusters grouped by rank; ranks left empty by children close up.
-  const tops = snapshot.nodes.filter((node) => !isChild(node));
-  const rankOf = (node: GraphNode) => snapshot.layout[node.id]?.rank ?? 0;
   const ranks = [...new Set(tops.map(rankOf))].sort((a, b) => a - b);
-  const lanes = ranks.map((rank) =>
+  const rows = ranks.map((rank) =>
     tops
       .filter((node) => rankOf(node) === rank)
       .sort((a, b) => order(a) - order(b))
-      .map((node) => cluster(node, CARD_W))
+      .map(slotOf)
   );
+  const rowWidth = rows.map((row) => row.reduce((sum, slot) => sum + slot.width, 0) + SLOT_GAP * Math.max(0, row.length - 1));
+  const widest = Math.max(0, ...rowWidth);
 
-  const cards: CardBox[] = [];
-  const frames: FrameBox[] = [];
-  const place = (c: Cluster, x: number, y: number, child: boolean) => {
-    if (c.children.length === 0) {
-      cards.push({ id: c.node.id, node: c.node, isChild: child, x, y, w: c.w, h: c.h });
-      return;
+  const shapes: NodeShape[] = [];
+  let y = MARGIN;
+  rows.forEach((row, i) => {
+    let x = MARGIN + (widest - (rowWidth[i] ?? 0)) / 2;
+    for (const slot of row) {
+      const cx = x + NODE_R;
+      const cy = y + NODE_R;
+      shapes.push({
+        id: slot.node.id,
+        node: slot.node,
+        cx,
+        cy,
+        r: NODE_R,
+        label: shortLabel(slot.node.title),
+        labelWidth: labelWidth(slot.node, false),
+        isSatellite: false,
+        tail: slot.satellites.length * SATELLITE_STEP
+      });
+      slot.satellites.forEach((satellite, k) => {
+        shapes.push({
+          id: satellite.id,
+          node: satellite,
+          cx: cx + SATELLITE_INDENT,
+          cy: cy + (k + 1) * SATELLITE_STEP,
+          r: SATELLITE_R,
+          label: shortLabel(satellite.title),
+          labelWidth: labelWidth(satellite, true),
+          isSatellite: true,
+          tail: 0
+        });
+      });
+      x += slot.width + SLOT_GAP;
     }
-    frames.push({ id: c.node.id, x, y, w: c.w, h: c.h });
-    const cardW = c.w - 2 * FRAME_PAD;
-    cards.push({ id: c.node.id, node: c.node, isChild: child, x: x + FRAME_PAD, y: y + FRAME_PAD, w: cardW, h: CARD_H });
-    let cy = y + FRAME_PAD + CARD_H;
-    for (const kid of c.children) {
-      cy += CHILD_GAP;
-      place(kid, x + FRAME_PAD + CHILD_INDENT, cy, true);
-      cy += kid.h;
-    }
-  };
-
-  // Along a lane clusters follow each other; across lanes ranks follow each other.
-  const along = (c: Cluster) => (orientation === "rows" ? c.w : c.h);
-  const across = (c: Cluster) => (orientation === "rows" ? c.h : c.w);
-  const laneLength = lanes.map((lane) => lane.reduce((sum, c) => sum + along(c), 0) + SLOT_GAP * Math.max(0, lane.length - 1));
-  const laneThickness = lanes.map((lane) => Math.max(0, ...lane.map(across)));
-  const longest = Math.max(0, ...laneLength);
-
-  let offset = MARGIN;
-  lanes.forEach((lane, i) => {
-    let cursor = MARGIN + (longest - (laneLength[i] ?? 0)) / 2;
-    for (const c of lane) {
-      // Centered across the lane, so a lone node lines up with its neighbors.
-      const shift = ((laneThickness[i] ?? 0) - across(c)) / 2;
-      if (orientation === "rows") place(c, cursor, offset + shift, false);
-      else place(c, offset + shift, cursor, false);
-      cursor += along(c) + SLOT_GAP;
-    }
-    offset += (laneThickness[i] ?? 0) + RANK_GAP;
+    y += Math.max(0, ...row.map((slot) => slot.height)) + RANK_GAP;
   });
 
-  const depth = offset - RANK_GAP + MARGIN;
-  const breadth = longest + 2 * MARGIN;
-  const width = Math.max(orientation === "rows" ? breadth : depth, 2 * MARGIN);
-  const height = Math.max(orientation === "rows" ? depth : breadth, 2 * MARGIN);
-
-  const edges: EdgeLine[] = [];
+  const links: Link[] = [];
   for (const node of snapshot.nodes) {
     for (const from of new Set(node.blockedBy)) {
       if (byId.has(from) && from !== node.id) {
-        edges.push({ from, to: node.id, inferred: node.inferred === true });
+        links.push({ from, to: node.id, kind: "dependency", inferred: node.inferred === true });
       }
     }
   }
+  for (const shape of shapes) {
+    const parent = shape.node.parent;
+    if (shape.isSatellite && parent !== undefined) {
+      links.push({ from: parent, to: shape.id, kind: "agent", inferred: false });
+    }
+  }
 
-  return { orientation, width, height, cards, frames, edges };
+  return {
+    width: Math.max(widest + 2 * MARGIN, 2 * MARGIN),
+    height: rows.length === 0 ? 2 * MARGIN : y - RANK_GAP + MARGIN,
+    nodes: shapes,
+    links
+  };
 }
 
 /** How much a scene must shrink to fit: 1 when it already fits. */
@@ -179,37 +204,20 @@ export function fitScale(scene: Pick<Scene, "width" | "height">, viewport: { wid
 }
 
 /**
- * The orientation that shows the graph larger. Sticky: it only changes when
- * the other one is clearly better, so a growing graph does not flip back and
- * forth between snapshots.
+ * A dependency runs from below its source (past its satellites, `tail`) to
+ * the top of its target; a subagent's link drops from its task's circle and
+ * turns into its own.
  */
-export function chooseOrientation(
-  snapshot: Snapshot,
-  viewport: { width: number; height: number },
-  current?: Orientation
-): Orientation {
-  const rows = fitScale(buildScene(snapshot, "rows"), viewport);
-  const columns = fitScale(buildScene(snapshot, "columns"), viewport);
-  const STICKINESS = 1.2;
-  if (current === "rows") return columns > rows * STICKINESS ? "columns" : "rows";
-  if (current === "columns") return rows > columns * STICKINESS ? "rows" : "columns";
-  return columns > rows ? "columns" : "rows";
-}
-
-/** Where an edge leaves its source and enters its target. */
-export function edgePath(from: Box, to: Box, orientation: Orientation): string {
-  if (orientation === "rows") {
-    const x1 = from.x + from.w / 2;
+export function linkPath(from: Box, to: Box, kind: Link["kind"], tail = 0): string {
+  const x1 = from.x + from.w / 2;
+  const x2 = to.x + to.w / 2;
+  if (kind === "agent") {
     const y1 = from.y + from.h;
-    const x2 = to.x + to.w / 2;
-    const y2 = to.y;
-    const bend = Math.max(18, Math.abs(y2 - y1) / 2);
-    return `M ${x1} ${y1} C ${x1} ${y1 + bend}, ${x2} ${y2 - bend}, ${x2} ${y2}`;
+    const y2 = to.y + to.h / 2;
+    return `M ${x1} ${y1} L ${x1} ${y2} L ${to.x} ${y2}`;
   }
-  const x1 = from.x + from.w;
-  const y1 = from.y + from.h / 2;
-  const x2 = to.x;
-  const y2 = to.y + to.h / 2;
-  const bend = Math.max(18, Math.abs(x2 - x1) / 2);
-  return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+  const y1 = from.y + from.h + tail;
+  const y2 = to.y;
+  const bend = Math.max(12, Math.abs(y2 - y1) / 2);
+  return `M ${x1} ${y1} C ${x1} ${y1 + bend}, ${x2} ${y2 - bend}, ${x2} ${y2}`;
 }

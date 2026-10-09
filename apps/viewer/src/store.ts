@@ -82,7 +82,21 @@ export function createSessionStore(): SessionStore {
 declare global {
   interface Window {
     flowctl?: { push(snapshot: unknown): boolean };
+    webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
   }
+}
+
+/** What the viewer tells the overlay app: the size it wants, and which session to bring forward. */
+export type NativeMessage =
+  | { type: "size"; width: number; height: number }
+  | { type: "focus"; sessionId: string; nodeId: string };
+
+/** Sends a message to the overlay app; a no-op in a plain browser. */
+export function tellNative(message: NativeMessage, target: Window = window): boolean {
+  const handler = target.webkit?.messageHandlers?.flowctl;
+  if (!handler) return false;
+  handler.postMessage(message);
+  return true;
 }
 
 /** The overlay's entry point: the native app calls window.flowctl.push(snapshot). */

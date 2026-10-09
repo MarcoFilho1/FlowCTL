@@ -1,19 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GraphNode, NodeStatus, Snapshot } from "../../../mod/graph/types.ts";
-import {
-  buildScene,
-  chooseOrientation,
-  edgePath,
-  fitScale,
-  type Box,
-  type CardBox,
-  type Orientation
-} from "./geometry.ts";
+import type { NodeStatus, Snapshot } from "../../../mod/graph/types.ts";
+import { buildScene, circleBox, fitScale, linkPath, type Box, type NodeShape, type Scene } from "./geometry.ts";
+import { hoverCard } from "./hover.ts";
+import { tellNative } from "./store.ts";
 import { useTween } from "./useTween.ts";
 
-/** Above this many nodes the graph scrolls instead of shrinking to fit. */
-export const SCROLL_THRESHOLD = 30;
-const MIN_SCROLL_SCALE = 0.6;
 const FALLBACK_VIEWPORT = { width: 360, height: 420 };
 
 export const STATUS_LABEL: Record<NodeStatus, string> = {
@@ -23,16 +14,6 @@ export const STATUS_LABEL: Record<NodeStatus, string> = {
   error: "Error",
   done: "Done"
 };
-
-const STATUS_GLYPH: Record<NodeStatus, string> = {
-  pending: "○",
-  running: "◐",
-  needs_you: "!",
-  error: "×",
-  done: "✓"
-};
-
-const KIND_LABEL: Record<GraphNode["kind"], string> = { task: "Task", agent: "Agent", turn: "Turn" };
 
 function useViewport(): [React.RefObject<HTMLDivElement | null>, { width: number; height: number }] {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -50,118 +31,160 @@ function useViewport(): [React.RefObject<HTMLDivElement | null>, { width: number
   return [ref, size];
 }
 
-export function GraphView({ snapshot }: { snapshot: Snapshot }) {
-  const [ref, viewport] = useViewport();
-  const orientationRef = useRef<Orientation | undefined>(undefined);
-  const orientation = useMemo(
-    () => (orientationRef.current = chooseOrientation(snapshot, viewport, orientationRef.current)),
-    [snapshot, viewport]
-  );
-  const scene = useMemo(() => buildScene(snapshot, orientation), [snapshot, orientation]);
+/** The room the graph wants at full size, the open hover card included. */
+export interface Extent {
+  width: number;
+  height: number;
+}
 
-  const targets = useMemo(() => {
-    const boxes = new Map<string, Box>();
-    scene.frames.forEach((frame) => boxes.set(`frame:${frame.id}`, frame));
-    scene.cards.forEach((card) => boxes.set(card.id, card));
-    return boxes;
-  }, [scene]);
+export function GraphView({ snapshot, onExtent }: { snapshot: Snapshot; onExtent?: (extent: Extent) => void }) {
+  const [ref, viewport] = useViewport();
+  const scene = useMemo(() => buildScene(snapshot), [snapshot]);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const hoveredNode = hovered ? scene.nodes.find((shape) => shape.id === hovered) : undefined;
+
+  useEffect(() => {
+    if (!onExtent) return;
+    if (!hoveredNode) return onExtent({ width: scene.width, height: scene.height });
+    const card = cardExtent(hoveredNode, snapshot);
+    onExtent({ width: Math.max(scene.width, card.width), height: Math.max(scene.height, card.height) });
+  }, [scene, hoveredNode, snapshot, onExtent]);
+
+  const targets = useMemo(() => new Map<string, Box>(scene.nodes.map((shape) => [shape.id, circleBox(shape)])), [scene]);
   const boxes = useTween(targets);
 
   if (snapshot.nodes.length === 0) {
     return (
       <div className="graph">
-        <p className="empty">Nothing to show yet: the graph starts with the session's first turn.</p>
+        <p className="empty">Waiting for the first turn…</p>
       </div>
     );
   }
 
-  const scrolls = snapshot.nodes.length > SCROLL_THRESHOLD;
-  const scale = scrolls
-    ? Math.max(MIN_SCROLL_SCALE, Math.min(1, viewport.width / scene.width))
-    : fitScale(scene, viewport);
+  // The overlay grows to fit the graph up to its limit; past it, the graph shrinks.
+  const scale = fitScale(scene, viewport);
+  const shapes = new Map(scene.nodes.map((shape) => [shape.id, shape]));
+  const hoveredShape = hovered ? shapes.get(hovered) : undefined;
+  const focus = (shape: NodeShape) => tellNative({ type: "focus", sessionId: snapshot.sessionId, nodeId: shape.id });
 
   return (
-    // The measured box is absolutely placed, so the drawing never changes its size.
     <div className="graph">
-      <div ref={ref} className={`canvas ${scrolls ? "scrolls" : "fits"}`} data-orientation={orientation}>
-      <svg
-        role="img"
-        aria-label={`Task graph, ${snapshot.nodes.length} nodes`}
-        width={scene.width * scale}
-        height={scene.height * scale}
-        viewBox={`0 0 ${scene.width} ${scene.height}`}
-      >
-        <defs>
-          <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M 0 0 L 8 4 L 0 8 z" className="arrow-head" />
-          </marker>
-        </defs>
-        {scene.frames.map((frame) => {
-          const box = boxes.get(`frame:${frame.id}`) ?? frame;
-          return <rect key={frame.id} className="cluster" data-cluster={frame.id} x={box.x} y={box.y} width={box.w} height={box.h} rx={12} />;
-        })}
-        {scene.edges.map((edge) => {
-          const from = boxes.get(edge.from);
-          const to = boxes.get(edge.to);
-          if (!from || !to) return null;
-          return (
-            <path
-              key={`${edge.from}->${edge.to}`}
-              className={`edge${edge.inferred ? " inferred" : ""}`}
-              data-edge={`${edge.from}->${edge.to}`}
-              d={edgePath(from, to, orientation)}
-              markerEnd="url(#arrow)"
-            />
-          );
-        })}
-        {scene.cards.map((card) => (
-          <Card key={card.id} card={card} box={boxes.get(card.id) ?? card} />
-        ))}
-      </svg>
+      <div ref={ref} className="canvas">
+        <div className="stage" style={{ width: scene.width * scale, height: scene.height * scale }}>
+          <svg
+            role="img"
+            aria-label={`Task graph, ${snapshot.nodes.length} nodes`}
+            width={scene.width * scale}
+            height={scene.height * scale}
+            viewBox={`0 0 ${scene.width} ${scene.height}`}
+          >
+            <defs>
+              <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 8 4 L 0 8 z" className="arrow-head" />
+              </marker>
+            </defs>
+            {scene.links.map((link) => {
+              const from = boxes.get(link.from);
+              const to = boxes.get(link.to);
+              if (!from || !to) return null;
+              return (
+                <path
+                  key={`${link.kind}:${link.from}->${link.to}`}
+                  className={`link link-${link.kind}${link.inferred ? " inferred" : ""}`}
+                  data-link={`${link.from}->${link.to}`}
+                  d={linkPath(from, to, link.kind, shapes.get(link.from)?.tail ?? 0)}
+                  {...(link.kind === "dependency" ? { markerEnd: "url(#arrow)" } : {})}
+                />
+              );
+            })}
+            {scene.nodes.map((shape) => {
+              const box = boxes.get(shape.id) ?? circleBox(shape);
+              return (
+                <Node
+                  key={shape.id}
+                  shape={shape}
+                  box={box}
+                  onHover={(on) => setHovered(on ? shape.id : (current) => (current === shape.id ? null : current))}
+                  onSelect={() => focus(shape)}
+                />
+              );
+            })}
+          </svg>
+          {hoveredShape && <Card shape={hoveredShape} snapshot={snapshot} scale={scale} scene={scene} />}
+        </div>
       </div>
     </div>
   );
 }
 
-function subtitle(node: GraphNode): string {
-  if (node.attention) {
-    const what = node.attention.kind === "permission" ? "Permission" : node.attention.kind === "question" ? "Question" : "Error";
-    return node.attention.detail ? `${what}: ${node.attention.detail}` : what;
-  }
-  if (node.status === "running" && node.activeForm) return node.activeForm;
-  return `${KIND_LABEL[node.kind]} · ${STATUS_LABEL[node.status]}`;
-}
-
-/** Cuts text to roughly fit `width` pixels at the card's font size. */
-export function truncate(text: string, width: number, charWidth = 6.8): string {
-  const max = Math.max(4, Math.floor(width / charWidth));
-  const chars = Array.from(text);
-  return chars.length <= max ? text : `${chars.slice(0, max - 1).join("")}…`;
-}
-
-function Card({ card, box }: { card: CardBox; box: Box }) {
-  const { node } = card;
-  const textWidth = box.w - 38;
-  const sub = subtitle(node);
+function Node({
+  shape,
+  box,
+  onHover,
+  onSelect
+}: {
+  shape: NodeShape;
+  box: Box;
+  onHover: (on: boolean) => void;
+  onSelect: () => void;
+}) {
+  const { node } = shape;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const r = box.w / 2;
   return (
     <g
-      className={`card status-${node.status} kind-${node.kind}${card.isChild ? " child" : ""}`}
+      className={`node status-${node.status} kind-${node.kind}${shape.isSatellite ? " satellite" : ""}`}
       data-node={node.id}
-      transform={`translate(${box.x} ${box.y})`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${node.title}: ${STATUS_LABEL[node.status]}`}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+      onFocus={() => onHover(true)}
+      onBlur={() => onHover(false)}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") onSelect();
+      }}
     >
-      <title>{`${node.title}\n${sub}`}</title>
-      {node.status === "needs_you" && <rect className="halo" x={-3} y={-3} width={box.w + 6} height={box.h + 6} rx={12} />}
-      <rect className="card-bg" width={box.w} height={box.h} rx={9} />
-      <rect className="card-bar" x={0} y={0} width={4} height={box.h} rx={2} />
-      <text className="glyph" x={17} y={box.h / 2 + 5} textAnchor="middle">
-        {STATUS_GLYPH[node.status]}
+      {node.status === "needs_you" && <circle className="pulse" cx={cx} cy={cy} r={r + 3} />}
+      <circle className="dot" cx={cx} cy={cy} r={r} />
+      <text className="label" x={cx + r + 6} y={cy + 4}>
+        {shape.label}
       </text>
-      <text className="title" x={30} y={20}>
-        {truncate(node.title, textWidth)}
-      </text>
-      <text className="sub" x={30} y={37}>
-        {truncate(sub, textWidth, 6)}
-      </text>
+      {/* A generous hit area: circles are small. */}
+      <rect className="hit" x={box.x - 4} y={cy - 10} width={box.w + 10 + shape.labelWidth} height={20} />
     </g>
+  );
+}
+
+const CARD_W = 220;
+
+/** Where the hover card reaches at full size, so the overlay can make room for it. */
+function cardExtent(shape: NodeShape, snapshot: Snapshot): Extent {
+  const card = hoverCard(shape.node, snapshot);
+  const bodyLines = card.body ? Math.min(6, Math.ceil(card.body.length / 34)) : 0;
+  const height = 44 + bodyLines * 15;
+  return { width: shape.cx - shape.r + CARD_W, height: shape.cy + shape.r + 6 + height };
+}
+
+function Card({ shape, snapshot, scale, scene }: { shape: NodeShape; snapshot: Snapshot; scale: number; scene: Scene }) {
+  const card = hoverCard(shape.node, snapshot);
+  // Below the node, flipped above when it would leave the stage.
+  const stageW = scene.width * scale;
+  const stageH = scene.height * scale;
+  const left = Math.max(0, Math.min((shape.cx - shape.r) * scale, stageW - CARD_W));
+  const below = (shape.cy + shape.r + 6) * scale;
+  const style: React.CSSProperties =
+    below + 60 > stageH && shape.cy * scale > stageH / 2
+      ? { left, bottom: stageH - (shape.cy - shape.r - 6) * scale, width: CARD_W }
+      : { left, top: below, width: CARD_W };
+  return (
+    <div className={`hover-card status-${shape.node.status}`} role="tooltip" style={style}>
+      <div className="hover-title">{card.title}</div>
+      <div className="hover-status">{card.status}</div>
+      {card.body && <div className="hover-body">{card.body}</div>}
+    </div>
   );
 }

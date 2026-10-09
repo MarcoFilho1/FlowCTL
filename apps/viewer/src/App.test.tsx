@@ -1,9 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import type { GraphNode } from "../../../mod/graph/types.ts";
 import { App } from "./App.tsx";
 import type { Replay } from "./DevControls.tsx";
-import { SCROLL_THRESHOLD } from "./GraphView.tsx";
 import { agent, golden, snapshotOf, task } from "./goldens.ts";
 import { loadFixture, replaySnapshots } from "./player.ts";
 import { createSessionStore, installBridge } from "./store.ts";
@@ -17,9 +16,9 @@ function mount(...snapshots: unknown[]) {
   return { store, ...view };
 }
 
-function card(container: HTMLElement, id: string): Element {
+function node(container: HTMLElement, id: string): Element {
   const element = container.querySelector(`[data-node="${id}"]`);
-  if (!element) throw new Error(`no card for ${id}`);
+  if (!element) throw new Error(`no node for ${id}`);
   return element;
 }
 
@@ -30,101 +29,139 @@ test("waits for a session before drawing", () => {
 
 test("a session with no nodes yet says so instead of an empty canvas", () => {
   const { container } = mount(snapshotOf([], { sessionState: "idle" }));
-  expect(screen.getByText(/Nothing to show yet/)).toBeTruthy();
+  expect(screen.getByText(/Waiting for the first turn/)).toBeTruthy();
   expect(container.querySelector("svg")).toBeNull();
 });
 
+function hover(container: HTMLElement, id: string): HTMLElement {
+  fireEvent.mouseEnter(node(container, id));
+  return screen.getByRole("tooltip");
+}
+
 describe("golden 03: four tasks and three subagents", () => {
-  test("draws a card per node with its title and status", () => {
+  test("draws a circle per node, colored by status, with a short label", () => {
     const snapshot = golden("03-subagents-with-task-graph");
     const { container } = mount(snapshot);
-    for (const node of snapshot.nodes) {
-      const element = card(container, node.id);
-      expect(element.getAttribute("class")).toContain(`status-${node.status}`);
-      expect(element.querySelector("title")?.textContent).toContain(node.title);
+    for (const graphNode of snapshot.nodes) {
+      const element = node(container, graphNode.id);
+      expect(element.getAttribute("class")).toContain(`status-${graphNode.status}`);
+      expect(element.querySelector("circle.dot")).not.toBeNull();
+      expect(element.getAttribute("aria-label")).toContain(graphNode.title);
     }
     expect(container.querySelectorAll("[data-node]")).toHaveLength(7);
+    expect(container.querySelector("rect.card-bg")).toBeNull();
   });
 
-  test("frames each subagent with its parent task", () => {
+  test("subagents hang off their task as satellites", () => {
     const { container } = mount(golden("03-subagents-with-task-graph"));
-    expect([...container.querySelectorAll("[data-cluster]")].map((el) => el.getAttribute("data-cluster")).sort()).toEqual([
-      "task:1",
-      "task:2",
-      "task:3"
-    ]);
-    expect(card(container, "agent:a4f0e422ba57dad50").getAttribute("class")).toContain("child");
+    expect(node(container, "agent:a4f0e422ba57dad50").getAttribute("class")).toContain("satellite");
+    expect(container.querySelectorAll(".link-agent")).toHaveLength(3);
   });
 
-  test("draws the three dependencies of Consolidar as solid edges", () => {
+  test("draws the three dependencies of Consolidar as solid arrows", () => {
     const { container } = mount(golden("03-subagents-with-task-graph"));
-    const edges = [...container.querySelectorAll("[data-edge]")];
-    expect(edges.map((edge) => edge.getAttribute("data-edge")).sort()).toEqual([
+    const links = [...container.querySelectorAll(".link-dependency")];
+    expect(links.map((link) => link.getAttribute("data-link")).sort()).toEqual([
       "task:1->task:4",
       "task:2->task:4",
       "task:3->task:4"
     ]);
-    expect(edges.every((edge) => !edge.getAttribute("class")?.includes("inferred"))).toBe(true);
+    expect(links.every((link) => !link.getAttribute("class")?.includes("inferred"))).toBe(true);
   });
 
-  test("the header shows the folder, the session state and the counters", () => {
+  test("the header is one line: folder, state and progress", () => {
     mount({ ...golden("03-subagents-with-task-graph"), cwd: "/Users/me/shop" });
     const header = screen.getByRole("banner");
     expect(within(header).getByText("shop")).toBeTruthy();
     expect(within(header).getByText("Idle")).toBeTruthy();
-    expect(within(header).getByTitle("Done").textContent).toContain("7");
+    expect(within(header).getByText("7/7")).toBeTruthy();
+  });
+
+  test("hovering a finished subagent shows what came of it", () => {
+    const { container } = mount(golden("03-subagents-with-task-graph"));
+    const card = hover(container, "agent:a4f0e422ba57dad50");
+    expect(card.textContent).toContain("Revisar módulo cart");
+    expect(card.textContent).toMatch(/Subagent done in \d+s/);
   });
 });
 
-test("a node that needs you pulses and says why", () => {
-  const node: GraphNode = task("a", {
+test("a node that needs you pulses, and its card says why", () => {
+  const graphNode: GraphNode = task("a", {
     title: "Run migrations",
     status: "needs_you",
-    attention: { kind: "permission", detail: "Bash", since: 1 }
+    attention: { kind: "permission", detail: "Bash", reason: "Bash: Apply the schema", since: 1 }
   });
-  const { container } = mount(snapshotOf([node], { sessionState: "waiting_you" }));
-  const element = card(container, "a");
-  expect(element.querySelector(".halo")).not.toBeNull();
-  expect(element.textContent).toContain("Permission: Bash");
-  expect(screen.getByText("Waiting for you")).toBeTruthy();
+  const { container } = mount(snapshotOf([graphNode], { sessionState: "waiting_you" }));
+  expect(node(container, "a").querySelector(".pulse")).not.toBeNull();
+  expect(screen.getByText("1 waiting")).toBeTruthy();
+  const card = hover(container, "a");
+  expect(card.textContent).toContain("Needs your permission");
+  expect(card.textContent).toContain("Bash: Apply the schema");
+  fireEvent.mouseLeave(node(container, "a"));
+  expect(screen.queryByRole("tooltip")).toBeNull();
 });
 
-test("a running node shows its activeForm, an errored one its error", () => {
+test("a running node's card shows its activeForm, an errored one its error", () => {
   const { container } = mount(
     snapshotOf([
       task("a", { status: "running", activeForm: "Running tests" }),
       task("b", { status: "error", attention: { kind: "error", detail: "Exit code 1", since: 1 } })
     ])
   );
-  expect(card(container, "a").textContent).toContain("Running tests");
-  expect(card(container, "b").textContent).toContain("Error: Exit code 1");
+  expect(hover(container, "a").textContent).toContain("Running tests");
+  fireEvent.mouseLeave(node(container, "a"));
+  expect(hover(container, "b").textContent).toContain("Exit code 1");
 });
 
-test("inferred edges are dashed", () => {
+test("inferred dependencies are dashed", () => {
   const { container } = mount(
     snapshotOf([task("a"), task("b", { blockedBy: ["a"], inferred: true })], {
       layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 } }
     })
   );
-  expect(container.querySelector('[data-edge="a->b"]')?.getAttribute("class")).toContain("inferred");
+  expect(container.querySelector('[data-link="a->b"]')?.getAttribute("class")).toContain("inferred");
 });
 
-test("long titles are cut with an ellipsis, the full title stays in the tooltip", () => {
+test("long titles are cut with an ellipsis; the card has the full title", () => {
   const title = "Refactor the whole checkout flow into smaller modules with tests";
   const { container } = mount(snapshotOf([task("a", { title })]));
-  const element = card(container, "a");
-  expect(element.querySelector(".title")?.textContent).toMatch(/…$/);
-  expect(element.querySelector("title")?.textContent).toContain(title);
+  expect(node(container, "a").querySelector(".label")?.textContent).toMatch(/…$/);
+  expect(hover(container, "a").textContent).toContain(title);
 });
 
-test(`fits up to ${SCROLL_THRESHOLD} nodes, scrolls beyond`, () => {
-  const many = (n: number) => Array.from({ length: n }, (_, i) => task(`t${i}`));
-  const { container, store } = mount(snapshotOf(many(SCROLL_THRESHOLD)));
-  expect(container.querySelector(".canvas")?.getAttribute("class")).toContain("fits");
-  act(() => {
-    store.push(snapshotOf(many(SCROLL_THRESHOLD + 1), { seq: 2 }));
+describe("talking to the overlay app", () => {
+  const messages: unknown[] = [];
+  beforeEach(() => {
+    messages.length = 0;
+    window.webkit = { messageHandlers: { flowctl: { postMessage: (message) => void messages.push(message) } } };
   });
-  expect(container.querySelector(".canvas")?.getAttribute("class")).toContain("scrolls");
+  afterEach(() => {
+    delete window.webkit;
+  });
+
+  test("asks for a small window for a small graph, and more as it grows", () => {
+    const { store } = mount(snapshotOf([task("a")]));
+    const first = messages.filter((m): m is { type: "size"; width: number; height: number } => (m as { type: string }).type === "size").at(-1);
+    expect(first!.width).toBeLessThan(150);
+    expect(first!.height).toBeLessThan(90);
+    act(() => {
+      store.push(
+        snapshotOf([task("a"), task("b", { blockedBy: ["a"] }), task("c", { blockedBy: ["a"] }), task("d", { blockedBy: ["b", "c"] })], {
+          seq: 2,
+          layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 }, c: { rank: 1, order: 1 }, d: { rank: 2, order: 0 } }
+        })
+      );
+    });
+    const grown = messages.filter((m): m is { type: "size"; width: number; height: number } => (m as { type: string }).type === "size").at(-1);
+    expect(grown!.width).toBeGreaterThan(first!.width);
+    expect(grown!.height).toBeGreaterThan(first!.height);
+  });
+
+  test("clicking a node asks to bring its session forward", () => {
+    const { container } = mount(snapshotOf([task("a")], { sessionId: "s9" }));
+    fireEvent.click(node(container, "a"));
+    expect(messages).toContainEqual({ type: "focus", sessionId: "s9", nodeId: "a" });
+  });
 });
 
 test("several sessions become tabs; a tab shows its own graph", () => {
@@ -150,13 +187,13 @@ test("window.flowctl.push redraws, and an older seq is ignored", () => {
   act(() => {
     window.flowctl?.push(snapshotOf([task("a", { status: "running" })], { seq: 2 }));
   });
-  expect(card(container, "a").getAttribute("class")).toContain("status-running");
+  expect(node(container, "a").getAttribute("class")).toContain("status-running");
 
   act(() => {
     window.flowctl?.push(snapshotOf([task("a", { status: "done" })], { seq: 3 }));
     window.flowctl?.push(snapshotOf([task("a", { status: "pending" })], { seq: 1 }));
   });
-  expect(card(container, "a").getAttribute("class")).toContain("status-done");
+  expect(node(container, "a").getAttribute("class")).toContain("status-done");
 });
 
 describe("fixture player", () => {

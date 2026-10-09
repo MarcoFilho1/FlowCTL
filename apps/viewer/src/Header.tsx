@@ -1,5 +1,4 @@
-import type { NodeStatus, SessionState, Snapshot } from "../../../mod/graph/types.ts";
-import { STATUS_LABEL } from "./GraphView.tsx";
+import type { SessionState, Snapshot } from "../../../mod/graph/types.ts";
 import { sessionKey } from "./store.ts";
 
 const STATE_LABEL: Record<SessionState, string> = {
@@ -9,39 +8,31 @@ const STATE_LABEL: Record<SessionState, string> = {
   ended: "Ended"
 };
 
-const COUNTED: readonly NodeStatus[] = ["needs_you", "error", "running", "pending", "done"];
-
 /** The last part of a path: the project's folder name. */
 export function folderName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter(Boolean);
   return parts.at(-1) ?? "Claude Code";
 }
 
+/** One quiet line: where the session runs, how it stands, how far the plan got. */
 export function Header({ snapshot }: { snapshot: Snapshot }) {
-  const counts = new Map<NodeStatus, number>();
-  snapshot.nodes.forEach((node) => counts.set(node.status, (counts.get(node.status) ?? 0) + 1));
+  const plan = snapshot.nodes.filter((node) => node.kind !== "turn");
+  const done = plan.filter((node) => node.status === "done").length;
+  const waiting = snapshot.nodes.filter((node) => node.status === "needs_you").length;
   return (
     <header className="header">
-      <div className="header-row">
-        <span className="folder" title={snapshot.cwd}>
-          {folderName(snapshot.cwd)}
+      <span className={`state-dot state-${snapshot.sessionState}`} title={STATE_LABEL[snapshot.sessionState]} />
+      <span className="folder" title={snapshot.cwd}>
+        {folderName(snapshot.cwd)}
+      </span>
+      {plan.length > 0 && <span className="progress">{`${done}/${plan.length}`}</span>}
+      {waiting > 0 && <span className="waiting">{waiting} waiting</span>}
+      <span className="visually-hidden">{STATE_LABEL[snapshot.sessionState]}</span>
+      {snapshot.warnings.length > 0 && (
+        <span className="warnings" title={snapshot.warnings.join("\n")}>
+          ⚠ {snapshot.warnings.length}
         </span>
-        <span className={`state state-${snapshot.sessionState}`}>{STATE_LABEL[snapshot.sessionState]}</span>
-      </div>
-      <ul className="counters" aria-label="Nodes by status">
-        {COUNTED.filter((status) => counts.has(status)).map((status) => (
-          <li key={status} className={`counter status-${status}`} title={STATUS_LABEL[status]}>
-            <span className="dot" aria-hidden="true" />
-            <span className="count">{counts.get(status)}</span>
-            <span className="visually-hidden">{STATUS_LABEL[status]}</span>
-          </li>
-        ))}
-        {snapshot.warnings.length > 0 && (
-          <li className="counter warnings" title={snapshot.warnings.join("\n")}>
-            ⚠ {snapshot.warnings.length}
-          </li>
-        )}
-      </ul>
+      )}
     </header>
   );
 }
