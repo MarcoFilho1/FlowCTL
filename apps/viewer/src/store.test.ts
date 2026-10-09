@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { createSessionStore, installBridge, isSnapshot, sessionKey, withoutSubagents } from "./store.ts";
+import type { Snapshot } from "../../../mod/graph/types.ts";
+import { createSessionStore, installBridge, isSnapshot, MANUAL_HOLD_MS, sessionKey, withoutSubagents } from "./store.ts";
 import { agent, golden, snapshotOf, task } from "./goldens.ts";
 
 describe("session store", () => {
@@ -83,5 +84,45 @@ describe("withoutSubagents", () => {
     expect(withoutSubagents(snapshot).nodes.map((node) => node.id)).toEqual(["a"]);
     const plain = snapshotOf([task("a")]);
     expect(withoutSubagents(plain)).toBe(plain);
+  });
+});
+
+describe("following the activity", () => {
+  const session = (id: string, sessionState: Snapshot["sessionState"], seq: number) =>
+    snapshotOf([task("a")], { sessionId: id, cwd: `/w/${id}`, sessionState, seq });
+
+  test("a resting tab gives way to a session that starts working", () => {
+    const store = createSessionStore();
+    store.push(session("lab-old", "idle", 1));
+    store.push(session("lab-new", "working", 1));
+    expect(store.getState().active).toBe("lab-new");
+  });
+
+  test("a session that needs the person takes over a resting tab too", () => {
+    const store = createSessionStore();
+    store.push(session("a", "ended", 1));
+    store.push(session("b", "waiting_you", 1));
+    expect(store.getState().active).toBe("b");
+  });
+
+  test("a working tab is not taken over by another working session", () => {
+    const store = createSessionStore();
+    store.push(session("a", "working", 1));
+    store.push(session("b", "working", 1));
+    expect(store.getState().active).toBe("a");
+  });
+
+  test("a tab picked by hand holds for a while, then activity wins again", () => {
+    let clock = 0;
+    const store = createSessionStore(() => clock);
+    store.push(session("a", "working", 1));
+    store.push(session("b", "idle", 1));
+    store.select("b");
+    clock = 5_000;
+    store.push(session("a", "working", 2));
+    expect(store.getState().active).toBe("b");
+    clock = 5_000 + MANUAL_HOLD_MS;
+    store.push(session("a", "working", 3));
+    expect(store.getState().active).toBe("a");
   });
 });
