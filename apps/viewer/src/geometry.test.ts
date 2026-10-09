@@ -149,9 +149,46 @@ describe("the camera", () => {
     expect(t8.cx * cam.s + cam.x).toBeCloseTo(180, 0);
   });
 
-  test("parallel running steps are framed together", () => {
+  test("a running node is centered even when the whole graph would fit", () => {
+    const scene = chain(3, [2]);
+    expect(scene.width).toBeLessThan(view.width);
+    const cam = cameraFor(scene, view, "follow", true);
+    const last = scene.nodes.find((shape) => shape.id === "t2")!;
+    expect(last.cx * cam.s + cam.x).toBeCloseTo(view.width / 2, 5);
+    expect(last.cy * cam.s + cam.y).toBeCloseTo(view.height / 2, 5);
+  });
+
+  test("parallel running steps are framed together, zoomed out until all fit", () => {
     const scene = buildScene(laidOut([task("a", { status: "done" }), task("b", { blockedBy: ["a"], status: "running" }), task("c", { blockedBy: ["a"], status: "running" })]));
     expect(currentNodes(scene).map((shape) => shape.id)).toEqual(["b", "c"]);
+    const cam = cameraFor(scene, view, "follow", true);
+    const [b, c] = currentNodes(scene);
+    for (const shape of [b!, c!]) {
+      const x = shape.cx * cam.s + cam.x;
+      const y = shape.cy * cam.s + cam.y;
+      expect(x).toBeGreaterThan(0);
+      expect(x).toBeLessThan(view.width);
+      expect(y).toBeGreaterThan(0);
+      expect(y).toBeLessThan(view.height);
+    }
+    // Their midpoint sits in the middle of the window.
+    expect(((b!.cy + c!.cy) / 2) * cam.s + cam.y).toBeCloseTo(view.height / 2, 5);
+  });
+
+  test("between steps it aims at the step that is free to start", () => {
+    // t0..t2 done, nothing running yet.
+    const between = buildScene(laidOut(Array.from({ length: 6 }, (_, i) => task(`t${i}`, { blockedBy: i > 0 ? [`t${i - 1}`] : [], status: i < 3 ? "done" : "pending" }))));
+    const cam = cameraFor(between, view, "follow", true);
+    const next = between.nodes.find((shape) => shape.id === "t3")!;
+    expect(next.cx * cam.s + cam.x).toBeCloseTo(view.width / 2, 5);
+  });
+
+  test("many parallel steps zoom out, never below half size", () => {
+    const nodes = [task("root", { status: "done" }), ...Array.from({ length: 10 }, (_, i) => task(`p${i}`, { blockedBy: ["root"], status: "running" }))];
+    const cam = cameraFor(buildScene(laidOut(nodes)), view, "follow", true);
+    expect(cam.s).toBeLessThan(1);
+    expect(cam.s).toBeGreaterThanOrEqual(0.5);
+    expect(cam.s % 0.25).toBe(0);
   });
 
   test("a node that needs the person takes the camera over running ones", () => {
