@@ -15,7 +15,8 @@ final class Preferences {
             Key.alwaysOnTop: true,
             Key.showAutomatically: true,
             Key.hideWhenIdle: true,
-            Key.showSubagents: true
+            Key.showSubagents: true,
+            Key.sound: true
         ])
     }
 
@@ -39,6 +40,12 @@ final class Preferences {
     var showSubagents: Bool {
         get { defaults.bool(forKey: Key.showSubagents) }
         set { defaults.set(newValue, forKey: Key.showSubagents) }
+    }
+
+    /// The viewer's sounds for graph events (on by default); the viewer takes it through setSound.
+    var sound: Bool {
+        get { defaults.bool(forKey: Key.sound) }
+        set { defaults.set(newValue, forKey: Key.sound) }
     }
 
     /// Hide the panel after five minutes with no active session (on by default).
@@ -84,5 +91,6 @@ final class Preferences {
         static let showAutomatically = "showAutomatically"
         static let hideWhenIdle = "hideWhenIdle"
         static let showSubagents = "showSubagents"
+        static let sound = "sound"
     }
 }

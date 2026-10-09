@@ -20,6 +20,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var currentLook: () -> PageLook = { .standard }
     /// Whether the person wants subagents drawn (on by default).
     var currentShowSubagents: () -> Bool = { true }
+    /// Whether the viewer plays its sounds (on by default).
+    var currentSound: () -> Bool = { true }
     /// Hands the page hover moves while the app is inactive.
     let hover = HoverRelay()
 
@@ -103,6 +105,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             // The look first, so the sessions below are drawn in it.
             self.applyLook(self.currentLook())
             self.applyShowSubagents(self.currentShowSubagents())
+            self.applySound(self.currentSound())
             let pending = self.queued
             self.queued.removeAll()
             pending.forEach(self.send)
@@ -120,6 +123,11 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     /// load, and logged as not applied to a viewer that does not have it yet.
     func applyShowSubagents(_ show: Bool) {
         setPageOption("setShowSubagents", value: show, what: "subagents \(show ? "shown" : "hidden")", missing: "the viewer has no setShowSubagents yet")
+    }
+
+    /// `window.flowctl.setSound(on)`, the same way: applied on every load.
+    func applySound(_ on: Bool) {
+        setPageOption("setSound", value: on, what: "sound \(on ? "on" : "off")", missing: "the viewer has no setSound yet")
     }
 
     /// Calls `window.flowctl.<name>(value)` when the page has it. `name` is
