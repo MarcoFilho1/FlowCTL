@@ -197,6 +197,13 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 /* ── Pixel look ──────────────────────────────────────────────────────────
    Nodes are sprites of square art pixels, edges step at right angles, and
    every animation moves in whole frames (steps), like an 8-bit game. */
+/* Digits come from Silkscreen (OFL): Pixelify's 5 reads as S and its 7 as 1.
+   unicode-range limits this face to 0–9, so letters stay Pixelify. */
+@font-face {
+  font-family: "FlowCTL Digits";
+  src: url("../node_modules/@fontsource/silkscreen/files/silkscreen-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0030-0039;
+}
 @font-face {
   font-family: "Pixelify Sans";
   font-weight: 400;
@@ -208,7 +215,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
   src: url("../node_modules/@fontsource/pixelify-sans/files/pixelify-sans-latin-600-normal.woff2") format("woff2");
 }
 
-.app.look-pixel { --font: "Pixelify Sans", ui-monospace, monospace; --px-ink: #14161b; font-family: var(--font); }
+.app.look-pixel { --font: "FlowCTL Digits", "Pixelify Sans", ui-monospace, monospace; --px-ink: #14161b; font-family: var(--font); }
 .app.look-pixel .header, .app.look-pixel .tab { font-size: 12px; letter-spacing: 0.02em; }
 .app.look-pixel .state-dot { border-radius: 0; width: 6px; height: 6px; animation-timing-function: steps(2, jump-none); }
 
@@ -280,4 +287,21 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 @media (prefers-reduced-motion: reduce) {
   .burst, .burst-px rect { animation: none; opacity: 0; }
   .packet { display: none; }
+}
+
+/* ── A node appears: it materializes in four frames, pixels gather into it,
+   and the edge into it draws itself. ── */
+.entering { transform-box: fill-box; transform-origin: center; animation: appear-smooth 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.2) both; }
+.entering-px { animation: appear-px 0.5s steps(4, end) both; }
+@keyframes appear-smooth { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes appear-px { from { transform: scale(0.25); } to { transform: scale(1); } }
+.converge-px rect { fill: var(--text); opacity: 0; animation: burst-px 0.4s steps(1, end) both; pointer-events: none; }
+.link.entering { stroke-dasharray: 1 1; stroke-dashoffset: 1; animation: draw-edge 0.5s ease-out 0.1s forwards; }
+.app.look-pixel .link.entering { animation-timing-function: steps(5, end); }
+@keyframes draw-edge { to { stroke-dashoffset: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .entering, .entering-px { animation: none; }
+  .converge-px { display: none; }
+  .link.entering { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
 }

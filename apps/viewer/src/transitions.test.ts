@@ -7,7 +7,7 @@ const chain = (a: string, b: string, c: string) =>
 
 test("a finished step hands off to the step it unblocked", () => {
   const before = statusesOf(chain("running", "pending", "pending"));
-  expect(transitions(before, chain("done", "running", "pending"))).toEqual({ finished: ["a"], started: ["b"], handoffs: [["a", "b"]] });
+  expect(transitions(before, chain("done", "running", "pending"))).toEqual({ added: [], finished: ["a"], started: ["b"], handoffs: [["a", "b"]] });
 });
 
 test("the handoff shows even before the agent marks the next step running", () => {
@@ -26,5 +26,11 @@ test("no handoff to a step still waiting on another", () => {
 test("several steps finishing at once each fire, the first snapshot fires nothing", () => {
   const before = statusesOf(chain("running", "running", "pending"));
   expect(transitions(before, chain("done", "done", "pending")).finished).toEqual(["a", "b"]);
-  expect(transitions(undefined, chain("done", "running", "pending"))).toEqual({ finished: [], started: [], handoffs: [] });
+  expect(transitions(undefined, chain("done", "running", "pending"))).toEqual({ added: [], finished: [], started: [], handoffs: [] });
+});
+
+test("nodes that were not there before are added: a step the agent just discovered", () => {
+  const before = statusesOf(snapshotOf([task("a", { status: "running" })]));
+  const after = snapshotOf([task("a", { status: "running" }), task("b", { blockedBy: ["a"] }), task("c", { blockedBy: ["a"] })]);
+  expect(transitions(before, after).added).toEqual(["b", "c"]);
 });

@@ -77,6 +77,8 @@ export interface TerminalInfo {
   program?: string;
   /** The session's tty, e.g. ttys021. */
   tty?: string;
+  /** The Claude Code process, so a reader can tell a live session from a dead one. */
+  pid?: number;
   /** Terminal-specific ids, when set: ITERM_SESSION_ID, TERM_SESSION_ID, MAESTRI_TERMINAL_ID. */
   ids?: Record<string, string>;
 }
