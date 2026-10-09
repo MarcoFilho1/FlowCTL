@@ -83,7 +83,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         look.submenu = looks
         menu.addItem(look)
         menu.addItem(toggle("Show Subagents", actions.preferences.showSubagents, #selector(toggleShowSubagents)))
-        menu.addItem(toggle("Sound", actions.preferences.sound, #selector(toggleSound)))
+        let sound = NSMenuItem(title: "Sound", action: nil, keyEquivalent: "")
+        let sounds = NSMenu()
+        for choice in SoundChoice.allCases {
+            let item = entry(choice.title, #selector(setSoundChoice(_:)))
+            item.representedObject = choice.rawValue
+            item.state = actions.preferences.soundChoice == choice ? .on : .off
+            sounds.addItem(item)
+        }
+        sound.submenu = sounds
+        menu.addItem(sound)
         menu.addItem(toggle("Always on Top", actions.preferences.alwaysOnTop, #selector(toggleAlwaysOnTop)))
         menu.addItem(toggle("Show Automatically", actions.preferences.showAutomatically, #selector(toggleShowAutomatically)))
         menu.addItem(toggle("Hide When Idle", actions.preferences.hideWhenIdle, #selector(toggleHideWhenIdle)))
@@ -155,9 +164,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         actions.preferencesChanged()
     }
 
-    @objc private func toggleSound() {
-        guard let actions else { return }
-        actions.preferences.sound.toggle()
+    @objc private func setSoundChoice(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let choice = SoundChoice(rawValue: raw), let actions else { return }
+        actions.preferences.soundChoice = choice
         actions.preferencesChanged()
     }
 
