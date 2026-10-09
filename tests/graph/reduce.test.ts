@@ -371,3 +371,23 @@ test("a background agent's result is not a new request: its steps stay in the sa
   apply(state, plan([{ id: "next", title: "Next request" }]));
   assert.deepEqual(nodes(state).find((node) => node.id === "plan:next")?.after, ["plan:found", "plan:more"]);
 });
+
+test("a step left running is closed when a step that waits on it starts or finishes", () => {
+  const state = initialState();
+  const plan = (steps: object[]): GraphEvent => ({ t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps }, result: { result: [] } });
+  apply(state, plan([{ id: "test", title: "Run tests", status: "in_progress" }, { id: "review", title: "Review", blockedBy: ["test"] }, { id: "other", title: "Other", status: "in_progress" }]));
+  apply(state, { t: 5, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "review", status: "in_progress" }] }, result: { result: [] } });
+  const shown = nodes(state);
+  assert.deepEqual(shown.map((node) => [node.id, node.status]), [
+    ["plan:test", "done"],
+    ["plan:review", "running"],
+    // Not a blocker of review: left as the agent said.
+    ["plan:other", "running"]
+  ]);
+  assert.equal(shown[0]?.finishedAt, 5);
+
+  // Straight from pending to completed closes its blockers too.
+  apply(state, plan([{ id: "x", title: "X", status: "in_progress" }, { id: "y", title: "Y", blockedBy: ["x"] }]));
+  apply(state, { t: 9, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "y", status: "completed" }] }, result: { result: [] } });
+  assert.equal(nodes(state).find((node) => node.id === "plan:x")?.status, "done");
+});
