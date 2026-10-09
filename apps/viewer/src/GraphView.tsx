@@ -110,7 +110,18 @@ function useGlide(target: Camera, instant: boolean): Camera {
  */
 const isLive = (state: Snapshot["sessionState"]) => state === "working" || state === "waiting_you";
 
-export function GraphView({ snapshot, look = "pixel", sound = false }: { snapshot: Snapshot; look?: Look; sound?: boolean }) {
+export function GraphView({
+  snapshot,
+  look = "pixel",
+  sound = false,
+  sounds = look
+}: {
+  snapshot: Snapshot;
+  look?: Look;
+  sound?: boolean;
+  /** Which set of sounds plays; the look's own unless chosen otherwise. */
+  sounds?: Look;
+}) {
   const pixel = look === "pixel";
   const [ref, viewport] = useViewport();
   const scene = useMemo(() => buildScene(snapshot), [snapshot]);
@@ -190,7 +201,7 @@ export function GraphView({ snapshot, look = "pixel", sound = false }: { snapsho
       const wentYellow = snapshot.nodes.some((node) => node.status === "needs_you" && before.get(node.id) !== "needs_you");
       const finishedSession =
         wasLive && !isLive(snapshot.sessionState) && snapshot.nodes.length > 0 && snapshot.nodes.every((node) => node.status === "done");
-      for (const which of cuesFor(change, wentYellow, finishedSession)) cue(which, look);
+      for (const which of cuesFor(change, wentYellow, finishedSession)) cue(which, sounds);
     }
     const born: Effect[] = [
       ...change.added.map((id) => ({ key: `appear:${id}:${snapshot.seq}`, kind: "appear" as const, from: id })),
