@@ -166,11 +166,11 @@ describe("moving around the graph", () => {
     expect(messages.some((m) => (m as { type: string }).type === "focus")).toBe(false);
   });
 
-  test("scrolling moves the view too", () => {
+  test("scrolling zooms while the session works too (drag is what moves)", () => {
     const { container } = mount(wide());
-    const [bx] = (panOf(container) ?? "0,0").split(",").map(Number);
-    fireEvent.wheel(canvas(container), { deltaX: 40, deltaY: 0 });
-    expect(Number(panOf(container)?.split(",")[0])).toBe((bx ?? 0) - 40);
+    const before = Number(canvas(container).getAttribute("data-scale"));
+    fireEvent.wheel(canvas(container), { deltaY: 100, clientX: 100, clientY: 100 });
+    expect(Number(canvas(container).getAttribute("data-scale"))).toBe(before - 0.25);
   });
 
   test("a wide graph opens on the node that matters, not at its start", () => {
@@ -467,7 +467,7 @@ describe("arrows and zoom", () => {
     expect(container.querySelectorAll(".flow")).toHaveLength(1);
   });
 
-  test("zoom buttons appear only at rest, and a chosen zoom holds until the session works again", () => {
+  test("scrolling zooms around the cursor; at rest the zoom holds until the session works again", () => {
     const { container, store } = mount(chain("working", 2));
     expect(screen.queryByLabelText("Zoom in")).toBeNull();
     act(() => {
@@ -475,7 +475,7 @@ describe("arrows and zoom", () => {
     });
     const canvas = container.querySelector(".canvas")!;
     const before = Number(canvas.getAttribute("data-scale"));
-    fireEvent.click(screen.getByLabelText("Zoom in"));
+    fireEvent.wheel(canvas, { deltaY: -100, clientX: 100, clientY: 100 });
     const zoomed = Number(canvas.getAttribute("data-scale"));
     expect(zoomed).toBe(before + 0.25);
     act(() => {
@@ -486,18 +486,18 @@ describe("arrows and zoom", () => {
       store.push(chain("working", 3, 4));
     });
     expect(canvas.getAttribute("data-mode")).toBe("follow");
-    expect(screen.queryByLabelText("Zoom in")).toBeNull();
   });
 
-  test("a pinch (ctrl + wheel) zooms at rest; a plain wheel still pans", () => {
+  test("small trackpad scrolls add up to one step instead of jittering", () => {
     const { container } = mount(chain("idle", 6));
     const canvas = container.querySelector(".canvas")!;
     const before = Number(canvas.getAttribute("data-scale"));
-    fireEvent.wheel(canvas, { deltaY: -10, ctrlKey: true, clientX: 100, clientY: 100 });
-    expect(Number(canvas.getAttribute("data-scale"))).toBeGreaterThan(before);
-    const scaled = canvas.getAttribute("data-scale");
-    fireEvent.wheel(canvas, { deltaX: 30, deltaY: 0 });
-    expect(canvas.getAttribute("data-scale")).toBe(scaled);
+    for (let i = 0; i < 4; i += 1) fireEvent.wheel(canvas, { deltaY: -10 });
+    expect(Number(canvas.getAttribute("data-scale"))).toBe(before);
+    for (let i = 0; i < 2; i += 1) fireEvent.wheel(canvas, { deltaY: -10 });
+    expect(Number(canvas.getAttribute("data-scale"))).toBe(before + 0.25);
+    fireEvent.wheel(canvas, { deltaY: 120 });
+    expect(Number(canvas.getAttribute("data-scale"))).toBe(before);
   });
 });
 
