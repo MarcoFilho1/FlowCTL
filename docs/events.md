@@ -23,13 +23,22 @@ are not recorded.
 
 ## Findings
 
-### 1. Task tools are off by default in interactive sessions
-`TaskCreate`, `TaskUpdate`, `TaskList` and `TaskGet` do **not exist** in an
-interactive session unless the process starts with
-`CLAUDE_CODE_ENABLE_TODO_TOOLS=true` (`CLAUDE_CODE_ENABLE_TASKS=true` is not
-enough). They do exist under `claude -p`. This is why the old transcripts had
-zero task calls. `TodoWrite` stayed absent in every mode tried.
-With them on, the interactive UI shows a task list (`ctrl+t to hide tasks`).
+### 1. Task tools are off by default on current models
+`TaskCreate`/`TaskGet`/`TaskUpdate`/`TaskList` are enabled when
+`CLAUDE_CODE_ENABLE_TASKS` is not `false` (default) **and** any of:
+- `CLAUDE_CODE_ENABLE_TODO_TOOLS` is true (env, or `"env"` in settings);
+- `--allowedTools` / `--tools` on the command line names any task tool (`permissions.allow` in settings does not count);
+- the main model is on a legacy list (Claude 3.x, Opus 4.0–4.7, Sonnet 4.0–4.6, Haiku 4.5) or a Bedrock inference profile;
+- the session is a background job.
+
+Fable 5.1 is not on the list, so with no opt-in the tools are off, interactive
+or `-p` (the earlier `-p` test had them only through `--allowedTools`). This is
+why the old transcripts had zero task calls. `TodoWrite` appears only with an
+opt-in **and** `CLAUDE_CODE_ENABLE_TASKS=false`. Proven in a real TTY session
+for each switch (Claude Code #3, binary 2.1.295).
+
+The name and the legacy model list suggest the product is phasing these tools
+out for new models: depending on them is fragile.
 
 ### 2. With task tools on, the agent still rarely creates tasks unasked
 Fixture 02: a 4-part refactor finished in 43 s with 2 Bash calls and no task.
