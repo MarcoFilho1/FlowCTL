@@ -1,3 +1,4 @@
+import CoreGraphics
 import FlowCTLCore
 import Foundation
 
@@ -23,7 +24,7 @@ public struct Check {
 }
 
 public enum OverlayChecks {
-    public static let all: [Check] = http + snapshots + registry + files
+    public static let all: [Check] = http + snapshots + registry + files + geometry + focus
 }
 
 // MARK: - Helpers
@@ -202,5 +203,102 @@ private let files: [Check] = [
         let entries = SessionFiles.read(directory: dir)
         expect.equal(entries.map(\.name), ["s1.json"], "files only, no folders")
         expect.equal(entries.first?.data, snapshotJSON())
+    }
+]
+
+// MARK: - Panel geometry
+
+private let laptop = CGRect(x: 0, y: 0, width: 1470, height: 923)
+private let desktop = CGRect(x: 0, y: 0, width: 2560, height: 1415)
+
+private let geometry: [Check] = [
+    Check(group: "geometry", name: "the cap is 480x640 or 40% of the screen, whichever is smaller") { expect in
+        expect.equal(PanelGeometry.cap(screen: desktop), CGSize(width: 480, height: 566))
+        expect.equal(PanelGeometry.cap(screen: laptop), CGSize(width: 480, height: 369))
+        expect.equal(PanelGeometry.cap(screen: CGRect(x: 0, y: 0, width: 200, height: 200)), PanelGeometry.minSize, "never below the minimum")
+    },
+    Check(group: "geometry", name: "the size follows the graph between the minimum and the cap") { expect in
+        expect.equal(PanelGeometry.size(desired: CGSize(width: 40, height: 30), chrome: 18, screen: desktop), CGSize(width: 120, height: 120))
+        expect.equal(PanelGeometry.size(desired: CGSize(width: 250.2, height: 300), chrome: 18, screen: desktop), CGSize(width: 251, height: 318), "the strip is added, sizes round up")
+        expect.equal(PanelGeometry.size(desired: CGSize(width: 2000, height: 2000), chrome: 18, screen: desktop), CGSize(width: 480, height: 566))
+        expect.equal(PanelGeometry.size(desired: CGSize(width: CGFloat.nan, height: CGFloat.infinity), chrome: 18, screen: desktop), PanelGeometry.minSize)
+    },
+    Check(group: "geometry", name: "a top-right anchor grows left and down") { expect in
+        let corner = CGPoint(x: 1458, y: 911)
+        let small = PanelGeometry.frame(size: CGSize(width: 120, height: 120), corner: .topRight, at: corner, screen: laptop)
+        let big = PanelGeometry.frame(size: CGSize(width: 300, height: 200), corner: .topRight, at: corner, screen: laptop)
+        expect.equal(PanelGeometry.point(of: .topRight, in: small), corner)
+        expect.equal(PanelGeometry.point(of: .topRight, in: big), corner)
+        expect.equal(big.minX, 1158)
+        expect.equal(big.minY, 711)
+    },
+    Check(group: "geometry", name: "every anchor keeps its corner fixed") { expect in
+        let point = CGPoint(x: 700, y: 450)
+        for corner in Corner.allCases {
+            for size in [CGSize(width: 120, height: 120), CGSize(width: 400, height: 300)] {
+                let frame = PanelGeometry.frame(size: size, corner: corner, at: point, screen: laptop)
+                expect.equal(PanelGeometry.point(of: corner, in: frame), point, "\(corner) at \(size)")
+            }
+        }
+    },
+    Check(group: "geometry", name: "a frame that would stick out is moved back on screen") { expect in
+        let frame = PanelGeometry.frame(size: CGSize(width: 400, height: 300), corner: .bottomLeft, at: CGPoint(x: 1300, y: 800), screen: laptop)
+        expect.that(laptop.contains(frame), "inside: \(frame)")
+    },
+    Check(group: "geometry", name: "after a drag the anchor is the nearest screen corner") { expect in
+        let at = { (x: CGFloat, y: CGFloat) in CGRect(x: x, y: y, width: 200, height: 200) }
+        expect.equal(PanelGeometry.nearestCorner(of: at(1200, 700), in: laptop), .topRight)
+        expect.equal(PanelGeometry.nearestCorner(of: at(10, 700), in: laptop), .topLeft)
+        expect.equal(PanelGeometry.nearestCorner(of: at(10, 10), in: laptop), .bottomLeft)
+        expect.equal(PanelGeometry.nearestCorner(of: at(1200, 10), in: laptop), .bottomRight)
+        let anchor = PanelGeometry.defaultAnchor(screen: laptop)
+        expect.equal(anchor.corner, .topRight)
+        expect.equal(anchor.point, CGPoint(x: 1458, y: 911))
+    }
+]
+
+// MARK: - Terminal focus
+
+private let focus: [Check] = [
+    Check(group: "focus", name: "reads the optional terminal field of a snapshot") { expect in
+        var json = String(decoding: snapshotJSON(), as: UTF8.self)
+        expect.equal(TerminalInfo.from(snapshot: bytes(json)), nil, "absent")
+        json.removeLast()
+        json += #","terminal":{"app":"com.apple.Terminal","program":"Apple_Terminal","tty":"ttys021","ids":{"TERM_SESSION_ID":"abc","bad":3}}}"#
+        expect.equal(TerminalInfo.from(snapshot: bytes(json)),
+                     TerminalInfo(app: "com.apple.Terminal", program: "Apple_Terminal", tty: "ttys021", ids: ["TERM_SESSION_ID": "abc"]))
+    },
+    Check(group: "focus", name: "Terminal.app is focused by tty, iTerm2 by session id or tty") { expect in
+        expect.equal(FocusAction.plan(for: TerminalInfo(app: "com.apple.Terminal", tty: "ttys021")), .terminalTab(tty: "/dev/ttys021"))
+        expect.equal(FocusAction.plan(for: TerminalInfo(program: "Apple_Terminal", tty: "/dev/ttys004")), .terminalTab(tty: "/dev/ttys004"), "by TERM_PROGRAM")
+        let uuid = "8B5E5C3A-0F0C-4B1E-9D6C-2F7A1B2C3D4E"
+        expect.equal(FocusAction.plan(for: TerminalInfo(program: "iTerm.app", tty: "ttys7", ids: ["ITERM_SESSION_ID": "w0t1p0:\(uuid.lowercased())"])),
+                     .iTermSession(uniqueId: uuid, tty: "/dev/ttys7"))
+        expect.equal(FocusAction.plan(for: TerminalInfo(app: "com.googlecode.iterm2")), .activate(bundleId: "com.googlecode.iterm2"), "nothing to select by")
+    },
+    Check(group: "focus", name: "other terminals are brought forward by bundle id") { expect in
+        expect.equal(FocusAction.plan(for: TerminalInfo(app: "com.evercraftlabs.Maestro", program: "Maestri", ids: ["MAESTRI_TERMINAL_ID": "X"])),
+                     .activate(bundleId: "com.evercraftlabs.Maestro"))
+        expect.equal(FocusAction.plan(for: TerminalInfo(program: "Maestri")), .activate(bundleId: "com.evercraftlabs.Maestro"))
+        expect.equal(FocusAction.plan(for: TerminalInfo(program: "something-else")), .none)
+        expect.equal(FocusAction.plan(for: nil), .none)
+    },
+    Check(group: "focus", name: "only plain device paths and UUIDs reach a script") { expect in
+        expect.equal(FocusAction.devicePath("ttys021"), "/dev/ttys021")
+        expect.equal(FocusAction.devicePath("/dev/tty5"), "/dev/tty5")
+        for bad in ["ttys021\"", "../ttys1", "/dev/disk0", "ttys", "ttys1; rm", ""] {
+            expect.equal(FocusAction.devicePath(bad), nil, bad)
+        }
+        expect.equal(FocusAction.iTermUniqueId("w0t0p0:\" & beep"), nil)
+        expect.equal(FocusAction.plan(for: TerminalInfo(app: "com.apple.Terminal\" & do shell script \"x", tty: "ttys1")), .none, "a malformed bundle id")
+        expect.equal(FocusAction.plan(for: TerminalInfo(app: "com.apple.Terminal", tty: "x\" & beep")), .activate(bundleId: "com.apple.Terminal"))
+    },
+    Check(group: "focus", name: "scripts select the tab and fall back to the app") { expect in
+        let terminal = FocusAction.terminalTab(tty: "/dev/ttys021")
+        expect.that(terminal.appleScript?.contains(#"if tty of t is "/dev/ttys021" then"#) == true, "matches the tty")
+        expect.equal(terminal.fallbackBundleId, "com.apple.Terminal")
+        expect.that(FocusAction.iTermSession(uniqueId: nil, tty: "/dev/ttys1").appleScript?.contains(#"unique id of s is "-""#) == true, "a missing id matches nothing")
+        expect.equal(FocusAction.activate(bundleId: "a.b").appleScript, nil)
+        expect.equal(FocusAction.none.fallbackBundleId, nil)
     }
 ]

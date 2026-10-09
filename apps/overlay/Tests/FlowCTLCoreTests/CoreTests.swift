@@ -8,9 +8,11 @@ final class CoreTests: XCTestCase {
     func testSnapshot() { run("snapshot") }
     func testSessions() { run("sessions") }
     func testFiles() { run("files") }
+    func testGeometry() { run("geometry") }
+    func testFocus() { run("focus") }
 
     func testEveryGroupIsCovered() {
-        XCTAssertEqual(Set(OverlayChecks.all.map(\.group)), ["http", "snapshot", "sessions", "files"])
+        XCTAssertEqual(Set(OverlayChecks.all.map(\.group)), ["http", "snapshot", "sessions", "files", "geometry", "focus"])
     }
 
     private func run(_ group: String) {
