@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const css = readFileSync(join(__dirname, "styles.css"), "utf8");
 
 /** The custom properties a rule block declares, in order. */
 function tokens(block: string): string[] {
