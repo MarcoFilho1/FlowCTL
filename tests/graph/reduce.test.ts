@@ -1,0 +1,197 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import { apply, FLOWPLAN_TOOL, initialState, nodes, replay, sessionState } from "../../mod/graph/reduce.ts";
+import type { GraphEvent, GraphNode } from "../../mod/graph/types.ts";
+
+function fixture(name: string): GraphEvent[] {
+  const path = new URL(`../../fixtures/${name}.jsonl`, import.meta.url);
+  return readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as GraphEvent);
+}
+
+/** Every distinct graph a replay shows, as `id:status` lists. */
+function frames(events: readonly GraphEvent[]): string[] {
+  const state = initialState();
+  const seen: string[] = [];
+  for (const event of events) {
+    apply(state, event);
+    const frame = nodes(state).map((node) => `${node.id}:${node.status}`).join(" ");
+    if (seen.at(-1) !== frame) {
+      seen.push(frame);
+    }
+  }
+  return seen;
+}
+
+function byId(list: readonly GraphNode[], id: string): GraphNode {
+  const node = list.find((candidate) => candidate.id === id);
+  assert.ok(node, `no node ${id}`);
+  return node;
+}
+
+test("fixture 03: tasks, declared dependencies and subagents under their tasks", () => {
+  const state = replay(fixture("03-subagents-with-task-graph"));
+  const shown = nodes(state);
+  assert.equal(state.planSource, "tasks");
+  assert.deepEqual(byId(shown, "task:4").blockedBy, ["task:1", "task:2", "task:3"]);
+  assert.deepEqual(
+    shown.filter((node) => node.kind === "agent").map((node) => [node.title, node.parent, node.status]),
+    [
+      ["Revisar módulo cart", "task:1", "done"],
+      ["Revisar módulo user", "task:2", "done"],
+      ["Revisar módulo report", "task:3", "done"]
+    ]
+  );
+  assert.ok(shown.every((node) => node.status === "done"));
+  assert.deepEqual(state.warnings, []);
+});
+
+test("fixture 03: the three reviews run in parallel while 'consolidar' waits", () => {
+  const parallel = frames(fixture("03-subagents-with-task-graph")).find((frame) =>
+    ["task:1:running", "task:2:running", "task:3:running", "task:4:pending"].every((part) => frame.includes(part))
+  );
+  assert.ok(parallel);
+});
+
+test("fixture 04: a permission prompt turns the work yellow until it is answered", () => {
+  const events = fixture("04-permission-approved-then-denied");
+  const state = initialState();
+  const statuses: string[] = [];
+  for (const event of events) {
+    apply(state, event);
+    const turn = nodes(state)[0];
+    if (event.event === "classic.PermissionRequest" || event.event === "tool.call") {
+      statuses.push(`${event.event}:${turn?.status}:${turn?.attention?.kind ?? "-"}`);
+    }
+  }
+  assert.deepEqual(statuses, [
+    "classic.PermissionRequest:needs_you:permission",
+    "tool.call:running:-",
+    "classic.PermissionRequest:needs_you:permission",
+    // Denied: the person stopped it, so not an error.
+    "tool.call:running:-"
+  ]);
+  assert.equal(sessionState(state), "idle");
+});
+
+test("fixture 05: a question to the person is yellow with kind 'question'", () => {
+  const state = initialState();
+  let attention: GraphNode["attention"];
+  for (const event of fixture("05-ask-user-question")) {
+    apply(state, event);
+    attention ??= nodes(state)[0]?.attention;
+  }
+  assert.equal(attention?.kind, "question");
+  assert.equal(attention?.detail, "AskUserQuestion");
+  assert.equal(nodes(state)[0]?.status, "done");
+});
+
+test("fixture 06: the third consecutive tool error turns red, not the first two", () => {
+  const state = initialState();
+  const afterErrors: string[] = [];
+  for (const event of fixture("06-repeated-tool-error")) {
+    apply(state, event);
+    if (event.event === "tool.call") {
+      afterErrors.push(nodes(state)[0]?.status ?? "");
+    }
+  }
+  assert.deepEqual(afterErrors, ["running", "running", "error"]);
+  assert.equal(nodes(state)[0]?.status, "error");
+});
+
+test("fixture 07: Esc leaves the running task pending, not red", () => {
+  const shown = nodes(replay(fixture("07-esc-with-task-in-progress")));
+  assert.deepEqual(shown.map((node) => [node.id, node.status, node.title]), [["task:1", "pending", "aguardar build"]]);
+});
+
+test("fixtures 02 and 08: with no plan, one node follows the current turn", () => {
+  for (const name of ["02-task-tools-on-big-task-without-tasks", "08-resume-then-short-request"]) {
+    const shown = nodes(replay(fixture(name)));
+    assert.equal(shown.length, 1, name);
+    assert.equal(shown[0]?.kind, "turn", name);
+    assert.equal(shown[0]?.status, "done", name);
+  }
+});
+
+test("fixture 01: /clear starts a new graph and unannounced subagent stops are ignored", () => {
+  const events = fixture("01-no-task-tools-big-task-then-subagents");
+  const clear = events.findIndex((event) => event.event === "classic.SessionStart" && (event.input as { source?: string }).source === "clear");
+  const before = replay(events.slice(0, clear));
+  assert.deepEqual(nodes(before).map((node) => node.kind), ["turn"]);
+  const after = replay(events.slice(0, clear + 1));
+  assert.deepEqual(nodes(after), []);
+  assert.equal(nodes(replay(events)).filter((node) => node.kind === "agent").length, 3);
+});
+
+test("replaying the same events twice gives the same graph", () => {
+  const events = fixture("03-subagents-with-task-graph");
+  assert.deepEqual(nodes(replay(events)), nodes(replay(events)));
+});
+
+test("events that do not fit become warnings, never exceptions", () => {
+  const state = initialState();
+  const odd: GraphEvent[] = [
+    { t: 1, event: "tool.call", input: { tool: "TaskUpdate", taskId: "9", status: "completed" }, result: { result: { success: true } } },
+    { t: 2, event: "tool.call", input: { tool: "TaskCreate" }, result: { result: {} } },
+    { t: 3, event: "tool.call", input: "garbage", result: 42 },
+    { t: 4, event: "turn.complete", input: null, result: { agents: [{ id: "nobody", status: "failed" }] } },
+    { t: 5, event: "never.heard.of" }
+  ];
+  for (const event of odd) {
+    apply(state, event);
+  }
+  assert.equal(state.warnings.length, 2);
+  assert.deepEqual(nodes(state), []);
+});
+
+test("TaskList is the whole truth: it creates, corrects and deletes tasks", () => {
+  const state = initialState();
+  const call = (tool: string, input: object, result: object): GraphEvent => ({ t: 0, event: "tool.call", input: { tool, ...input }, result: { result } });
+  apply(state, call("TaskCreate", { subject: "old" }, { task: { id: "1", subject: "old" } }));
+  apply(state, call("TaskList", {}, {
+    tasks: [
+      { id: "2", subject: "build", status: "in_progress", blockedBy: [] },
+      { id: "3", subject: "ship", status: "pending", blockedBy: ["2"] }
+    ]
+  }));
+  assert.deepEqual(nodes(state).map((node) => [node.id, node.status, node.blockedBy.join()]), [
+    ["task:2", "running", ""],
+    ["task:3", "pending", "task:2"]
+  ]);
+});
+
+test("FlowPlan steps become nodes with their dependencies", () => {
+  const state = initialState();
+  apply(state, {
+    t: 0,
+    event: "tool.call",
+    input: {
+      tool: FLOWPLAN_TOOL,
+      steps: [
+        { id: "a", title: "Read the code", status: "completed" },
+        { id: "b", title: "Write the fix", status: "in_progress", blockedBy: ["a"] },
+        { id: "c", title: "Run tests", blockedBy: ["b"] }
+      ]
+    },
+    result: { result: "ok" }
+  });
+  assert.equal(state.planSource, "flowplan");
+  assert.deepEqual(nodes(state).map((node) => [node.id, node.status, node.blockedBy.join()]), [
+    ["plan:a", "done", ""],
+    ["plan:b", "running", "plan:a"],
+    ["plan:c", "pending", "plan:b"]
+  ]);
+});
+
+test("one event costs the same early and late in a long session", () => {
+  const state = initialState();
+  const call = (tool: string, input: object, result: object): GraphEvent => ({ t: 0, event: "tool.call", input: { tool, ...input }, result: { result } });
+  for (let i = 1; i <= 50; i += 1) {
+    apply(state, call("TaskCreate", { subject: `t${i}` }, { task: { id: String(i), subject: `t${i}` } }));
+  }
+  const started = performance.now();
+  for (let i = 0; i < 2000; i += 1) {
+    apply(state, call("Bash", {}, {}));
+  }
+  assert.ok(performance.now() - started < 200, "2000 events over 50 nodes took too long");
+});
