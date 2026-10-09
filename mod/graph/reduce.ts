@@ -693,6 +693,17 @@ function setBase(state: GraphState, entry: PlanEntry, base: BaseStatus, t: numbe
     entry.startedAt = state.clock;
     entry.startedT = t;
   }
+  if (base !== "pending" && entry.base !== base) {
+    // A step only starts (or finishes) once what it waits on is done. A
+    // blocker the agent left "in progress" (it moved on without marking it)
+    // is done by now.
+    for (const id of entry.blockedBy) {
+      const blocker = state.entries.get(id);
+      if (blocker !== undefined && blocker.base === "in_progress") {
+        setBase(state, blocker, "completed", t);
+      }
+    }
+  }
   if (base === "completed" && entry.base !== "completed") {
     entry.finishedT = t;
   }
