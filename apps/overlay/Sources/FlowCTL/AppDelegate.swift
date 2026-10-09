@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
         NSApp.mainMenu = Self.mainMenu()
         let bridge = WebBridge(page: paths.viewerPage)
-        bridge.currentBodies = { [weak self] in self?.registry.bodies ?? [] }
+        bridge.currentBodies = { [weak self] in self?.replayBodies() ?? [] }
         bridge.onFocus = { [weak self] sessionId, nodeId in self?.focusTerminal(of: sessionId, node: nodeId) }
         bridge.currentLook = { [weak self] in self?.preferences.look ?? .standard }
         bridge.currentShowSubagents = { [weak self] in self?.preferences.showSubagents ?? true }
@@ -79,8 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         for entry in plan.show {
             guard case let .success(info) = Snapshot.parse(entry.data) else { continue }
             _ = registry.accept(info, body: entry.data, now: entry.modified)
-            bridge?.push(entry.data)
         }
+        flushToViewer()
         log("restored \(plan.show.count) session(s) from \(paths.sessions.path)")
     }
 
@@ -132,11 +132,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     private func receive(_ info: SnapshotInfo, body: Data) {
         let outcome = registry.accept(info, body: body, now: Date())
         guard outcome != .stale else { return }
-        bridge?.push(body)
+        flushToViewer()
         if AutoShow.shouldShow(outcome: outcome, state: info.state, enabled: preferences.showAutomatically, userHidden: userHidden) {
             showPanel()
         }
         statusMenu?.refreshIcon()
+    }
+
+    /// Sends the page what changed: new snapshots, and sessions whose effective state moved.
+    private func flushToViewer() {
+        for body in registry.pendingPushes(now: Date()) {
+            bridge?.push(body)
+        }
+    }
+
+    /// Every session as the page should draw it now, for a page that starts over.
+    private func replayBodies() -> [Data] {
+        registry.replayBodies(now: Date())
     }
 
     private func tick() {
@@ -148,8 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         let expired = registry.expireEnded(now: now)
         for id in expired {
             log("closing the ended session tab \(id)")
-            bridge?.remove(id) { [weak self] in self?.registry.bodies ?? [] }
+            bridge?.remove(id) { [weak self] in self?.replayBodies() ?? [] }
         }
+        // A session whose process went away, or that went quiet, changes state here.
+        flushToViewer()
         if preferences.hideWhenIdle, isPanelShown, registry.isIdle(now: now) {
             hidePanel(byUser: false)
         }
