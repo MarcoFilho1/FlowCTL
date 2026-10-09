@@ -263,7 +263,7 @@ Nota para a Fase 4: o layout trata subagentes como nós comuns, então numa cama
 
 **Pronto quando:** numa sessão real, `cat ~/.flowctl/sessions/*.json` mostra o grafo mudando, e a status line acompanha.
 
-### Fase 4: Viewer web (5–6 dias)
+### Fase 4: Viewer web (5–6 dias) ✅
 **Objetivo:** o desenho do grafo, desenvolvido no navegador antes de ir para o
 overlay. Pode começar em paralelo com a Fase 3 assim que o `Snapshot` congelar.
 - [ ] `apps/viewer`: Vite + React + **SVG próprio** (o layout vem pronto; nada de Cytoscape no MVP).

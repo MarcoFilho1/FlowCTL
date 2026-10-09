@@ -1,0 +1,40 @@
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { App } from "./App.tsx";
+import type { Replay } from "./DevControls.tsx";
+import { FIXTURES, loadFixture, replaySnapshots } from "./player.ts";
+import { createSessionStore, installBridge } from "./store.ts";
+import "./styles.css";
+
+const store = createSessionStore();
+// Installed before the first render, so a push that arrives early still lands.
+installBridge(store);
+
+// ?fixture=<name>[,<name>...] replays recorded sessions; ?fixture=all plays
+// every one; &at=<event> (1-based) or &at=end opens them there, paused.
+const params = new URLSearchParams(location.search);
+const requested = params.get("fixture");
+let replays: Replay[] | undefined;
+if (requested !== null) {
+  const names = requested === "all" ? [...FIXTURES] : requested.split(",").map((name) => name.trim()).filter(Boolean);
+  replays = names.flatMap((name) => {
+    const events = loadFixture(name);
+    if (!events) {
+      console.warn(`flowctl: no fixture named ${name}; known: ${FIXTURES.join(", ")}`);
+      return [];
+    }
+    return [{ name, events, snapshots: replaySnapshots(events, name) }];
+  });
+}
+
+const at = params.get("at");
+const startAt = at === "end" ? "end" : at !== null && Number.isInteger(Number(at)) ? Number(at) : undefined;
+
+const root = document.getElementById("root");
+if (root) {
+  createRoot(root).render(
+    <StrictMode>
+      <App store={store} {...(replays ? { replays } : {})} {...(startAt !== undefined ? { startAt } : {})} />
+    </StrictMode>
+  );
+}

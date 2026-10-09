@@ -1,0 +1,156 @@
+:root {
+  color-scheme: light dark;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --text: #1f2328;
+  --muted: #59636e;
+  --panel: rgba(250, 250, 252, 0.78);
+  --panel-solid: #f6f7f9;
+  --surface: #ffffff;
+  --line: rgba(31, 35, 40, 0.14);
+  --edge: #8c959f;
+  --cluster: rgba(31, 35, 40, 0.04);
+  --cluster-line: rgba(31, 35, 40, 0.16);
+
+  --pending: #d0d7de;
+  --pending-fill: #ffffff;
+  --running: #2f6fe4;
+  --needs-you: #c99400;
+  --error: #d1242f;
+  --done: #1a8f3c;
+  --tint: 12%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e6edf3;
+    --muted: #9198a1;
+    --panel: rgba(22, 24, 29, 0.72);
+    --panel-solid: #16181d;
+    --surface: #22262d;
+    --line: rgba(230, 237, 243, 0.14);
+    --edge: #6e7681;
+    --cluster: rgba(230, 237, 243, 0.04);
+    --cluster-line: rgba(230, 237, 243, 0.16);
+
+    --pending: #e6edf3;
+    --pending-fill: #2a2f37;
+    --running: #4c8dff;
+    --needs-you: #f2c94c;
+    --error: #ff6b6b;
+    --done: #3fb950;
+    --tint: 18%;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+/* Transparent so the overlay's blur shows through; the panel tints it. */
+body { background: transparent; color: var(--text); font: 13px/1.35 var(--font); }
+
+.app {
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel);
+}
+
+/* In a browser there is no blur behind the page. */
+.app.dev { background: var(--panel-solid); }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+
+/* Header */
+.header { padding: 10px 12px 6px; display: grid; gap: 6px; }
+.header-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.folder { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.state {
+  margin-left: auto; flex: none; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  color: var(--muted); border: 1px solid var(--line);
+}
+.state-working { color: var(--running); border-color: color-mix(in srgb, var(--running) 45%, transparent); }
+.state-waiting_you {
+  color: var(--needs-you); border-color: color-mix(in srgb, var(--needs-you) 55%, transparent);
+  background: color-mix(in srgb, var(--needs-you) var(--tint), transparent);
+}
+.counters { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; color: var(--muted); }
+.counter { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.counter .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status); }
+
+/* Tabs */
+.tabs { display: flex; gap: 2px; padding: 6px 8px 0; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.tab {
+  font: inherit; font-size: 12px; color: var(--muted); background: none; border: 0;
+  padding: 5px 10px; border-radius: 6px 6px 0 0; white-space: nowrap; cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--running); }
+.tab.waiting::after { content: " •"; color: var(--needs-you); }
+
+/* Graph */
+.graph { flex: 1; min-height: 0; min-width: 0; position: relative; }
+.canvas { position: absolute; inset: 0; display: flex; padding: 4px 0 10px; }
+.canvas.fits { overflow: hidden; align-items: center; justify-content: center; }
+.canvas.scrolls { overflow: auto; align-items: flex-start; justify-content: safe center; }
+.canvas svg { flex: none; display: block; overflow: visible; }
+
+.status-pending   { --status: var(--pending);   --fill: var(--pending-fill); }
+.status-running   { --status: var(--running);   --fill: color-mix(in srgb, var(--running) var(--tint), var(--surface)); }
+.status-needs_you { --status: var(--needs-you); --fill: color-mix(in srgb, var(--needs-you) var(--tint), var(--surface)); }
+.status-error     { --status: var(--error);     --fill: color-mix(in srgb, var(--error) var(--tint), var(--surface)); }
+.status-done      { --status: var(--done);      --fill: color-mix(in srgb, var(--done) var(--tint), var(--surface)); }
+
+.card .card-bg {
+  fill: var(--fill); stroke: var(--status); stroke-width: 1.25;
+  transition: fill 300ms ease, stroke 300ms ease;
+}
+.card .card-bar { fill: var(--status); transition: fill 300ms ease; }
+.card .glyph { fill: var(--status); font-size: 14px; font-weight: 700; transition: fill 300ms ease; }
+.card .title { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+.card .sub { fill: var(--muted); font-size: 11px; }
+.card.status-pending .card-bar { fill: var(--line); }
+.card.child .card-bg { stroke-width: 1; }
+.card { animation: appear 300ms ease both; }
+
+.halo { fill: none; stroke: var(--needs-you); stroke-width: 3; animation: pulse 1.4s ease-in-out infinite; }
+
+.cluster { fill: var(--cluster); stroke: var(--cluster-line); stroke-dasharray: 4 3; }
+
+.edge { fill: none; stroke: var(--edge); stroke-width: 1.4; }
+.edge.inferred { stroke-dasharray: 5 4; opacity: 0.8; }
+.arrow-head { fill: var(--edge); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.9; }
+}
+@keyframes appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .halo { animation: none; }
+  .halo { opacity: 0.8; }
+  .card .card-bg, .card .card-bar, .card .glyph { transition: none; }
+}
+
+.empty { margin: auto; color: var(--muted); padding: 24px; text-align: center; }
+
+/* Dev player */
+.dev-controls {
+  display: flex; align-items: center; gap: 4px; padding: 6px 8px;
+  border-bottom: 1px solid var(--line); font-size: 12px;
+}
+.dev-controls button, .dev-controls select {
+  font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer;
+}
+.dev-controls button:disabled { opacity: 0.45; cursor: default; }
+.dev-controls .progress { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
