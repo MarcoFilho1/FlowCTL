@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "seq": 24,
+  "sessionId": "a69d080b-2c02-47e3-abfb-8c951e802336",
+  "cwd": "<project>",
+  "updatedAt": 1791513063869,
+  "sessionState": "idle",
+  "planSource": "tasks",
+  "nodes": [
+    {
+      "id": "task:1",
+      "kind": "task",
+      "title": "aguardar build",
+      "activeForm": "Aguardando build",
+      "status": "pending",
+      "blockedBy": []
+    }
+  ],
+  "layout": {
+    "task:1": {
+      "rank": 0,
+      "order": 0
+    }
+  },
+  "warnings": []
+}

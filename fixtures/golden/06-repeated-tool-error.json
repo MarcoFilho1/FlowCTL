@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "seq": 23,
+  "sessionId": "e359cc10-33ee-49d4-a932-6cafbfc2618b",
+  "cwd": "",
+  "updatedAt": 1791512896779,
+  "sessionState": "idle",
+  "planSource": "none",
+  "nodes": [
+    {
+      "id": "turn:1",
+      "kind": "turn",
+      "title": "Turno atual",
+      "status": "error",
+      "attention": {
+        "kind": "error",
+        "detail": "Exit code 1",
+        "since": 1791512879044
+      },
+      "blockedBy": []
+    }
+  ],
+  "layout": {
+    "turn:1": {
+      "rank": 0,
+      "order": 0
+    }
+  },
+  "warnings": []
+}

@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "seq": 16,
+  "sessionId": "8f2dfc31-fa73-4b8d-8af9-db795a01cbbc",
+  "cwd": "",
+  "updatedAt": 1791512858672,
+  "sessionState": "idle",
+  "planSource": "none",
+  "nodes": [
+    {
+      "id": "turn:1",
+      "kind": "turn",
+      "title": "Turno atual",
+      "status": "done",
+      "blockedBy": []
+    }
+  ],
+  "layout": {
+    "turn:1": {
+      "rank": 0,
+      "order": 0
+    }
+  },
+  "warnings": []
+}

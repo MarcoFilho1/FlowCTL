@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "seq": 146,
+  "sessionId": "",
+  "cwd": "<project>",
+  "updatedAt": 1791512778716,
+  "sessionState": "idle",
+  "planSource": "tasks",
+  "nodes": [
+    {
+      "id": "task:1",
+      "kind": "task",
+      "title": "Revisar módulo cart",
+      "activeForm": "Revisando módulo cart",
+      "status": "done",
+      "blockedBy": []
+    },
+    {
+      "id": "task:2",
+      "kind": "task",
+      "title": "Revisar módulo user",
+      "activeForm": "Revisando módulo user",
+      "status": "done",
+      "blockedBy": []
+    },
+    {
+      "id": "task:3",
+      "kind": "task",
+      "title": "Revisar módulo report",
+      "activeForm": "Revisando módulo report",
+      "status": "done",
+      "blockedBy": []
+    },
+    {
+      "id": "task:4",
+      "kind": "task",
+      "title": "Consolidar",
+      "activeForm": "Consolidando revisões",
+      "status": "done",
+      "blockedBy": [
+        "task:1",
+        "task:2",
+        "task:3"
+      ]
+    },
+    {
+      "id": "agent:a4f0e422ba57dad50",
+      "kind": "agent",
+      "title": "Revisar módulo cart",
+      "status": "done",
+      "agentId": "a4f0e422ba57dad50",
+      "blockedBy": [],
+      "parent": "task:1"
+    },
+    {
+      "id": "agent:a980c5552902c6056",
+      "kind": "agent",
+      "title": "Revisar módulo user",
+      "status": "done",
+      "agentId": "a980c5552902c6056",
+      "blockedBy": [],
+      "parent": "task:2"
+    },
+    {
+      "id": "agent:ae5d36556f00a311d",
+      "kind": "agent",
+      "title": "Revisar módulo report",
+      "status": "done",
+      "agentId": "ae5d36556f00a311d",
+      "blockedBy": [],
+      "parent": "task:3"
+    }
+  ],
+  "layout": {
+    "task:1": {
+      "rank": 0,
+      "order": 0
+    },
+    "task:2": {
+      "rank": 0,
+      "order": 1
+    },
+    "task:3": {
+      "rank": 0,
+      "order": 2
+    },
+    "agent:a4f0e422ba57dad50": {
+      "rank": 1,
+      "order": 0
+    },
+    "task:4": {
+      "rank": 1,
+      "order": 1
+    },
+    "agent:a980c5552902c6056": {
+      "rank": 1,
+      "order": 2
+    },
+    "agent:ae5d36556f00a311d": {
+      "rank": 1,
+      "order": 3
+    }
+  },
+  "warnings": []
+}
