@@ -24,7 +24,7 @@ public struct Check {
 }
 
 public enum OverlayChecks {
-    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look + viewerState
+    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look + sound + viewerState
 }
 
 // MARK: - Helpers
@@ -433,5 +433,23 @@ private let viewerState: [Check] = [
         _ = sessions.pendingPushes(now: t0)
         _ = sessions.accept(info("a", seq: 2, state: .working), body: snapshotJSON(id: "a", seq: 2, state: "working"), now: t0.addingTimeInterval(1))
         expect.equal(sessions.pendingPushes(now: t0.addingTimeInterval(1)).count, 1)
+    }
+]
+
+// MARK: - Sound choice
+
+private let sound: [Check] = [
+    Check(group: "sound", name: "four choices: off, and three styles; same as look is the default") { expect in
+        expect.equal(SoundChoice.allCases.map(\.title), ["Off", "Same as Look", "Clean", "8-bit"])
+        expect.equal(SoundChoice.standard, .look)
+        expect.equal(SoundChoice.allCases.map(\.isOn), [false, true, true, true])
+    },
+    Check(group: "sound", name: "the stored sound flag and style give the choice") { expect in
+        expect.equal(SoundChoice.from(sound: false, style: "pixel"), .off, "off stays off whatever the style")
+        expect.equal(SoundChoice.from(sound: true, style: "look"), .look)
+        expect.equal(SoundChoice.from(sound: true, style: "smooth"), .smooth)
+        expect.equal(SoundChoice.from(sound: true, style: "pixel"), .pixel)
+        expect.equal(SoundChoice.from(sound: true, style: "off"), .look, "a style that is not one is the default")
+        expect.equal(SoundChoice.from(sound: true, style: "retro"), .look)
     }
 ]
