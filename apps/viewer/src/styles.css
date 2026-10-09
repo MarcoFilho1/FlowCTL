@@ -9,6 +9,8 @@
   --line: rgba(31, 35, 40, 0.14);
   --edge: #8c959f;
   --veil: rgba(255, 255, 255, 0.08);
+  --grid: rgba(31, 35, 40, 0.14);
+  --rim: rgba(255, 255, 255, 0.9);
   --halo: rgba(255, 255, 255, 0.85);
   --card: rgba(255, 255, 255, 0.96);
   --chip: rgba(31, 35, 40, 0.08);
@@ -32,6 +34,8 @@
     --line: rgba(230, 237, 243, 0.14);
     --edge: #6e7681;
     --veil: rgba(13, 15, 19, 0.10);
+    --grid: rgba(230, 237, 243, 0.12);
+    --rim: rgba(13, 15, 19, 0.9);
     --halo: rgba(13, 15, 19, 0.85);
     --card: rgba(30, 33, 40, 0.97);
     --chip: rgba(230, 237, 243, 0.10);
@@ -54,7 +58,7 @@ html, body, #root { height: 100%; margin: 0; }
    veil, and every label carries a halo so it reads on any background. */
 body { background: transparent; color: var(--text); font: 12px/1.35 var(--font); }
 
-.app { width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; background: var(--veil); padding: 8px; }
+.app { position: relative; width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; background: var(--veil); }
 
 /* In a browser there is no desktop behind the page. */
 .app.dev { background: var(--panel-solid); }
@@ -65,7 +69,11 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 }
 
 /* Header: one quiet line */
-.header { display: flex; align-items: center; gap: 6px; height: 18px; margin-bottom: 8px; min-width: 0; font-size: 11px; color: var(--muted); }
+/* Header and tabs float over the graph, so the whole window is canvas. */
+.header {
+  position: absolute; top: 6px; left: 8px; z-index: 3; max-width: 60%; pointer-events: none;
+  display: flex; align-items: center; gap: 6px; height: 18px; min-width: 0; font-size: 11px; color: var(--muted);
+}
 .header > * { text-shadow: 0 0 3px var(--halo), 0 0 6px var(--halo); }
 .state-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .state-dot.state-working { background: var(--running); }
@@ -77,7 +85,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .warnings { margin-left: auto; }
 
 /* Tabs */
-.tabs { display: flex; gap: 2px; margin-bottom: 6px; overflow-x: auto; }
+.tabs { position: absolute; top: 4px; right: 6px; z-index: 3; max-width: 45%; display: flex; gap: 2px; overflow-x: auto; }
 .tab {
   font: inherit; font-size: 11px; color: var(--muted); background: none; border: 0;
   padding: 3px 8px; border-radius: 999px; white-space: nowrap; cursor: pointer;
@@ -86,11 +94,12 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .tab[aria-selected="true"] { color: var(--text); background: var(--chip); }
 .tab.waiting::after { content: " •"; color: var(--needs-you); }
 
-/* Graph */
+/* Graph: a fixed window onto a larger canvas, moved by dragging */
 .graph { flex: 1; min-height: 0; min-width: 0; position: relative; }
-.canvas { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: flex-start; }
-.stage { position: relative; flex: none; }
-.stage svg { display: block; overflow: visible; }
+.canvas { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.canvas.dragging { cursor: grabbing; }
+.canvas svg { display: block; }
+.grid-dot { fill: var(--grid); }
 
 .status-pending   { --status: var(--pending); }
 .status-running   { --status: var(--running); }
@@ -99,22 +108,45 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .status-done      { --status: var(--done); }
 
 .node { cursor: pointer; outline: none; }
-.node .dot { fill: var(--status); stroke: var(--halo); stroke-width: 1.5; transition: fill 300ms ease; }
+.canvas.dragging .node { cursor: grabbing; }
+.node .glow { fill: var(--status); opacity: 0.18; filter: blur(3px); transition: fill 300ms ease, opacity 300ms ease; }
+.node .dot { fill: var(--status); stroke: var(--rim); stroke-width: 1.5; transition: fill 300ms ease; }
+.node .shine { fill: #fff; opacity: 0.35; pointer-events: none; }
 .node.status-pending .dot { fill: var(--pending-fill); stroke: var(--pending); stroke-width: 1.75; }
-.node .label {
-  fill: var(--text); font-size: 11.5px; font-weight: 500;
-  paint-order: stroke; stroke: var(--halo); stroke-width: 3px; stroke-linejoin: round;
-}
-.node.satellite .label { font-size: 10.5px; fill: var(--muted); }
-.node.status-done .label { fill: var(--muted); }
-.node:hover .dot, .node:focus-visible .dot { stroke: var(--text); }
+.node.status-pending .glow, .node.status-pending .shine { opacity: 0; }
+.node.status-done .glow { opacity: 0.1; }
+.node.status-running .glow { opacity: 0.32; }
+.node.status-error .glow { opacity: 0.4; }
+.node:hover .dot, .node:focus-visible .dot { stroke: var(--text); stroke-width: 2; }
+.node:hover .glow { opacity: 0.45; }
 .node .hit { fill: transparent; }
-.pulse { fill: none; stroke: var(--needs-you); stroke-width: 2.5; animation: pulse 1.4s ease-in-out infinite; }
+.node.satellite .glow { filter: blur(2px); }
 
-.link { fill: none; stroke: var(--edge); stroke-width: 1.3; }
-.link.inferred { stroke-dasharray: 4 4; opacity: 0.8; }
-.link-agent { stroke-dasharray: 2 3; stroke-width: 1; }
+.orbit {
+  fill: none; stroke: var(--running); stroke-width: 1.5; stroke-dasharray: 4 5; stroke-linecap: round;
+  animation: spin 2.4s linear infinite;
+}
+.pulse { fill: none; stroke: var(--needs-you); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: ripple 1.6s ease-out infinite; }
+
+.link { fill: none; stroke: var(--edge); stroke-width: 1.3; opacity: 0.85; }
+.link.inferred { stroke-dasharray: 4 4; opacity: 0.6; }
+.link.live { stroke: var(--running); stroke-dasharray: 3 6; animation: flow 0.9s linear infinite; opacity: 1; }
+.link-agent { stroke-dasharray: 2 3; stroke-width: 1; opacity: 0.6; }
 .arrow-head { fill: var(--edge); }
+
+.beacon {
+  position: absolute; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%;
+  font-size: 10px; line-height: 16px; text-align: center; cursor: pointer;
+  color: var(--status); background: var(--card); box-shadow: 0 0 0 1.5px var(--status), 0 0 8px var(--status);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ripple {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes flow { to { stroke-dashoffset: -9; } }
 
 /* Hover card */
 .hover-card {
@@ -139,8 +171,8 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pulse, .state-dot { animation: none; }
-  .node .dot { transition: none; }
+  .pulse, .state-dot, .orbit, .link.live, .beacon { animation: none; }
+  .node .dot, .node .glow { transition: none; }
 }
 
 .empty { margin: auto; color: var(--muted); padding: 8px; text-align: center; font-size: 11px; text-shadow: 0 0 3px var(--halo); }
@@ -156,3 +188,8 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 }
 .dev-controls button:disabled { opacity: 0.45; cursor: default; }
 .dev-controls .progress { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* In the dev page the header sits in the flow, and the graph shows in an
+   overlay-sized frame (Medium, 360 × 220) to judge it at its real size. */
+.app.dev .header, .app.dev .tabs { position: static; max-width: none; margin: 6px 8px 0; pointer-events: auto; }
+.app.dev .graph { flex: none; width: 360px; height: 220px; margin: 8px; border: 1px dashed var(--line); border-radius: 10px; }

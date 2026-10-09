@@ -122,14 +122,14 @@ test("inferred dependencies are dashed", () => {
   expect(container.querySelector('[data-link="a->b"]')?.getAttribute("class")).toContain("inferred");
 });
 
-test("long titles are cut with an ellipsis; the card has the full title", () => {
+test("nodes carry no label: the title lives in the hover card", () => {
   const title = "Refactor the whole checkout flow into smaller modules with tests";
   const { container } = mount(snapshotOf([task("a", { title })]));
-  expect(node(container, "a").querySelector(".label")?.textContent).toMatch(/…$/);
+  expect(node(container, "a").querySelector("text")).toBeNull();
   expect(hover(container, "a").textContent).toContain(title);
 });
 
-describe("talking to the overlay app", () => {
+describe("moving around the graph", () => {
   const messages: unknown[] = [];
   beforeEach(() => {
     messages.length = 0;
@@ -139,28 +139,54 @@ describe("talking to the overlay app", () => {
     delete window.webkit;
   });
 
-  test("asks for a small window for a small graph, and more as it grows", () => {
-    const { store } = mount(snapshotOf([task("a")]));
-    const first = messages.filter((m): m is { type: "size"; width: number; height: number } => (m as { type: string }).type === "size").at(-1);
-    expect(first!.width).toBeLessThanOrEqual(150);
-    expect(first!.height).toBeLessThan(90);
-    act(() => {
-      store.push(
-        snapshotOf([task("a"), task("b", { blockedBy: ["a"] }), task("c", { blockedBy: ["a"] }), task("d", { blockedBy: ["b", "c"] })], {
-          seq: 2,
-          layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 }, c: { rank: 1, order: 1 }, d: { rank: 2, order: 0 } }
-        })
-      );
-    });
-    const grown = messages.filter((m): m is { type: "size"; width: number; height: number } => (m as { type: string }).type === "size").at(-1);
-    expect(grown!.width).toBeGreaterThan(first!.width);
-    expect(grown!.height).toBeGreaterThan(first!.height);
+  const canvas = (container: HTMLElement) => container.querySelector(".canvas") as HTMLElement;
+  const panOf = (container: HTMLElement) => canvas(container).getAttribute("data-pan");
+  const wide = () =>
+    snapshotOf(
+      Array.from({ length: 12 }, (_, i) => task(`t${i}`, { blockedBy: i > 0 ? [`t${i - 1}`] : [] })),
+      { layout: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`t${i}`, { rank: i, order: 0 }])) }
+    );
+
+  test("a click on a node, without moving, brings its session forward", () => {
+    const { container } = mount(snapshotOf([task("a")], { sessionId: "s9" }));
+    fireEvent.pointerDown(node(container, "a"), { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(canvas(container), { clientX: 51, clientY: 50, pointerId: 1 });
+    expect(messages).toContainEqual({ type: "focus", sessionId: "s9", nodeId: "a" });
   });
 
-  test("clicking a node asks to bring its session forward", () => {
-    const { container } = mount(snapshotOf([task("a")], { sessionId: "s9" }));
-    fireEvent.click(node(container, "a"));
-    expect(messages).toContainEqual({ type: "focus", sessionId: "s9", nodeId: "a" });
+  test("dragging moves the view and is not a click", () => {
+    const { container } = mount(wide());
+    const before = panOf(container);
+    fireEvent.pointerDown(node(container, "t11"), { button: 0, clientX: 200, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(canvas(container), { clientX: 260, clientY: 110, pointerId: 1 });
+    fireEvent.pointerUp(canvas(container), { clientX: 260, clientY: 110, pointerId: 1 });
+    const [bx, by] = (before ?? "0,0").split(",").map(Number);
+    expect(panOf(container)).toBe(`${(bx ?? 0) + 60},${(by ?? 0) + 10}`);
+    expect(messages.some((m) => (m as { type: string }).type === "focus")).toBe(false);
+  });
+
+  test("scrolling moves the view too", () => {
+    const { container } = mount(wide());
+    const [bx] = (panOf(container) ?? "0,0").split(",").map(Number);
+    fireEvent.wheel(canvas(container), { deltaX: 40, deltaY: 0 });
+    expect(Number(panOf(container)?.split(",")[0])).toBe((bx ?? 0) - 40);
+  });
+
+  test("a wide graph opens on the node that matters, not at its start", () => {
+    const snapshot = wide();
+    snapshot.nodes[10] = { ...snapshot.nodes[10]!, status: "needs_you" };
+    const { container } = mount(snapshot);
+    // The needs-you node (column 10) is pulled toward the middle of the 360 px window.
+    expect(Number(panOf(container)?.split(",")[0])).toBeLessThan(-400);
+  });
+
+  test("a node that needs you out of sight shows a beacon on the edge", () => {
+    const snapshot = wide();
+    snapshot.nodes[0] = { ...snapshot.nodes[0]!, status: "error", attention: { kind: "error", detail: "Exit code 1", since: 0 } };
+    snapshot.nodes[11] = { ...snapshot.nodes[11]!, status: "needs_you" };
+    const { container } = mount(snapshot);
+    expect(container.querySelector('[data-beacon="t0"]')).not.toBeNull();
+    expect(container.querySelector('[data-beacon="t11"]')).toBeNull();
   });
 });
 
@@ -235,38 +261,3 @@ test("window.flowctl.remove drops an expired session's tab without a reload", ()
   expect(store.getState().sessions.map((session) => session.sessionId)).toEqual(["s2"]);
 });
 
-test("past the overlay's limit the graph scales down instead of spilling", () => {
-  const wide = Array.from({ length: 12 }, (_, i) => task(`t${i}`, { title: `A fairly long step title ${i}` }));
-  const { container } = mount(snapshotOf(wide));
-  const svg = container.querySelector("svg");
-  // jsdom measures nothing, so the canvas falls back to a 360 × 420 panel.
-  expect(Number(svg?.getAttribute("width"))).toBeLessThanOrEqual(360);
-  expect(svg?.getAttribute("viewBox")).toMatch(/^0 0 \d{4,}/);
-});
-
-describe("size requests stay above what the chrome needs", () => {
-  const sizes: Array<{ width: number; height: number }> = [];
-  beforeEach(() => {
-    sizes.length = 0;
-    window.webkit = {
-      messageHandlers: { flowctl: { postMessage: (message) => void (message.type === "size" && sizes.push(message)) } }
-    };
-  });
-  afterEach(() => {
-    delete window.webkit;
-  });
-
-  test("an empty session still asks for room for its header", () => {
-    mount(snapshotOf([], { sessionState: "idle" }));
-    expect(sizes.at(-1)!.width).toBeGreaterThanOrEqual(150);
-    expect(sizes.at(-1)!.height).toBeGreaterThanOrEqual(60);
-  });
-
-  test("with several sessions the window is at least as wide as the tabs", () => {
-    mount(
-      snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/a-rather-long-project-name" }),
-      snapshotOf([task("b")], { sessionId: "s2", cwd: "/w/another-long-project-name" })
-    );
-    expect(sizes.at(-1)!.width).toBeGreaterThan(350);
-  });
-});

@@ -1,24 +1,20 @@
-// Turns a Snapshot's layout (rank, order) into a node-link drawing: each node
-// a circle with a short label beside it, ranks from top to bottom. Pure, so
-// it is tested on the golden snapshots without a browser.
+// Turns a Snapshot's layout (rank, order) into a node-only drawing that flows
+// left to right: each rank a column, each node a circle, no labels (the hover
+// card names it). Pure, so it is tested on the golden snapshots.
 //
 // The layout treats subagents as ordinary nodes, so in a rank they can sit
 // between tasks. Here an agent whose `parent` is on screen leaves the layout
-// and becomes a satellite: a smaller circle stacked under its parent.
+// and becomes a satellite: a smaller circle tucked under its parent.
 
 import type { GraphNode, Snapshot } from "../../../mod/graph/types.ts";
 
-export const NODE_R = 8;
+export const NODE_R = 9;
 export const SATELLITE_R = 5;
-const LABEL_GAP = 6;
-const LABEL_CHARS = 22;
-const LABEL_CHAR_W = 6.4;
-const SATELLITE_LABEL_CHAR_W = 5.6;
-const SATELLITE_INDENT = 14;
-const SATELLITE_STEP = 18;
-const SLOT_GAP = 18;
-const RANK_GAP = 34;
-const MARGIN = 10;
+const COLUMN_GAP = 68;
+const ROW_GAP = 36;
+const SATELLITE_DX = 12;
+const SATELLITE_STEP = 15;
+const MARGIN = 28;
 
 export interface Box {
   x: number;
@@ -30,17 +26,11 @@ export interface Box {
 export interface NodeShape {
   id: string;
   node: GraphNode;
-  /** The circle. */
   cx: number;
   cy: number;
   r: number;
-  /** The short label drawn right of the circle, and its estimated width. */
-  label: string;
-  labelWidth: number;
-  /** Drawn under its parent, not in a rank of its own. */
+  /** Drawn under its parent, not in a column of its own. */
   isSatellite: boolean;
-  /** How far below the circle its dependencies leave: past its satellites. */
-  tail: number;
 }
 
 export interface Link {
@@ -58,31 +48,14 @@ export interface Scene {
   links: Link[];
 }
 
-/** A label short enough to sit beside a node; the hover card has the rest. */
-export function shortLabel(title: string, max = LABEL_CHARS): string {
-  const chars = Array.from(title.trim());
-  return chars.length <= max ? chars.join("") : `${chars.slice(0, max - 1).join("")}…`;
-}
-
-/** The circle's bounding box, the unit the tween moves. */
+/** The circle's bounding box: the unit the tween moves and overlap is tested on. */
 export function circleBox(shape: Pick<NodeShape, "cx" | "cy" | "r">): Box {
   return { x: shape.cx - shape.r, y: shape.cy - shape.r, w: 2 * shape.r, h: 2 * shape.r };
-}
-
-/** Circle and label together: what must not overlap another node. */
-export function footprint(shape: NodeShape): Box {
-  return {
-    x: shape.cx - shape.r,
-    y: shape.cy - Math.max(shape.r, 7),
-    w: 2 * shape.r + LABEL_GAP + shape.labelWidth,
-    h: 2 * Math.max(shape.r, 7)
-  };
 }
 
 interface Slot {
   node: GraphNode;
   satellites: GraphNode[];
-  width: number;
   height: number;
 }
 
@@ -108,71 +81,46 @@ export function buildScene(snapshot: Snapshot): Scene {
   const tops: GraphNode[] = [];
   for (const node of snapshot.nodes) {
     const anchor = anchorOf(node);
-    if (anchor === undefined) {
-      tops.push(node);
-    } else {
-      satellitesOf.set(anchor.id, [...(satellitesOf.get(anchor.id) ?? []), node]);
-    }
+    if (anchor === undefined) tops.push(node);
+    else satellitesOf.set(anchor.id, [...(satellitesOf.get(anchor.id) ?? []), node]);
   }
 
-  const labelWidth = (node: GraphNode, satellite: boolean) =>
-    Array.from(shortLabel(node.title)).length * (satellite ? SATELLITE_LABEL_CHAR_W : LABEL_CHAR_W);
   const slotOf = (node: GraphNode): Slot => {
     const satellites = (satellitesOf.get(node.id) ?? []).sort((a, b) => order(a) - order(b));
-    const own = 2 * NODE_R + LABEL_GAP + labelWidth(node, false);
-    const hanging = satellites.map((s) => SATELLITE_INDENT + 2 * SATELLITE_R + LABEL_GAP + labelWidth(s, true));
-    return {
-      node,
-      satellites,
-      width: Math.max(own, ...hanging),
-      height: 2 * NODE_R + satellites.length * SATELLITE_STEP
-    };
+    return { node, satellites, height: 2 * NODE_R + satellites.length * SATELLITE_STEP };
   };
-
   const ranks = [...new Set(tops.map(rankOf))].sort((a, b) => a - b);
-  const rows = ranks.map((rank) =>
+  const columns = ranks.map((rank) =>
     tops
       .filter((node) => rankOf(node) === rank)
       .sort((a, b) => order(a) - order(b))
       .map(slotOf)
   );
-  const rowWidth = rows.map((row) => row.reduce((sum, slot) => sum + slot.width, 0) + SLOT_GAP * Math.max(0, row.length - 1));
-  const widest = Math.max(0, ...rowWidth);
+  const columnHeight = columns.map(
+    (column) => column.reduce((sum, slot) => sum + slot.height, 0) + (ROW_GAP - 2 * NODE_R) * Math.max(0, column.length - 1)
+  );
+  const tallest = Math.max(0, ...columnHeight);
 
   const shapes: NodeShape[] = [];
-  let y = MARGIN;
-  rows.forEach((row, i) => {
-    let x = MARGIN + (widest - (rowWidth[i] ?? 0)) / 2;
-    for (const slot of row) {
-      const cx = x + NODE_R;
+  columns.forEach((column, i) => {
+    const cx = MARGIN + NODE_R + i * COLUMN_GAP;
+    // Each column is centered on the tallest, so a lone node lines up with its neighbors.
+    let y = MARGIN + (tallest - (columnHeight[i] ?? 0)) / 2;
+    for (const slot of column) {
       const cy = y + NODE_R;
-      shapes.push({
-        id: slot.node.id,
-        node: slot.node,
-        cx,
-        cy,
-        r: NODE_R,
-        label: shortLabel(slot.node.title),
-        labelWidth: labelWidth(slot.node, false),
-        isSatellite: false,
-        tail: slot.satellites.length * SATELLITE_STEP
-      });
+      shapes.push({ id: slot.node.id, node: slot.node, cx, cy, r: NODE_R, isSatellite: false });
       slot.satellites.forEach((satellite, k) => {
         shapes.push({
           id: satellite.id,
           node: satellite,
-          cx: cx + SATELLITE_INDENT,
-          cy: cy + (k + 1) * SATELLITE_STEP,
+          cx: cx + SATELLITE_DX,
+          cy: cy + NODE_R + (k + 1) * SATELLITE_STEP - SATELLITE_R,
           r: SATELLITE_R,
-          label: shortLabel(satellite.title),
-          labelWidth: labelWidth(satellite, true),
-          isSatellite: true,
-          tail: 0
+          isSatellite: true
         });
       });
-      x += slot.width + SLOT_GAP;
+      y += slot.height + ROW_GAP - 2 * NODE_R;
     }
-    y += Math.max(0, ...row.map((slot) => slot.height)) + RANK_GAP;
   });
 
   const links: Link[] = [];
@@ -184,40 +132,56 @@ export function buildScene(snapshot: Snapshot): Scene {
     }
   }
   for (const shape of shapes) {
-    const parent = shape.node.parent;
-    if (shape.isSatellite && parent !== undefined) {
-      links.push({ from: parent, to: shape.id, kind: "agent", inferred: false });
+    if (shape.isSatellite && shape.node.parent !== undefined) {
+      links.push({ from: shape.node.parent, to: shape.id, kind: "agent", inferred: false });
     }
   }
 
-  return {
-    width: Math.max(widest + 2 * MARGIN, 2 * MARGIN),
-    height: rows.length === 0 ? 2 * MARGIN : y - RANK_GAP + MARGIN,
-    nodes: shapes,
-    links
-  };
-}
-
-/** How much a scene must shrink to fit: 1 when it already fits. */
-export function fitScale(scene: Pick<Scene, "width" | "height">, viewport: { width: number; height: number }): number {
-  return Math.min(1, viewport.width / scene.width, viewport.height / scene.height);
+  const width = columns.length === 0 ? 2 * MARGIN : MARGIN * 2 + 2 * NODE_R + (columns.length - 1) * COLUMN_GAP + SATELLITE_DX;
+  return { width, height: Math.max(tallest, 0) + 2 * MARGIN, nodes: shapes, links };
 }
 
 /**
- * A dependency runs from below its source (past its satellites, `tail`) to
- * the top of its target; a subagent's link drops from its task's circle and
- * turns into its own.
+ * A dependency leaves its source on the right and enters its target on the
+ * left; a subagent's link drops from its task and turns into it.
  */
-export function linkPath(from: Box, to: Box, kind: Link["kind"], tail = 0): string {
-  const x1 = from.x + from.w / 2;
-  const x2 = to.x + to.w / 2;
+export function linkPath(from: Box, to: Box, kind: Link["kind"]): string {
+  const fy = from.y + from.h / 2;
+  const ty = to.y + to.h / 2;
   if (kind === "agent") {
-    const y1 = from.y + from.h;
-    const y2 = to.y + to.h / 2;
-    return `M ${x1} ${y1} L ${x1} ${y2} L ${to.x} ${y2}`;
+    const x1 = from.x + from.w / 2;
+    return `M ${x1} ${from.y + from.h} L ${x1} ${ty} L ${to.x} ${ty}`;
   }
-  const y1 = from.y + from.h + tail;
-  const y2 = to.y;
-  const bend = Math.max(12, Math.abs(y2 - y1) / 2);
-  return `M ${x1} ${y1} C ${x1} ${y1 + bend}, ${x2} ${y2 - bend}, ${x2} ${y2}`;
+  const x1 = from.x + from.w;
+  const x2 = to.x;
+  const bend = Math.max(14, Math.abs(x2 - x1) / 2);
+  return `M ${x1} ${fy} C ${x1 + bend} ${fy}, ${x2 - bend} ${ty}, ${x2} ${ty}`;
+}
+
+/** The node the eye should be on: one that needs the person, else one failing, else the latest running. */
+export function focusNode(scene: Scene): NodeShape | undefined {
+  const by = (status: GraphNode["status"]) => scene.nodes.filter((shape) => shape.node.status === status);
+  return by("needs_you")[0] ?? by("error")[0] ?? by("running").at(-1) ?? scene.nodes.at(-1);
+}
+
+/**
+ * Keeps at least `keep` px of the scene inside the viewport whichever way it
+ * is dragged; a scene smaller than the viewport stays wholly inside it.
+ */
+export function clampPan(
+  pan: { x: number; y: number },
+  scene: Pick<Scene, "width" | "height">,
+  viewport: { width: number; height: number },
+  keep = 48
+): { x: number; y: number } {
+  const axis = (value: number, size: number, room: number) => {
+    if (size <= room) return Math.min(Math.max(value, 0), room - size);
+    return Math.min(Math.max(value, keep - size), room - keep);
+  };
+  return { x: axis(pan.x, scene.width, viewport.width), y: axis(pan.y, scene.height, viewport.height) };
+}
+
+/** The pan that puts `shape` in the middle of the viewport. */
+export function centerOn(shape: Pick<NodeShape, "cx" | "cy">, viewport: { width: number; height: number }): { x: number; y: number } {
+  return { x: viewport.width / 2 - shape.cx, y: viewport.height / 2 - shape.cy };
 }
