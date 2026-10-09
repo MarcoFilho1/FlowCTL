@@ -68,7 +68,10 @@ export function describeRequest(tool: string, input: unknown): string {
   if (described !== undefined) {
     return cut(`${tool}: ${described}`);
   }
-  const target = str(args["command"]) ?? str(args["file_path"]) ?? str(args["url"]) ?? str(args["path"]);
+  // A file is named by its last two path parts: the folder and the name.
+  const file = str(args["file_path"]) ?? str(args["path"]);
+  const short = file?.split("/").filter(Boolean).slice(-2).join("/");
+  const target = str(args["command"]) ?? short ?? str(args["url"]);
   return target !== undefined ? cut(`${tool}: ${target}`) : `${tool} wants to run`;
 }
 

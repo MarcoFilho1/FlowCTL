@@ -50,7 +50,7 @@ test("a request is described by its question, its own description or its target"
   );
   assert.equal(describeRequest("Bash", { command: "rm -rf build", description: "Remove the build folder" }), "Bash: Remove the build folder");
   assert.equal(describeRequest("Bash", { command: "rm notes.txt" }), "Bash: rm notes.txt");
-  assert.equal(describeRequest("Edit", { file_path: "/p/src/cart.js" }), "Edit: /p/src/cart.js");
+  assert.equal(describeRequest("Edit", { file_path: "/Users/me/projects/shop/src/cart.js" }), "Edit: src/cart.js");
   assert.equal(describeRequest("Mystery", null), "Mystery wants to run");
   assert.equal(describeRequest("Bash", { command: "x".repeat(400) }).length, 160);
 });
