@@ -338,7 +338,8 @@ economizando cerca de 3 dias.
 
 | Risco | Impacto | Mitigação |
 | --- | --- | --- |
-| O agente não cria tasks (nos transcripts locais nunca criou) | Grafo vazio | Nó implícito de turno + opção `nudgeTasks`; gate na Fase 1 |
+| Ferramentas de task desligadas por padrão nos modelos atuais (ver `docs/events.md` §1) e possivelmente em extinção | Grafo vazio | Gate da Fase 1: ligar `CLAUDE_CODE_ENABLE_TODO_TOOLS`, ou o mod registrar a própria ferramenta de plano (`$.tool.register`); detectar no `session.start` com `$.tool.list()` e avisar |
+| O agente não cria tasks sem ser pedido (fixture 02) | Grafo vazio | `nudgeTasks` via `prompt.compose`; nó implícito de turno como caminho normal, não exceção |
 | Deps raramente declaradas | Grafo vira lista | Arestas inferidas tracejadas; `nudgeTasks` pede `addBlockedBy` |
 | Amarelo falso em auto mode | Ruído | `classic.PermissionRequest` como gatilho, não `tool.check`; validar na Fase 1 |
 | Socket Unix não funcionar | Latência maior | Arquivo + FSEvents como plano B (já existe como fallback) |
