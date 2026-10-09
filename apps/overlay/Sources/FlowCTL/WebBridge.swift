@@ -16,6 +16,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var currentBodies: () -> [Data] = { [] }
     /// A node was clicked.
     var onFocus: ((_ sessionId: String, _ nodeId: String?) -> Void)?
+    /// The look the person picked (pixel by default), applied on every load.
+    var currentLook: () -> PageLook = { .standard }
     /// Hands the page hover moves while the app is inactive.
     let hover = HoverRelay()
 
@@ -92,9 +94,30 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             guard let self else { return }
             if case .success(let value) = result, (value as? Bool) == true {} else { log("window.flowctl never appeared") }
             self.isReady = true
+            // The look first, so the sessions below are drawn in it.
+            self.applyLook(self.currentLook())
             let pending = self.queued
             self.queued.removeAll()
             pending.forEach(self.send)
+        }
+    }
+
+    /// `window.flowctl.setLook(look)`, when the viewer has it (PR #27 added it;
+    /// an older viewer keeps drawing as it does and the overlay logs that).
+    /// Waits for the page: a look picked while it loads is applied on load.
+    func applyLook(_ look: PageLook) {
+        guard isReady else { return }
+        let script = "if (window.flowctl && typeof window.flowctl.setLook === 'function') { window.flowctl.setLook(look); return true } return false"
+        webView.callAsyncJavaScript(script, arguments: ["look": look.rawValue], in: nil, in: .page) { result in
+            switch result {
+            case .failure(let error): log("look \(look.rawValue) failed: \(error.localizedDescription)")
+            case .success(let applied):
+                if (applied as? Bool) == true {
+                    log("look: \(look.rawValue)")
+                } else {
+                    log("look \(look.rawValue) not applied: the viewer has no setLook yet")
+                }
+            }
         }
     }
 

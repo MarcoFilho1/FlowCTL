@@ -33,7 +33,8 @@ It can always be closed:
   have clicked the window);
 - the **menu bar item** (the graph icon; a yellow warning while a session waits
   on you) has **Show/Hide Panel**, **Opacity**, **Size** (Small 280×180,
-  Medium 360×220, Large 480×300), **Always on Top**, **Show Automatically**,
+  Medium 360×220, Large 480×300), **Look** (Pixel, the default, or Smooth),
+  **Always on Top**, **Show Automatically**,
   **Hide When Idle** and **Quit FlowCTL**;
 - **⌘Q** quits once you have clicked the window.
 

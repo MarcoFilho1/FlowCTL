@@ -24,7 +24,7 @@ public struct Check {
 }
 
 public enum OverlayChecks {
-    public static let all: [Check] = http + snapshots + registry + files + geometry + focus
+    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look
 }
 
 // MARK: - Helpers
@@ -295,5 +295,16 @@ private let focus: [Check] = [
         expect.that(FocusAction.iTermSession(uniqueId: nil, tty: "/dev/ttys1").appleScript?.contains(#"unique id of s is "-""#) == true, "a missing id matches nothing")
         expect.equal(FocusAction.activate(bundleId: "a.b").appleScript, nil)
         expect.equal(FocusAction.none.fallbackBundleId, nil)
+    }
+]
+
+// MARK: - Page look
+
+private let look: [Check] = [
+    Check(group: "look", name: "pixel is the default; the raw values are what the viewer receives") { expect in
+        expect.equal(PageLook.standard, .pixel)
+        expect.equal(PageLook.allCases.map(\.rawValue), ["pixel", "smooth"])
+        expect.equal(PageLook.allCases.map(\.title), ["Pixel", "Smooth"])
+        expect.equal(PageLook(rawValue: "retro"), nil, "unknown looks are not accepted")
     }
 ]

@@ -40,6 +40,12 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Key.hideWhenIdle) }
     }
 
+    /// How the viewer draws: pixel art by default.
+    var look: PageLook {
+        get { defaults.string(forKey: Key.look).flatMap(PageLook.init(rawValue:)) ?? .standard }
+        set { defaults.set(newValue.rawValue, forKey: Key.look) }
+    }
+
     var panelSize: PanelSize {
         get { defaults.string(forKey: Key.panelSize).flatMap(PanelSize.init(rawValue:)) ?? .standard }
         set { defaults.set(newValue.rawValue, forKey: Key.panelSize) }
@@ -62,6 +68,7 @@ final class Preferences {
 
     private enum Key {
         static let panelSize = "panelSize"
+        static let look = "look"
         static let anchorCorner = "anchorCorner"
         static let anchorX = "anchorX"
         static let anchorY = "anchorY"

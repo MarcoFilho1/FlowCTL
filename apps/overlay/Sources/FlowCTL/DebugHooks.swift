@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import FlowCTLCore
 
 /// Endpoints for checking a running overlay without Screen Recording or
@@ -11,6 +12,7 @@ import FlowCTLCore
 ///   POST /debug/click            clicks the panel's strip (it becomes key, as on a real click)
 ///   POST /debug/focus?session=   the page posts { type: "focus" } through the real message handler
 ///   POST /debug/drag?x=&y=       moves the panel there and re-anchors, as after a drag
+///   POST /debug/eval             runs the request body as JavaScript in the page; returns its result
 ///   GET  /debug/page-events      counts of pointer/mouse/wheel events the page saw
 ///                                (trusted = from WebKit, synthetic = from a relay)
 ///   POST /debug/drag-page?x=&y=&dx=&dy=&steps=   a press, drag and release in the page,
@@ -52,6 +54,10 @@ enum DebugHooks {
                 guard let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else { return .badRequest("x= and y= are required") }
                 app.debugDrag(to: CGPoint(x: x, y: y))
                 return .ok()
+            case ("POST", "/debug/eval"):
+                guard let webView = app.debugBridge?.webView else { return .badRequest("no page") }
+                let source = String(decoding: request.body, as: UTF8.self)
+                return .ok(evaluate(source, in: webView) + "\n")
             case ("GET", "/debug/page-events"):
                 return pageEvents(app)
             case ("POST", "/debug/page-relays"):
@@ -157,6 +163,21 @@ enum DebugHooks {
         view.scrollWheel(with: event)
         log("debug wheel: \(type(of: view)) at \(event.locationInWindow)")
         return true
+    }
+
+    /// Runs `source` in the page on the main thread and returns the result as text.
+    private static func evaluate(_ source: String, in webView: WKWebView) -> String {
+        var text = "undefined"
+        var finished = false
+        webView.evaluateJavaScript(source) { value, error in
+            text = error.map { "error: \($0.localizedDescription)" } ?? value.map { "\($0)" } ?? "undefined"
+            finished = true
+        }
+        let deadline = Date().addingTimeInterval(2)
+        while !finished, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return text
     }
 
     /// Installs a counter in the page on first call, then reads it.

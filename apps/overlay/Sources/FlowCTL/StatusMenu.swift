@@ -71,6 +71,17 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         size.submenu = sizes
         menu.addItem(size)
+
+        let look = NSMenuItem(title: "Look", action: nil, keyEquivalent: "")
+        let looks = NSMenu()
+        for option in PageLook.allCases {
+            let item = entry(option.title, #selector(setLook(_:)))
+            item.representedObject = option.rawValue
+            item.state = actions.preferences.look == option ? .on : .off
+            looks.addItem(item)
+        }
+        look.submenu = looks
+        menu.addItem(look)
         menu.addItem(toggle("Always on Top", actions.preferences.alwaysOnTop, #selector(toggleAlwaysOnTop)))
         menu.addItem(toggle("Show Automatically", actions.preferences.showAutomatically, #selector(toggleShowAutomatically)))
         menu.addItem(toggle("Hide When Idle", actions.preferences.hideWhenIdle, #selector(toggleHideWhenIdle)))
@@ -127,6 +138,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func setOpacity(_ sender: NSMenuItem) {
         guard let value = sender.representedObject as? Double, let actions else { return }
         actions.preferences.opacity = value
+        actions.preferencesChanged()
+    }
+
+    @objc private func setLook(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let look = PageLook(rawValue: raw), let actions else { return }
+        actions.preferences.look = look
         actions.preferencesChanged()
     }
 
