@@ -8,7 +8,10 @@ import FlowCTLCore
 ///   GET  /debug/capture          PNG of the panel (own window: no permission needed)
 ///   POST /debug/close            clicks the panel's close button
 ///   POST /debug/menu?item=Title  runs a menu bar item, as a click on it would
-///   POST /debug/click            clicks the panel's title bar (it becomes key, as on a real click)
+///   POST /debug/click            clicks the panel's strip (it becomes key, as on a real click)
+///   POST /debug/size?w=&h=       the page posts { type: "size" } through the real message handler
+///   POST /debug/focus?session=   the page posts { type: "focus" } through the real message handler
+///   POST /debug/drag?x=&y=       moves the panel there and re-anchors, as after a drag
 ///   POST /debug/key?key=q        sends ⌘<key> to the panel through NSApp.sendEvent
 enum DebugHooks {
     static let isEnabled = ProcessInfo.processInfo.environment["FLOWCTL_DEBUG"] == "1"
@@ -24,7 +27,7 @@ enum DebugHooks {
             case ("GET", "/debug/capture"):
                 return capture(app.debugPanel).map { .ok($0 + "\n") } ?? .badRequest("capture failed")
             case ("POST", "/debug/close"):
-                guard let button = app.debugPanel?.standardWindowButton(.closeButton) else { return .badRequest("no close button") }
+                guard let button = app.debugPanel?.closeButton else { return .badRequest("no close button") }
                 button.performClick(nil)
                 return .ok()
             case ("POST", "/debug/menu"):
@@ -32,6 +35,18 @@ enum DebugHooks {
                 guard app.debugHasMenuItem(title) else { return .badRequest("no menu item titled \(title)") }
                 // After the reply: "Quit FlowCTL" would end the process before it.
                 DispatchQueue.main.async { _ = app.debugMenu(title) }
+                return .ok()
+            case ("POST", "/debug/size"):
+                guard let w = query["w"].flatMap(Double.init), let h = query["h"].flatMap(Double.init) else { return .badRequest("w= and h= are required") }
+                app.debugBridge?.postFromPage(["type": "size", "width": w, "height": h])
+                return .ok()
+            case ("POST", "/debug/focus"):
+                guard let session = query["session"] else { return .badRequest("session= is required") }
+                app.debugBridge?.postFromPage(["type": "focus", "sessionId": session, "nodeId": query["node"] ?? ""])
+                return .ok()
+            case ("POST", "/debug/drag"):
+                guard let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else { return .badRequest("x= and y= are required") }
+                app.debugDrag(to: CGPoint(x: x, y: y))
                 return .ok()
             case ("POST", "/debug/click"):
                 guard let panel = app.debugPanel else { return .badRequest("no panel") }
@@ -65,7 +80,7 @@ enum DebugHooks {
 
     /// A mouse down and up in the middle of the title bar, through NSApp.sendEvent.
     private static func click(_ panel: NSPanel) -> Bool {
-        let point = NSPoint(x: panel.frame.width / 2, y: panel.frame.height - 14)
+        let point = NSPoint(x: panel.frame.width / 2, y: panel.frame.height - 9)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             guard let event = NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,

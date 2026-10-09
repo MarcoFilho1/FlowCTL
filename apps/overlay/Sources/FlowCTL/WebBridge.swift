@@ -1,8 +1,11 @@
 import FlowCTLCore
 import WebKit
 
-/// The viewer page and the one way into it: `window.flowctl.push(snapshot)`.
-/// The snapshot crosses as an argument, never spliced into script text.
+/// The viewer page and the ways in and out of it. In: `window.flowctl.push(snapshot)`,
+/// the snapshot crossing as an argument, never spliced into script text. Out:
+/// `window.webkit.messageHandlers.flowctl.postMessage(...)` with
+/// `{ type: "size", width, height }` (the room the graph wants, in points) or
+/// `{ type: "focus", sessionId, nodeId }` (a node was clicked).
 final class WebBridge: NSObject, WKNavigationDelegate {
     let webView: WKWebView
     private let page: URL
@@ -10,12 +13,19 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     private var queued: [Data] = []
     /// Asked for every snapshot to push again when the page had to load anew.
     var currentBodies: () -> [Data] = { [] }
+    /// The page asked for this much room.
+    var onSize: ((CGSize) -> Void)?
+    /// A node was clicked.
+    var onFocus: ((_ sessionId: String, _ nodeId: String?) -> Void)?
 
     init(page: URL) {
         self.page = page
         let configuration = WKWebViewConfiguration()
+        let messages = MessageProxy()
+        configuration.userContentController.add(messages, name: "flowctl")
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
+        messages.bridge = self
         webView.navigationDelegate = self
         webView.setAccessibilityLabel("FlowCTL task graph")
         // Let the panel's blur show through: the page itself is transparent.
@@ -68,6 +78,30 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         }
     }
 
+    fileprivate func receive(_ body: Any) {
+        guard let message = body as? [String: Any], let type = message["type"] as? String else { return }
+        switch type {
+        case "size":
+            guard let width = (message["width"] as? NSNumber)?.doubleValue,
+                  let height = (message["height"] as? NSNumber)?.doubleValue,
+                  width.isFinite, height.isFinite, width > 0, height > 0
+            else { return log("ignored a size message: \(message)") }
+            onSize?(CGSize(width: width, height: height))
+        case "focus":
+            guard let sessionId = message["sessionId"] as? String, !sessionId.isEmpty else { return }
+            onFocus?(sessionId, message["nodeId"] as? String)
+        default:
+            log("ignored a \(type) message from the page")
+        }
+    }
+
+    /// Posts a message from inside the page, as the viewer does (debug hooks).
+    func postFromPage(_ message: [String: Any]) {
+        webView.callAsyncJavaScript("window.webkit.messageHandlers.flowctl.postMessage(message)", arguments: ["message": message], in: nil, in: .page) { result in
+            if case .failure(let error) = result { log("postMessage failed: \(error.localizedDescription)") }
+        }
+    }
+
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         log("page failed: \(error.localizedDescription)")
     }
@@ -75,5 +109,15 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         log("web content process ended; reloading")
         reload(replaying: currentBodies())
+    }
+}
+
+/// The script message handler, held weakly: WKUserContentController keeps its
+/// handlers alive, and the bridge owns the web view.
+private final class MessageProxy: NSObject, WKScriptMessageHandler {
+    weak var bridge: WebBridge?
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        bridge?.receive(message.body)
     }
 }

@@ -1,77 +1,59 @@
 import AppKit
 
-/// The floating panel: never activates the app (the terminal keeps focus),
-/// shows on every Space and over full-screen apps, translucent. The title bar
-/// is transparent and only its close button shows; the page starts below it.
+/// The floating panel: no frame, no shadow, no background of its own, so the
+/// graph floats over the screen. It never activates the app (the terminal
+/// keeps focus) and shows on every Space and over full-screen apps. A thin
+/// strip on top holds the close button and is where it is dragged from; its
+/// size is set by the app from what the viewer asks for, not by the person.
 final class OverlayPanel: NSPanel {
-    static let titleBarHeight: CGFloat = 28
-    static let defaultSize = NSSize(width: 360, height: 480)
-    private static let autosaveName = "FlowCTL.panel"
+    static let stripHeight: CGFloat = 18
 
     /// Close button, ⌘W: the panel hides, the app keeps running.
     var onHide: (() -> Void)?
+    /// The person dragged the panel somewhere else.
+    var onDragEnded: (() -> Void)?
 
     init(content: NSView) {
         super.init(
-            contentRect: NSRect(origin: .zero, size: Self.defaultSize),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 120),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         title = "FlowCTL"
-        titleVisibility = .hidden
-        titlebarAppearsTransparent = true
         isFloatingPanel = true
         hidesOnDeactivate = false
         // Key only once the person clicks it (see canBecomeKey), never when it
         // pops up: a key non-activating panel would take the terminal's typing.
         becomesKeyOnlyIfNeeded = false
-        isMovableByWindowBackground = true
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        minSize = NSSize(width: 240, height: 200)
         isOpaque = false
         backgroundColor = .clear
-        standardWindowButton(.miniaturizeButton)?.isHidden = true
-        standardWindowButton(.zoomButton)?.isHidden = true
-        standardWindowButton(.closeButton)?.toolTip = "Hide panel (⌘W)"
+        hasShadow = false
 
-        let blur = NSVisualEffectView()
-        blur.material = .popover
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        contentView = blur
+        let root = NSView()
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor.clear.cgColor
+        contentView = root
 
-        let label = NSTextField(labelWithString: "FlowCTL")
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = .secondaryLabelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
+        let strip = ControlStrip()
+        strip.onClose = { [weak self] in self?.onHide?() }
+        strip.onDragEnded = { [weak self] in self?.onDragEnded?() }
+        strip.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = false
-        blur.addSubview(label)
-        blur.addSubview(content)
+        root.addSubview(content)
+        root.addSubview(strip)
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: blur.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: blur.topAnchor, constant: Self.titleBarHeight / 2),
-            content.topAnchor.constraint(equalTo: blur.topAnchor, constant: Self.titleBarHeight),
-            content.leadingAnchor.constraint(equalTo: blur.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: blur.trailingAnchor),
-            content.bottomAnchor.constraint(equalTo: blur.bottomAnchor)
+            strip.topAnchor.constraint(equalTo: root.topAnchor),
+            strip.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            strip.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            strip.heightAnchor.constraint(equalToConstant: Self.stripHeight),
+            content.topAnchor.constraint(equalTo: strip.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor)
         ])
-
-        restoreFrame()
-    }
-
-    /// Size and place from last time (NSWindow keeps it in UserDefaults), or
-    /// the top-right corner of the main screen when that place is off screen.
-    private func restoreFrame() {
-        setFrameAutosaveName(Self.autosaveName)
-        let restored = setFrameUsingName(Self.autosaveName)
-        let onScreen = NSScreen.screens.contains { $0.visibleFrame.intersects(frame) }
-        if !restored || !onScreen {
-            let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-            let size = Self.defaultSize
-            setFrame(NSRect(x: screen.maxX - size.width - 16, y: screen.maxY - size.height - 16, width: size.width, height: size.height), display: false)
-        }
     }
 
     /// Set by a click on the panel, cleared when it stops being key.
@@ -117,9 +99,74 @@ final class OverlayPanel: NSPanel {
         onHide?()
     }
 
-    /// The title bar's close button closes the window directly, past
-    /// performClose: closing means hiding, so the person's choice is recorded.
+    /// Closing means hiding, so the person's choice is recorded.
     override func close() {
         if let onHide { onHide() } else { super.close() }
     }
+
+    /// The strip's close button (the debug hooks click it as a person would).
+    var closeButton: NSButton? {
+        contentView?.subviews.compactMap { ($0 as? ControlStrip)?.closeButton }.first
+    }
+}
+
+/// The strip above the page: a close button that is always there (faint
+/// until hovered) and a handle to drag the panel by.
+private final class ControlStrip: NSView {
+    var onClose: (() -> Void)?
+    var onDragEnded: (() -> Void)?
+    let closeButton = NSButton()
+
+    private var isHovered = false { didSet { refresh() } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 6
+
+        closeButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Hide panel")
+        closeButton.imagePosition = .imageOnly
+        closeButton.isBordered = false
+        closeButton.contentTintColor = .secondaryLabelColor
+        closeButton.toolTip = "Hide panel (⌘W)"
+        closeButton.setAccessibilityLabel("Hide panel")
+        closeButton.target = self
+        closeButton.action = #selector(closeClicked)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(closeButton)
+        NSLayoutConstraint.activate([
+            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
+            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 14),
+            closeButton.heightAnchor.constraint(equalToConstant: 14)
+        ])
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+        onDragEnded?()
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
+    }
+
+    private func refresh() {
+        closeButton.alphaValue = isHovered ? 1 : 0.55
+        layer?.backgroundColor = isHovered ? NSColor.labelColor.withAlphaComponent(0.08).cgColor : NSColor.clear.cgColor
+    }
+
+    @objc private func closeClicked() { onClose?() }
 }

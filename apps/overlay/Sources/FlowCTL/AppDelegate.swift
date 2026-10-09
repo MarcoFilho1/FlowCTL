@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     private var timers: [Timer] = []
     /// The person hid the panel; only a new session or one waiting on them brings it back.
     private var userHidden = false
+    /// The room the viewer last asked for; the window starts at the minimum.
+    private var desiredPageSize = CGSize(width: PanelGeometry.minSize.width, height: PanelGeometry.minSize.height - OverlayPanel.stripHeight)
+    /// The corner the panel keeps fixed while it grows, and where that corner is.
+    private var anchor: (corner: Corner, point: CGPoint) = (.topRight, .zero)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if SocketServer.isServing(at: paths.socket.path) {
@@ -28,10 +32,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         NSApp.mainMenu = Self.mainMenu()
         let bridge = WebBridge(page: paths.viewerPage)
         bridge.currentBodies = { [weak self] in self?.registry.bodies ?? [] }
+        bridge.onSize = { [weak self] size in self?.resize(toFit: size) }
+        bridge.onFocus = { [weak self] sessionId, nodeId in self?.focusTerminal(of: sessionId, node: nodeId) }
         self.bridge = bridge
         let panel = OverlayPanel(content: bridge.webView)
         panel.onHide = { [weak self] in self?.hidePanel(byUser: true) }
+        panel.onDragEnded = { [weak self] in self?.reanchor() }
         self.panel = panel
+        anchor = restoredAnchor()
+        layOut(animated: false)
         applyPreferences()
         statusMenu = StatusMenu(actions: self)
 
@@ -136,6 +145,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         statusMenu?.refreshIcon()
     }
 
+    // MARK: Size and place
+
+    /// The viewer asked for room for its graph: grow or shrink toward it,
+    /// keeping the anchored corner where it is.
+    private func resize(toFit pageSize: CGSize) {
+        desiredPageSize = pageSize
+        layOut(animated: true)
+    }
+
+    private func layOut(animated: Bool) {
+        guard let panel else { return }
+        let screen = screenFrame(containing: anchor.point)
+        let size = PanelGeometry.size(desired: desiredPageSize, chrome: OverlayPanel.stripHeight, screen: screen)
+        let frame = PanelGeometry.frame(size: size, corner: anchor.corner, at: anchor.point, screen: screen)
+        guard frame != panel.frame else { return }
+        if animated, panel.isVisible {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.allowsImplicitAnimation = true
+                panel.animator().setFrame(frame, display: true)
+            }
+        } else {
+            panel.setFrame(frame, display: true)
+        }
+    }
+
+    /// After a drag, the anchor becomes the screen corner nearest the panel.
+    private func reanchor() {
+        guard let panel else { return }
+        let screen = panel.screen?.visibleFrame ?? screenFrame(containing: panel.frame.origin)
+        let corner = PanelGeometry.nearestCorner(of: panel.frame, in: screen)
+        let point = PanelGeometry.point(of: corner, in: panel.frame)
+        // Dragged partly off screen: the anchor stays on it.
+        anchor = (corner, CGPoint(x: min(max(point.x, screen.minX), screen.maxX), y: min(max(point.y, screen.minY), screen.maxY)))
+        preferences.anchor = anchor
+        log("anchored to the \(corner.rawValue) corner at \(Int(anchor.point.x)),\(Int(anchor.point.y))")
+    }
+
+    /// Last session's anchor if its point is still on a screen, else the top-right corner.
+    private func restoredAnchor() -> (corner: Corner, point: CGPoint) {
+        if let saved = preferences.anchor, NSScreen.screens.contains(where: { Self.reaches($0, saved.point) }) {
+            return saved
+        }
+        return PanelGeometry.defaultAnchor(screen: screenFrame(containing: nil))
+    }
+
+    private func screenFrame(containing point: CGPoint?) -> CGRect {
+        let screen = point.flatMap { p in NSScreen.screens.first { Self.reaches($0, p) } } ?? NSScreen.main ?? NSScreen.screens.first
+        return screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+    }
+
+    /// Whether `point` is on `screen`, its right and top edges included: an
+    /// anchor dragged flush to the edge sits exactly there.
+    private static func reaches(_ screen: NSScreen, _ point: CGPoint) -> Bool {
+        screen.frame.insetBy(dx: -1, dy: -1).contains(point)
+    }
+
+    // MARK: Terminal focus
+
+    /// A node was clicked: bring its session's terminal forward.
+    private func focusTerminal(of sessionId: String, node: String?) {
+        guard let session = registry.sessions[sessionId] else {
+            return log("focus: no session \(sessionId)")
+        }
+        TerminalFocuser.focus(TerminalInfo.from(snapshot: session.body)) { outcome in
+            log("focus \(sessionId)\(node.map { " (\($0))" } ?? ""): \(outcome)")
+        }
+    }
+
     // MARK: Panel
 
     var isPanelVisible: Bool { panel?.isVisible ?? false }
@@ -167,7 +245,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
     // MARK: Debug hooks (FLOWCTL_DEBUG=1)
 
-    var debugPanel: NSPanel? { panel }
+    var debugPanel: OverlayPanel? { panel }
+    var debugBridge: WebBridge? { bridge }
+
+    /// As if the person dragged the panel to `origin`.
+    func debugDrag(to origin: CGPoint) {
+        panel?.setFrameOrigin(origin)
+        reanchor()
+    }
 
     func debugHasMenuItem(_ title: String) -> Bool {
         (statusMenu?.describe() ?? []).contains { row in
@@ -188,7 +273,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
                 "frame": [frame.origin.x, frame.origin.y, frame.width, frame.height],
                 "level": panel?.level == .floating ? "floating" : "normal",
                 "alpha": Double(panel?.alphaValue ?? 0),
-                "closeButtonVisible": !(panel?.standardWindowButton(.closeButton)?.isHidden ?? true),
+                "closeButtonVisible": !(panel?.closeButton?.isHidden ?? true),
+                "shadow": panel?.hasShadow == true,
+                "opaque": panel?.isOpaque == true,
                 "userHidden": userHidden
             ],
             "sessions": registry.order.map { id -> [String: Any] in
@@ -196,6 +283,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
                 return ["id": id, "seq": session?.info.seq ?? 0, "state": session?.info.state.rawValue ?? "?", "nodes": session?.info.nodeCount ?? 0]
             },
             "activeSessions": activeSessionCount,
+            "anchor": ["corner": anchor.corner.rawValue, "x": Double(anchor.point.x), "y": Double(anchor.point.y)],
+            "desiredPageSize": [Double(desiredPageSize.width), Double(desiredPageSize.height)],
             "menu": statusMenu?.describe() ?? []
         ]
     }
