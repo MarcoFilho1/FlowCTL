@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { NodeStatus, Snapshot } from "../../../mod/graph/types.ts";
 import { buildScene, centerOn, circleBox, clampPan, focusNode, linkPath, type Box, type NodeShape } from "./geometry.ts";
 import { hoverCard } from "./hover.ts";
-import { tellNative } from "./store.ts";
+import { BANG, discSprite, PX, ringPixels, snap, steppedPath } from "./pixel.ts";
+import { tellNative, type Look } from "./store.ts";
 import { useTween } from "./useTween.ts";
 
 const FALLBACK_VIEWPORT = { width: 360, height: 200 };
@@ -73,7 +74,8 @@ function useGlide(target: Point, instant: boolean): Point {
  * hovering a node shows what it is about. Until the person moves the view,
  * it follows the node that matters (needs you, failing, running).
  */
-export function GraphView({ snapshot }: { snapshot: Snapshot }) {
+export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; look?: Look }) {
+  const pixel = look === "pixel";
   const [ref, viewport] = useViewport();
   const scene = useMemo(() => buildScene(snapshot), [snapshot]);
   const targets = useMemo(() => new Map<string, Box>(scene.nodes.map((shape) => [shape.id, circleBox(shape)])), [scene]);
@@ -167,16 +169,29 @@ export function GraphView({ snapshot }: { snapshot: Snapshot }) {
         onWheel={onWheel}
         data-pan={`${Math.round(pan.x)},${Math.round(pan.y)}`}
       >
-        <svg role="img" aria-label={`Task graph, ${snapshot.nodes.length} nodes`} width="100%" height="100%">
+        <svg
+          role="img"
+          aria-label={`Task graph, ${snapshot.nodes.length} nodes`}
+          width="100%"
+          height="100%"
+          {...(pixel ? { shapeRendering: "crispEdges" } : {})}
+        >
           <defs>
             <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
-              <circle cx="1" cy="1" r="0.8" className="grid-dot" />
+              {pixel ? <rect x="0" y="0" width={PX} height={PX} className="grid-dot" /> : <circle cx="1" cy="1" r="0.8" className="grid-dot" />}
             </pattern>
-            <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-              <path d="M 0 0 L 8 4 L 0 8 z" className="arrow-head" />
-            </marker>
+            {pixel ? (
+              // A stepped arrowhead, 3 art pixels long.
+              <marker id="arrow" viewBox="0 0 3 5" refX="3" refY="2.5" markerWidth="3" markerHeight="5" markerUnits="userSpaceOnUse" orient="auto">
+                <path d="M0 0h1v1h1v1h1v1h-1v1h-1v1h-1z" className="arrow-head" transform={`scale(${PX / 2})`} />
+              </marker>
+            ) : (
+              <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M 0 0 L 8 4 L 0 8 z" className="arrow-head" />
+              </marker>
+            )}
           </defs>
-          <g transform={`translate(${drawn.x} ${drawn.y})`}>
+          <g transform={pixel ? `translate(${snap(drawn.x)} ${snap(drawn.y)})` : `translate(${drawn.x} ${drawn.y})`}>
             {/* A faint grid that moves with the graph, so a drag reads as a drag. */}
             <rect className="grid" x={-2000} y={-2000} width={scene.width + 4000} height={scene.height + 4000} fill="url(#dots)" />
             {scene.links.map((link) => {
@@ -189,13 +204,14 @@ export function GraphView({ snapshot }: { snapshot: Snapshot }) {
                   key={`${link.kind}:${link.from}->${link.to}`}
                   className={`link link-${link.kind}${link.inferred ? " inferred" : ""}${live ? " live" : ""}`}
                   data-link={`${link.from}->${link.to}`}
-                  d={linkPath(from, to, link.kind)}
+                  d={pixel && link.kind === "dependency" ? steppedLink(from, to) : linkPath(from, to, link.kind)}
                   {...(link.kind === "dependency" ? { markerEnd: "url(#arrow)" } : {})}
                 />
               );
             })}
             {scene.nodes.map((shape) => (
-              <Node
+              <NodeView
+                pixel={pixel}
                 key={shape.id}
                 shape={shape}
                 box={boxes.get(shape.id) ?? circleBox(shape)}
@@ -216,6 +232,53 @@ export function GraphView({ snapshot }: { snapshot: Snapshot }) {
         {hoveredShape && <Card shape={hoveredShape} snapshot={snapshot} pan={drawn} viewport={viewport} />}
       </div>
     </div>
+  );
+}
+
+function steppedLink(from: Box, to: Box): string {
+  return steppedPath(from.x + from.w, from.y + from.h / 2, to.x, to.y + to.h / 2);
+}
+
+function NodeView({ pixel, ...props }: { pixel: boolean; shape: NodeShape; box: Box; onHover: (on: boolean) => void }) {
+  return pixel ? <PixelNode {...props} /> : <Node {...props} />;
+}
+
+/** A node as a pixel-art sprite: outline, body, light and shade, with its status effects. */
+function PixelNode({ shape, box, onHover }: { shape: NodeShape; box: Box; onHover: (on: boolean) => void }) {
+  const { node } = shape;
+  const size = shape.isSatellite ? 5 : 9;
+  const sprite = discSprite(size);
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const left = snap(cx - (size * PX) / 2);
+  const top = snap(cy - (size * PX) / 2);
+  return (
+    <g
+      className={`node pixel status-${node.status} kind-${node.kind}${shape.isSatellite ? " satellite" : ""}`}
+      data-node={node.id}
+      role="button"
+      tabIndex={0}
+      aria-label={`${node.title}: ${STATUS_LABEL[node.status]}`}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+      onFocus={() => onHover(true)}
+      onBlur={() => onHover(false)}
+    >
+      <g transform={`translate(${left} ${top}) scale(${PX})`}>
+        {node.status === "running" &&
+          ringPixels(size).map(([x, y], i) => (
+            <rect key={i} className="chaser" x={x} y={y} width={1} height={1} style={{ animationDelay: `${i * 0.1}s` }} />
+          ))}
+        {(node.status === "needs_you" || node.status === "error") &&
+          ringPixels(size, 1).map(([x, y], i) => <rect key={i} className="halo-px" x={x} y={y} width={1} height={1} />)}
+        <path className="px-body" d={sprite.body} />
+        <path className="px-light" d={sprite.light} />
+        <path className="px-shade" d={sprite.shade} />
+        <path className="px-outline" d={sprite.outline} />
+        {node.status === "needs_you" && <path className="bang" d={BANG} transform={`translate(${(size - 1) / 2} -7)`} />}
+      </g>
+      <circle className="hit" cx={cx} cy={cy} r={box.w / 2 + 7} />
+    </g>
   );
 }
 

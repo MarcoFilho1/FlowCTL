@@ -27,6 +27,10 @@ if (requested !== null) {
   });
 }
 
+// ?look=smooth draws the vector style instead of pixel art.
+const look = params.get("look");
+if (look === "smooth" || look === "pixel") store.setLook(look);
+
 const at = params.get("at");
 const startAt = at === "end" ? "end" : at !== null && Number.isInteger(Number(at)) ? Number(at) : undefined;
 

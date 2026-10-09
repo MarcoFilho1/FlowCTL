@@ -3,10 +3,14 @@
 
 import { SNAPSHOT_SCHEMA, type Snapshot } from "../../../mod/graph/types.ts";
 
+/** How the graph is drawn: pixel art (the default) or smooth vector shapes. */
+export type Look = "pixel" | "smooth";
+
 export interface SessionsState {
   /** In the order they first arrived. */
   sessions: readonly Snapshot[];
   active: string | null;
+  look: Look;
 }
 
 export interface SessionStore {
@@ -15,6 +19,7 @@ export interface SessionStore {
   select(key: string): void;
   /** Drops a session, so its seq starts over (the fixture player's restart). */
   forget(key: string): void;
+  setLook(look: Look): void;
   getState(): SessionsState;
   subscribe(listener: () => void): () => void;
 }
@@ -40,7 +45,7 @@ export function isSnapshot(value: unknown): value is Snapshot {
 }
 
 export function createSessionStore(): SessionStore {
-  let state: SessionsState = { sessions: [], active: null };
+  let state: SessionsState = { sessions: [], active: null, look: "pixel" };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
 
@@ -55,7 +60,7 @@ export function createSessionStore(): SessionStore {
       const sessions = [...state.sessions];
       if (index >= 0) sessions[index] = snapshot;
       else sessions.push(snapshot);
-      state = { sessions, active: state.active ?? key };
+      state = { ...state, sessions, active: state.active ?? key };
       emit();
       return true;
     },
@@ -68,7 +73,12 @@ export function createSessionStore(): SessionStore {
       const sessions = state.sessions.filter((s) => sessionKey(s) !== key);
       if (sessions.length === state.sessions.length) return;
       const active = state.active === key ? (sessions[0] ? sessionKey(sessions[0]) : null) : state.active;
-      state = { sessions, active };
+      state = { ...state, sessions, active };
+      emit();
+    },
+    setLook(look) {
+      if (state.look === look || (look !== "pixel" && look !== "smooth")) return;
+      state = { ...state, look };
       emit();
     },
     getState: () => state,
@@ -81,7 +91,7 @@ export function createSessionStore(): SessionStore {
 
 declare global {
   interface Window {
-    flowctl?: { push(snapshot: unknown): boolean; remove(sessionId: string): void };
+    flowctl?: { push(snapshot: unknown): boolean; remove(sessionId: string): void; setLook(look: Look): void };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
   }
 }
@@ -105,5 +115,9 @@ export function tellNative(message: NativeMessage, target: Window = window): boo
  * session's tab expires.
  */
 export function installBridge(store: SessionStore, target: Window = window): void {
-  target.flowctl = { push: (snapshot) => store.push(snapshot), remove: (sessionId) => store.forget(sessionId) };
+  target.flowctl = {
+    push: (snapshot) => store.push(snapshot),
+    remove: (sessionId) => store.forget(sessionId),
+    setLook: (look) => store.setLook(look)
+  };
 }

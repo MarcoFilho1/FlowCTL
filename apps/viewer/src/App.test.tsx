@@ -39,13 +39,13 @@ function hover(container: HTMLElement, id: string): HTMLElement {
 }
 
 describe("golden 03: four tasks and three subagents", () => {
-  test("draws a circle per node, colored by status, with a short label", () => {
+  test("draws a pixel sprite per node, colored by status", () => {
     const snapshot = golden("03-subagents-with-task-graph");
     const { container } = mount(snapshot);
     for (const graphNode of snapshot.nodes) {
       const element = node(container, graphNode.id);
       expect(element.getAttribute("class")).toContain(`status-${graphNode.status}`);
-      expect(element.querySelector("circle.dot")).not.toBeNull();
+      expect(element.querySelector(".px-body")).not.toBeNull();
       expect(element.getAttribute("aria-label")).toContain(graphNode.title);
     }
     expect(container.querySelectorAll("[data-node]")).toHaveLength(7);
@@ -92,7 +92,7 @@ test("a node that needs you pulses, and its card says why", () => {
     attention: { kind: "permission", detail: "Bash", reason: "Bash: Apply the schema", since: 1 }
   });
   const { container } = mount(snapshotOf([graphNode], { sessionState: "waiting_you" }));
-  expect(node(container, "a").querySelector(".pulse")).not.toBeNull();
+  expect(node(container, "a").querySelector(".bang")).not.toBeNull();
   expect(screen.getByText("1 waiting")).toBeTruthy();
   const card = hover(container, "a");
   expect(card.textContent).toContain("Needs your permission");
@@ -269,4 +269,32 @@ test("a session with nothing drawn and nothing going on gets no tab", () => {
   );
   expect(screen.queryAllByRole("tab")).toHaveLength(0);
   expect(screen.queryByText("stale")).toBeNull();
+});
+
+describe("looks", () => {
+  test("pixel art by default: sprites, stepped edges, crisp rendering", () => {
+    const { container } = mount(
+      snapshotOf([task("a", { status: "running" }), task("b", { blockedBy: ["a"] })], {
+        layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 } }
+      })
+    );
+    expect(container.querySelector("main")?.className).toContain("look-pixel");
+    expect(container.querySelector("svg")?.getAttribute("shape-rendering")).toBe("crispEdges");
+    expect(node(container, "a").querySelectorAll(".chaser")).toHaveLength(8);
+    expect(container.querySelector('[data-link="a->b"]')?.getAttribute("d")).toMatch(/^M [\d.]+ [\d.]+ H/);
+  });
+
+  test("the overlay can switch to the smooth look", () => {
+    const store = createSessionStore();
+    installBridge(store);
+    const { container } = render(<App store={store} />);
+    act(() => {
+      window.flowctl?.push(snapshotOf([task("a", { status: "needs_you" })], { sessionState: "waiting_you" }));
+      window.flowctl?.setLook("smooth");
+    });
+    expect(container.querySelector("main")?.className).toContain("look-smooth");
+    expect(node(container, "a").querySelector("circle.dot")).not.toBeNull();
+    expect(node(container, "a").querySelector(".pulse")).not.toBeNull();
+    expect(container.querySelector("svg")?.getAttribute("shape-rendering")).toBeNull();
+  });
 });
