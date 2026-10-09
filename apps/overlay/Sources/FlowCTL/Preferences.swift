@@ -14,7 +14,8 @@ final class Preferences {
             Key.opacity: 1.0,
             Key.alwaysOnTop: true,
             Key.showAutomatically: true,
-            Key.hideWhenIdle: true
+            Key.hideWhenIdle: true,
+            Key.showSubagents: true
         ])
     }
 
@@ -32,6 +33,12 @@ final class Preferences {
     var showAutomatically: Bool {
         get { defaults.bool(forKey: Key.showAutomatically) }
         set { defaults.set(newValue, forKey: Key.showAutomatically) }
+    }
+
+    /// Draw subagents in the graph (on by default); the viewer takes it through setShowSubagents.
+    var showSubagents: Bool {
+        get { defaults.bool(forKey: Key.showSubagents) }
+        set { defaults.set(newValue, forKey: Key.showSubagents) }
     }
 
     /// Hide the panel after five minutes with no active session (on by default).
@@ -76,5 +83,6 @@ final class Preferences {
         static let alwaysOnTop = "alwaysOnTop"
         static let showAutomatically = "showAutomatically"
         static let hideWhenIdle = "hideWhenIdle"
+        static let showSubagents = "showSubagents"
     }
 }
