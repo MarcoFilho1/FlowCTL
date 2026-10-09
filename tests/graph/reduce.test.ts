@@ -231,3 +231,16 @@ test("parallel calls that fail together count as one attempt toward red", () => 
   [fail(5), batchEnd(6), fail(7), batchEnd(8)].forEach((event) => apply(state, event));
   assert.equal(nodes(state)[0]?.status, "error");
 });
+
+test("Claude idling for the next prompt is a resting session, not one waiting for the person", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(state, { t: 1, event: "turn.complete", input: { reason: "answer" }, result: { agents: [] } });
+  apply(state, { t: 2, event: "classic.Notification", input: { notification_type: "idle_prompt", message: "Claude is waiting for your input" } });
+  assert.equal(sessionState(state), "idle");
+  // A real request, in the next turn, does wait for the person.
+  apply(state, { t: 3, event: "turn.start", input: { turnId: "b" } });
+  apply(state, { t: 3, event: "tool.check", input: { tool: "Bash" }, result: { decision: "ask" } });
+  apply(state, { t: 4, event: "classic.PermissionRequest", input: { tool_name: "Bash" } });
+  assert.equal(sessionState(state), "waiting_you");
+});

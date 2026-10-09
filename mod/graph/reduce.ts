@@ -71,7 +71,6 @@ export interface GraphState {
   /** The loop (and why) of the last permission check that asked, per tool name. */
   askedBy: Map<string, { loop: string; reason?: string }>;
   turn: { n: number; running: boolean; attention?: Attention; startedT?: number; finishedT?: number; summary?: string };
-  idlePrompt: boolean;
   ended: boolean;
   warnings: string[];
   errorThreshold: number;
@@ -86,7 +85,6 @@ export function initialState(options: { errorThreshold?: number } = {}): GraphSt
     loops: new Map(),
     askedBy: new Map(),
     turn: { n: 0, running: false },
-    idlePrompt: false,
     ended: false,
     warnings: [],
     errorThreshold: options.errorThreshold ?? DEFAULT_ERROR_THRESHOLD,
@@ -117,13 +115,11 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       }
       break;
     case "prompt.submit":
-      state.idlePrompt = false;
       clearAttention(state, (attention) => attention.kind !== "error");
       break;
     case "turn.start":
       if (event.agentId === undefined) {
         state.turn = { n: state.turn.n + 1, running: true, startedT: event.t };
-        state.idlePrompt = false;
       }
       break;
     case "turn.complete":
@@ -145,11 +141,6 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       // A batch of tool calls ended; its loop's next failure starts a new attempt.
       for (const loopState of state.loops.values()) {
         loopState.batchFailed = false;
-      }
-      break;
-    case "classic.Notification":
-      if (input["notification_type"] === "idle_prompt") {
-        state.idlePrompt = true;
       }
       break;
     case "tool.call":
@@ -236,7 +227,11 @@ export function sessionState(state: GraphState): SessionState {
     return "ended";
   }
   const shown = nodes(state);
-  if (state.idlePrompt || shown.some((node) => node.status === "needs_you")) {
+  // Only a real request (a permission, a question) makes the session wait for
+  // the person. Claude idling for the next prompt (Notification idle_prompt)
+  // is a resting session: other sessions may take the view, and the overlay
+  // may hide after a while.
+  if (shown.some((node) => node.status === "needs_you")) {
     return "waiting_you";
   }
   if (state.turn.running || [...state.agents.values()].some((agent) => agent.state === "running")) {

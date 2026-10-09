@@ -165,7 +165,7 @@ fixtures.
 | Fim de subagente | `classic.SubagentStop`; status `completed`/`failed`/`killed` no `$.agent.list()` | Done, ou error se `failed`. (`AgentStatus` é campo, não evento.) |
 | Amarelo: permissão | **`classic.PermissionRequest`** (`tool_name`, `tool_input`) | Gatilho primário. Marca a task `in_progress` do agente dono; sem task, marca a sessão. Limpa quando o `tool.call` correspondente termina, em `classic.PermissionDenied` ou no `prompt.submit`. `tool.check` = `ask` é só pista: em auto mode o "ask" pode ir para o classificador, não para você. Notification `permission_prompt` chega ~6 s depois e só reconcilia. |
 | Amarelo: pergunta | `tool.call` `AskUserQuestion` | Gatilho primário; limpa quando o resultado traz `answers`. Notifications `agent_needs_input` / `elicitation_*` reconciliam. |
-| Sessão esperando | Notification `idle_prompt` | `sessionState = "waiting_you"` (cabeçalho do overlay, não um nó). |
+| Sessão esperando | Notification `idle_prompt` | Sessão em repouso (`idle`), não "precisa de você": só permissão ou pergunta deixam a sessão `waiting_you`. |
 | Vermelho | `turn.complete` com `reason: "error"` ou `"refusal"` e task `in_progress`; subagente `failed`; `classic.StopFailure`; ≥ N `isError` seguidos na mesma task | N configurável (`userConfig`, padrão 3). `reason: "aborted"` (Esc do usuário) **não** é erro: a task volta a pendente. Volta a azul se a task progredir com sucesso. |
 | Sem tasks | `turn.start` / `turn.complete` | Nó implícito `turn:<n>` ("Current turn") para o grafo nunca ficar vazio. |
 | Sessão retomada | `session.start` após `--resume` / `/clear` | Reconstrói pelo `TaskList`; caso de teste obrigatório. |
