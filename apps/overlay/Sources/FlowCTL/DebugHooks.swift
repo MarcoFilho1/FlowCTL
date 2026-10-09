@@ -9,7 +9,7 @@ import FlowCTLCore
 ///   GET  /debug/capture          PNG of the panel (own window: no permission needed)
 ///   POST /debug/close            clicks the panel's close button
 ///   POST /debug/menu?item=Title  runs a menu bar item, as a click on it would
-///   POST /debug/click            clicks the panel's strip (it becomes key, as on a real click)
+///   POST /debug/click            presses the grip (the page's grip, as the viewer reported it): the panel becomes key
 ///   POST /debug/focus?session=   the page posts { type: "focus" } through the real message handler
 ///   POST /debug/drag?x=&y=       moves the panel there and re-anchors, as after a drag
 ///   POST /debug/eval             runs the request body as JavaScript in the page; returns its result
@@ -38,8 +38,8 @@ enum DebugHooks {
             case ("GET", "/debug/capture"):
                 return capture(app.debugPanel).map { .ok($0 + "\n") } ?? .badRequest("capture failed")
             case ("POST", "/debug/close"):
-                guard let button = app.debugPanel?.closeButton else { return .badRequest("no close button") }
-                button.performClick(nil)
+                // The viewer's × sends this message; the bridge hides the panel as it did.
+                app.debugBridge?.postFromPage(["type": "close"])
                 return .ok()
             case ("POST", "/debug/menu"):
                 guard let title = query["item"] else { return .badRequest("item= is required") }
@@ -112,7 +112,7 @@ enum DebugHooks {
                     return .badRequest("x= and y= are required")
                 }
                 // Page point (top-left origin, below the strip) to window point (bottom-left).
-                let point = NSPoint(x: x, y: panel.frame.height - OverlayPanel.stripHeight - y)
+                let point = NSPoint(x: x, y: panel.frame.height - y)
                 if query["type"] == "click" {
                     return mouse([.leftMouseDown, .leftMouseUp], at: point, in: panel) ? .ok() : .badRequest("could not make the event")
                 }
@@ -124,8 +124,9 @@ enum DebugHooks {
                 relay.mouseMoved(with: event)
                 return .ok()
             case ("POST", "/debug/click"):
-                guard let panel = app.debugPanel else { return .badRequest("no panel") }
-                return click(panel) ? .ok() : .badRequest("could not make the event")
+                guard let panel = app.debugPanel, let grip = app.debugBridge?.debugGrip else { return .badRequest("no grip reported by the page") }
+                let centre = pagePoint(grip.midX, grip.midY, in: panel)
+                return mouse([.leftMouseDown, .leftMouseUp], at: centre, in: panel) ? .ok() : .badRequest("could not make the event")
             case ("POST", "/debug/key"):
                 guard let key = query["key"], let panel = app.debugPanel else { return .badRequest("key= is required") }
                 DispatchQueue.main.async { _ = sendCommandKey(key, to: panel) }
@@ -153,14 +154,9 @@ enum DebugHooks {
         return (try? png.write(to: url)) != nil ? url.path : nil
     }
 
-    /// A mouse down and up in the middle of the strip, through NSApp.sendEvent.
-    private static func click(_ panel: NSPanel) -> Bool {
-        mouse([.leftMouseDown, .leftMouseUp], at: NSPoint(x: panel.frame.width / 2, y: panel.frame.height - 9), in: panel)
-    }
-
-    /// Page point (top-left origin, below the strip) to window point (bottom-left).
+    /// Page point (top-left origin) to window point (bottom-left).
     private static func pagePoint(_ x: Double, _ y: Double, in panel: NSPanel) -> NSPoint {
-        NSPoint(x: x, y: panel.frame.height - OverlayPanel.stripHeight - y)
+        NSPoint(x: x, y: panel.frame.height - y)
     }
 
     /// A pixel scroll as a trackpad makes, made with CGEvent (NSEvent has no
