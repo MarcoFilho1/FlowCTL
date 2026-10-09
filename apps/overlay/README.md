@@ -56,11 +56,17 @@ Settings > Privacy & Security > Automation.
 
 - **Window**: a borderless, non-activating `NSPanel` on every Space and over
   full-screen apps, with no background or shadow of its own: the graph floats
-  over the screen. It never takes the terminal's keyboard focus when it
-  appears; a click makes it key. A thin strip on top holds the close button and
-  is the handle to drag it by.
+  over the screen. It never takes the terminal's keyboard focus: a click on a
+  node goes to the page without making the panel key; only a click on the thin
+  strip on top (the close button and the handle to drag it by) does, so ⌘W and
+  ⌘Q reach it.
+- **Hover**: WebKit ignores mouse moves while its app is inactive, and the
+  overlay's always is. An always-on tracking area relays each move to a small
+  script the overlay adds to the page, which raises the `mouseover`/`mouseout`
+  a real move would; the viewer's hover cards work over any app.
 - **Size**: starts at 120×120 and follows the size the viewer asks for
-  (`postMessage({ type: "size", width, height })`), up to 480×640 or 40% of
+  (`postMessage({ type: "size", width, height })`, larger while a hover card
+  shows), up to 480×640 or 40% of
   the screen each way, animated over 200 ms. It grows away from its anchor
   corner (top-right at first); after a drag the anchor is the nearest screen
   corner. Anchor and settings live in UserDefaults (`dev.flowctl.overlay`).

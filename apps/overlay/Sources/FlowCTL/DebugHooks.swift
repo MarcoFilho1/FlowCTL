@@ -12,6 +12,9 @@ import FlowCTLCore
 ///   POST /debug/size?w=&h=       the page posts { type: "size" } through the real message handler
 ///   POST /debug/focus?session=   the page posts { type: "focus" } through the real message handler
 ///   POST /debug/drag?x=&y=       moves the panel there and re-anchors, as after a drag
+///   POST /debug/mouse?x=&y=&type=move|click   a mouse event at a point of the page
+///                                (from its top-left): a click through NSApp.sendEvent,
+///                                a move through the hover relay
 ///   POST /debug/key?key=q        sends ⌘<key> to the panel through NSApp.sendEvent
 enum DebugHooks {
     static let isEnabled = ProcessInfo.processInfo.environment["FLOWCTL_DEBUG"] == "1"
@@ -48,6 +51,22 @@ enum DebugHooks {
                 guard let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else { return .badRequest("x= and y= are required") }
                 app.debugDrag(to: CGPoint(x: x, y: y))
                 return .ok()
+            case ("POST", "/debug/mouse"):
+                guard let panel = app.debugPanel, let x = query["x"].flatMap(Double.init), let y = query["y"].flatMap(Double.init) else {
+                    return .badRequest("x= and y= are required")
+                }
+                // Page point (top-left origin, below the strip) to window point (bottom-left).
+                let point = NSPoint(x: x, y: panel.frame.height - OverlayPanel.stripHeight - y)
+                if query["type"] == "click" {
+                    return mouse([.leftMouseDown, .leftMouseUp], at: point, in: panel) ? .ok() : .badRequest("could not make the event")
+                }
+                // A move enters where the always-on tracking area would hand it in.
+                guard let relay = app.debugBridge?.hover, let event = NSEvent.mouseEvent(
+                    with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+                ) else { return .badRequest("could not make the event") }
+                relay.mouseMoved(with: event)
+                return .ok()
             case ("POST", "/debug/click"):
                 guard let panel = app.debugPanel else { return .badRequest("no panel") }
                 return click(panel) ? .ok() : .badRequest("could not make the event")
@@ -78,13 +97,17 @@ enum DebugHooks {
         return (try? png.write(to: url)) != nil ? url.path : nil
     }
 
-    /// A mouse down and up in the middle of the title bar, through NSApp.sendEvent.
+    /// A mouse down and up in the middle of the strip, through NSApp.sendEvent.
     private static func click(_ panel: NSPanel) -> Bool {
-        let point = NSPoint(x: panel.frame.width / 2, y: panel.frame.height - 9)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        mouse([.leftMouseDown, .leftMouseUp], at: NSPoint(x: panel.frame.width / 2, y: panel.frame.height - 9), in: panel)
+    }
+
+    private static func mouse(_ types: [NSEvent.EventType], at point: NSPoint, in panel: NSPanel) -> Bool {
+        for type in types {
             guard let event = NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+                windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1,
+                pressure: type == .leftMouseDown ? 1 : 0
             ) else { return false }
             NSApp.sendEvent(event)
         }

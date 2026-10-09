@@ -31,6 +31,8 @@ final class OverlayPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
+        // Nodes react to hover (summary cards) while the app stays inactive.
+        acceptsMouseMovedEvents = true
 
         let root = NSView()
         root.wantsLayer = true
@@ -40,6 +42,7 @@ final class OverlayPanel: NSPanel {
         let strip = ControlStrip()
         strip.onClose = { [weak self] in self?.onHide?() }
         strip.onDragEnded = { [weak self] in self?.onDragEnded?() }
+        strip.onPress = { [weak self] in self?.allowKey() }
         strip.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(content)
@@ -56,19 +59,18 @@ final class OverlayPanel: NSPanel {
         ])
     }
 
-    /// Set by a click on the panel, cleared when it stops being key.
+    /// Set by a click on the strip, cleared when the panel stops being key.
     private var keyAllowed = false
 
     override var canBecomeKey: Bool { keyAllowed }
 
-    /// A click makes the panel key, so ⌘Q and ⌘W reach it; the app still
-    /// does not activate.
-    override func sendEvent(_ event: NSEvent) {
-        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type), !isKeyWindow {
-            keyAllowed = true
-            makeKey()
-        }
-        super.sendEvent(event)
+    /// A click on the strip makes the panel key, so ⌘Q and ⌘W reach it; the
+    /// app still does not activate. A click on the graph does not: it goes
+    /// to the page, and the terminal keeps the keyboard.
+    func allowKey() {
+        guard !isKeyWindow else { return }
+        keyAllowed = true
+        makeKey()
     }
 
     override func resignKey() {
@@ -115,6 +117,8 @@ final class OverlayPanel: NSPanel {
 private final class ControlStrip: NSView {
     var onClose: (() -> Void)?
     var onDragEnded: (() -> Void)?
+    /// Any press on the strip, before it drags.
+    var onPress: (() -> Void)?
     let closeButton = NSButton()
 
     private var isHovered = false { didSet { refresh() } }
@@ -155,6 +159,7 @@ private final class ControlStrip: NSView {
     override func mouseExited(with event: NSEvent) { isHovered = false }
 
     override func mouseDown(with event: NSEvent) {
+        onPress?()
         window?.performDrag(with: event)
         onDragEnded?()
     }

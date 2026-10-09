@@ -285,6 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             "activeSessions": activeSessionCount,
             "anchor": ["corner": anchor.corner.rawValue, "x": Double(anchor.point.x), "y": Double(anchor.point.y)],
             "desiredPageSize": [Double(desiredPageSize.width), Double(desiredPageSize.height)],
+            "hoverMovesRelayed": bridge?.hover.moves ?? 0,
             "menu": statusMenu?.describe() ?? []
         ]
     }

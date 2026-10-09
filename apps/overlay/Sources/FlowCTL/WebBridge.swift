@@ -17,12 +17,15 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var onSize: ((CGSize) -> Void)?
     /// A node was clicked.
     var onFocus: ((_ sessionId: String, _ nodeId: String?) -> Void)?
+    /// Hands the page hover moves while the app is inactive.
+    let hover = HoverRelay()
 
     init(page: URL) {
         self.page = page
         let configuration = WKWebViewConfiguration()
         let messages = MessageProxy()
         configuration.userContentController.add(messages, name: "flowctl")
+        configuration.userContentController.addUserScript(WKUserScript(source: HoverRelay.pageScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         messages.bridge = self
@@ -34,6 +37,10 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             webView.setValue(false, forKey: "drawsBackground")
         }
         webView.underPageBackgroundColor = .clear
+        // WKWebView tracks the mouse only while its app is active, and the
+        // overlay's never is: relay moves from a tracking area that is always on.
+        hover.webView = webView
+        webView.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: hover))
         load()
     }
 
@@ -119,5 +126,61 @@ private final class MessageProxy: NSObject, WKScriptMessageHandler {
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         bridge?.receive(message.body)
+    }
+}
+
+/// Owner of the web view's always-on tracking area. WebKit ignores mouse
+/// moves while its app is inactive, and the overlay's always is, so hover
+/// would never reach the page; this hands each move to `pageScript`, which
+/// raises the mouseover/mouseout pair a real move would (React derives
+/// onMouseEnter/onMouseLeave from those).
+final class HoverRelay: NSResponder {
+    static let pageScript = """
+    (() => {
+      let last = null;
+      window.__flowctlPointer = (x, y) => {
+        const target = x < 0 ? null : document.elementFromPoint(x, y);
+        if (target === last) return;
+        const init = (related) => ({ bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, relatedTarget: related });
+        if (last && last.isConnected) last.dispatchEvent(new MouseEvent("mouseout", init(target)));
+        if (target) target.dispatchEvent(new MouseEvent("mouseover", init(last)));
+        last = target;
+      };
+    })();
+    """
+
+    weak var webView: WKWebView?
+    /// Moves relayed so far (debug state).
+    private(set) var moves = 0
+    private var inFlight = false
+    private var pending: CGPoint?
+
+    override func mouseMoved(with event: NSEvent) {
+        moves += 1
+        guard let webView else { return }
+        var point = webView.convert(event.locationInWindow, from: nil)
+        if !webView.isFlipped { point.y = webView.bounds.height - point.y }
+        send(point)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        send(CGPoint(x: -1, y: -1))
+    }
+
+    /// One call in flight at a time; the latest point waits for it.
+    private func send(_ point: CGPoint) {
+        guard !inFlight else {
+            pending = point
+            return
+        }
+        inFlight = true
+        webView?.callAsyncJavaScript("window.__flowctlPointer && window.__flowctlPointer(x, y)", arguments: ["x": Double(point.x), "y": Double(point.y)], in: nil, in: .page) { [weak self] _ in
+            guard let self else { return }
+            self.inFlight = false
+            if let next = self.pending {
+                self.pending = nil
+                self.send(next)
+            }
+        }
     }
 }
