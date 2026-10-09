@@ -329,6 +329,37 @@ describe("transitions and the camera", () => {
     }
   });
 
+  test("a new error flashes the node red, then it carries on in its own color", () => {
+    vi.useFakeTimers();
+    try {
+      const running = (seq: number, error?: number) =>
+        snapshotOf([task("a", { status: "running", ...(error ? { lastError: { detail: "Exit code 1", at: error } } : {}) })], { seq, updatedAt: 9000 });
+      const { container, store } = mount(running(1));
+      act(() => {
+        store.push(running(2, 5000));
+      });
+      expect(container.querySelector('.flashing [data-node="a"]')).not.toBeNull();
+      expect(node(container, "a").getAttribute("class")).toContain("status-running");
+      act(() => {
+        vi.advanceTimersByTime(EFFECT_MS + 10);
+      });
+      expect(container.querySelector(".flashing")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+    const { container } = mount(snapshotOf([task("b", { status: "running", lastError: { detail: "Exit code 1", at: 1000 } })], { updatedAt: 13000 }));
+    expect(hover(container, "b").textContent).toContain("Last error 12s ago: Exit code 1");
+  });
+
+  test("a new request's first step is linked to the last request's ends by a dashed arrow", () => {
+    const { container } = mount(
+      snapshotOf([task("a", { status: "done" }), task("b", { after: ["a"] })], { layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 } } })
+    );
+    const link = container.querySelector('[data-link="a->b"]');
+    expect(link?.getAttribute("class")).toContain("link-sequence");
+    expect(link?.getAttribute("marker-end")).toBe("url(#arrow)");
+  });
+
   test("a node that appears materializes, and the edge into it draws itself", () => {
     vi.useFakeTimers();
     try {

@@ -39,6 +39,9 @@ interface PlanEntry {
   /** When it last became in_progress; picks the "current" task of a loop. */
   startedAt?: number;
   createdAt: number;
+  /** Which of the person's requests in this session it was planned in. */
+  request: number;
+  lastError?: { detail: string; at: number };
 }
 
 interface AgentEntry {
@@ -48,6 +51,7 @@ interface AgentEntry {
   summary?: string;
   startedT: number;
   finishedT?: number;
+  lastError?: { detail: string; at: number };
   state: "running" | "done" | "failed";
   parent?: string;
   attention?: Attention;
@@ -70,7 +74,17 @@ export interface GraphState {
   loops: Map<string, LoopState>;
   /** The loop (and why) of the last permission check that asked, per tool name. */
   askedBy: Map<string, { loop: string; reason?: string }>;
-  turn: { n: number; running: boolean; attention?: Attention; startedT?: number; finishedT?: number; summary?: string };
+  turn: {
+    n: number;
+    running: boolean;
+    attention?: Attention;
+    startedT?: number;
+    finishedT?: number;
+    summary?: string;
+    lastError?: { detail: string; at: number };
+  };
+  /** The person's requests so far (prompt submissions); plan entries remember theirs. */
+  request: number;
   ended: boolean;
   warnings: string[];
   errorThreshold: number;
@@ -85,6 +99,7 @@ export function initialState(options: { errorThreshold?: number } = {}): GraphSt
     loops: new Map(),
     askedBy: new Map(),
     turn: { n: 0, running: false },
+    request: 0,
     ended: false,
     warnings: [],
     errorThreshold: options.errorThreshold ?? DEFAULT_ERROR_THRESHOLD,
@@ -115,6 +130,7 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       }
       break;
     case "prompt.submit":
+      state.request += 1;
       clearAttention(state, (attention) => attention.kind !== "error");
       break;
     case "turn.start":
@@ -169,7 +185,9 @@ export function nodes(state: GraphState): GraphNode[] {
   const out: GraphNode[] = [];
   const known = new Set([...state.entries.keys(), ...[...state.agents.values()].map((agent) => agent.id)]);
 
+  const after = sequenceLinks(state);
   for (const entry of [...state.entries.values()].sort(byCreation)) {
+    const follows = after.get(entry.id);
     out.push({
       id: entry.id,
       kind: "task",
@@ -181,7 +199,9 @@ export function nodes(state: GraphState): GraphNode[] {
       status: displayStatus(entry.base, entry.attention, entry.paused),
       ...(entry.attention !== undefined ? { attention: entry.attention } : {}),
       ...(entry.agentId !== undefined ? { agentId: entry.agentId } : {}),
-      blockedBy: entry.blockedBy.filter((id) => known.has(id))
+      blockedBy: entry.blockedBy.filter((id) => known.has(id)),
+      ...(follows !== undefined ? { after: follows } : {}),
+      ...(entry.lastError !== undefined ? { lastError: entry.lastError } : {})
     });
   }
   for (const agent of [...state.agents.values()].sort(byCreation)) {
@@ -199,6 +219,7 @@ export function nodes(state: GraphState): GraphNode[] {
       ...(attention !== undefined ? { attention } : {}),
       agentId: agent.agentId,
       blockedBy: [],
+      ...(agent.lastError !== undefined ? { lastError: agent.lastError } : {}),
       ...(agent.parent !== undefined && known.has(agent.parent) ? { parent: agent.parent } : {})
     });
   }
@@ -216,6 +237,7 @@ export function nodes(state: GraphState): GraphNode[] {
           ? "error"
           : displayStatus(state.turn.running ? "in_progress" : "completed", state.turn.attention),
       ...(state.turn.attention !== undefined ? { attention: state.turn.attention } : {}),
+      ...(state.turn.lastError !== undefined ? { lastError: state.turn.lastError } : {}),
       blockedBy: []
     });
   }
@@ -238,6 +260,35 @@ export function sessionState(state: GraphState): SessionState {
     return "working";
   }
   return "idle";
+}
+
+/**
+ * One session, one graph: the first steps of each request come after the last
+ * steps of the request before it (the main loop's entries only). Steps with
+ * no dependency inside their request start it; steps nothing in their
+ * request depends on end it.
+ */
+function sequenceLinks(state: GraphState): Map<string, string[]> {
+  const byRequest = new Map<number, PlanEntry[]>();
+  for (const entry of state.entries.values()) {
+    if (entry.agentId !== undefined) continue;
+    byRequest.set(entry.request, [...(byRequest.get(entry.request) ?? []), entry]);
+  }
+  const links = new Map<string, string[]>();
+  let previous: PlanEntry[] | undefined;
+  for (const request of [...byRequest.keys()].sort((a, b) => a - b)) {
+    const entries = (byRequest.get(request) ?? []).sort(byCreation);
+    const ids = new Set(entries.map((entry) => entry.id));
+    if (previous !== undefined) {
+      const needed = new Set(previous.flatMap((entry) => entry.blockedBy));
+      const ends = previous.filter((entry) => !needed.has(entry.id)).map((entry) => entry.id);
+      for (const entry of entries) {
+        if (!entry.blockedBy.some((id) => ids.has(id))) links.set(entry.id, ends);
+      }
+    }
+    previous = entries;
+  }
+  return links;
 }
 
 // --- events -----------------------------------------------------------------
@@ -265,6 +316,8 @@ function onToolCall(state: GraphState, event: GraphEvent, input: Record<string, 
       loopState.errorStreak += 1;
       loopState.batchFailed = true;
     }
+    // Every error flashes the node it happened on; a streak turns it red for good.
+    target(state, loop).lastError = { detail: errorDetail(errorText), at: event.t };
     if (loopState.errorStreak >= state.errorThreshold) {
       setAttention(state, loop, { kind: "error", detail: errorDetail(errorText), since: event.t });
     }
@@ -321,7 +374,8 @@ function onTaskCreate(state: GraphState, event: GraphEvent, input: Record<string
     ...(event.agentId !== undefined ? { agentId: event.agentId } : {}),
     blockedBy: [],
     paused: false,
-    createdAt: state.clock
+    createdAt: state.clock,
+    request: state.request
   });
 }
 
@@ -392,7 +446,7 @@ function upsertTask(state: GraphState, event: GraphEvent, task: Record<string, u
   const id = `task:${taskId}`;
   let entry = state.entries.get(id);
   if (entry === undefined) {
-    entry = { id, kind: "task", title: id, base: "pending", blockedBy: [], paused: false, createdAt: state.clock };
+    entry = { id, kind: "task", title: id, base: "pending", blockedBy: [], paused: false, createdAt: state.clock, request: state.request };
     state.entries.set(id, entry);
   }
   entry.title = text(task["subject"]) ?? entry.title;
@@ -434,7 +488,8 @@ function onFlowPlan(state: GraphState, event: GraphEvent, input: Record<string, 
         ...(event.agentId !== undefined ? { agentId: event.agentId } : {}),
         blockedBy: [],
         paused: false,
-        createdAt: state.clock
+        createdAt: state.clock,
+    request: state.request
       };
       state.entries.set(id, entry);
     }

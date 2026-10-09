@@ -53,6 +53,13 @@ export interface GraphNode {
   agentId?: string;
   /** Node ids this node waits on: the graph's edges. */
   blockedBy: string[];
+  /**
+   * Node ids this node simply came after: the last steps of the previous
+   * request in the same session. Drawn dashed; not a dependency.
+   */
+  after?: string[];
+  /** The latest tool error while this node was current: the viewer flashes red when it changes. */
+  lastError?: { detail: string; at: number };
   /** For an agent node, the task its parent loop was running when it spawned. */
   parent?: string;
   /** Edges were inferred (creation order), not declared by the agent. */

@@ -11,10 +11,19 @@ export interface Transitions {
   started: string[];
   /** From a node that just finished to a node it was holding back. */
   handoffs: Array<[from: string, to: string]>;
+  /** Nodes with a new tool error: they flash red, then carry on. */
+  flashed: string[];
 }
 
-export function transitions(before: ReadonlyMap<string, NodeStatus> | undefined, after: Snapshot): Transitions {
-  if (!before) return { added: [], finished: [], started: [], handoffs: [] };
+export function transitions(
+  before: ReadonlyMap<string, NodeStatus> | undefined,
+  after: Snapshot,
+  errorsBefore: ReadonlyMap<string, number> = new Map()
+): Transitions {
+  if (!before) return { added: [], finished: [], started: [], handoffs: [], flashed: [] };
+  const flashed = after.nodes
+    .filter((node) => node.lastError !== undefined && node.lastError.at !== errorsBefore.get(node.id))
+    .map((node) => node.id);
   const added = after.nodes.filter((node) => !before.has(node.id)).map((node) => node.id);
   const status = new Map(after.nodes.map((node) => [node.id, node.status]));
   const finished = after.nodes.filter((node) => node.status === "done" && before.has(node.id) && before.get(node.id) !== "done").map((node) => node.id);
@@ -30,9 +39,14 @@ export function transitions(before: ReadonlyMap<string, NodeStatus> | undefined,
       if (finished.includes(from) && unblocked) handoffs.push([from, node.id]);
     }
   }
-  return { added, finished, started, handoffs };
+  return { added, finished, started, handoffs, flashed };
 }
 
 export function statusesOf(snapshot: Snapshot): Map<string, NodeStatus> {
   return new Map(snapshot.nodes.map((node) => [node.id, node.status]));
+}
+
+/** When each node last had a tool error, to spot new ones. */
+export function errorsOf(snapshot: Snapshot): Map<string, number> {
+  return new Map(snapshot.nodes.flatMap((node) => (node.lastError ? [[node.id, node.lastError.at] as const] : [])));
 }

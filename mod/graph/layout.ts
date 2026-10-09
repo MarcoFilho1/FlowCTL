@@ -69,6 +69,10 @@ function collectEdges(nodes: readonly GraphNode[], index: ReadonlyMap<string, nu
     for (const dependency of node.blockedBy) {
       add(dependency, node.id);
     }
+    // A request's first steps come after the previous request's last ones.
+    for (const before of node.after ?? []) {
+      add(before, node.id);
+    }
     if (node.kind === "agent" && node.parent !== undefined) {
       add(node.parent, node.id);
     }

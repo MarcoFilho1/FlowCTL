@@ -16,6 +16,17 @@ export interface HoverCard {
 const KIND: Record<GraphNode["kind"], string> = { task: "Step", agent: "Subagent", turn: "Turn" };
 
 export function hoverCard(node: GraphNode, snapshot: Snapshot): HoverCard {
+  const card = baseCard(node, snapshot);
+  // A step still in progress that hit an error says so: the agent is working around it.
+  if (node.lastError && (node.status === "running" || node.status === "pending")) {
+    const ago = duration(node.lastError.at, snapshot.updatedAt);
+    const line = `Last error${ago ? ` ${ago} ago` : ""}: ${node.lastError.detail}`;
+    return { ...card, body: card.body ? `${card.body}\n${line}` : line };
+  }
+  return card;
+}
+
+function baseCard(node: GraphNode, snapshot: Snapshot): HoverCard {
   const kind = KIND[node.kind];
   switch (node.status) {
     case "done": {
