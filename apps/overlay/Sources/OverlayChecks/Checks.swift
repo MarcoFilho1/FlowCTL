@@ -24,7 +24,7 @@ public struct Check {
 }
 
 public enum OverlayChecks {
-    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look + sound + viewerState
+    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look + sound + theme + viewerState
 }
 
 // MARK: - Helpers
@@ -451,5 +451,18 @@ private let sound: [Check] = [
         expect.equal(SoundChoice.from(sound: true, style: "pixel"), .pixel)
         expect.equal(SoundChoice.from(sound: true, style: "off"), .look, "a style that is not one is the default")
         expect.equal(SoundChoice.from(sound: true, style: "retro"), .look)
+    }
+]
+
+// MARK: - Theme choice
+
+private let theme: [Check] = [
+    Check(group: "theme", name: "auto, dark and light; auto is the default and an unknown value is auto") { expect in
+        expect.equal(ThemeChoice.allCases.map(\.rawValue), ["auto", "dark", "light"])
+        expect.equal(ThemeChoice.allCases.map(\.title), ["Auto", "Dark", "Light"])
+        expect.equal(ThemeChoice.standard, .auto)
+        expect.equal(ThemeChoice.from("dark"), .dark)
+        expect.equal(ThemeChoice.from("purple"), .auto)
+        expect.equal(ThemeChoice.from(""), .auto)
     }
 ]
