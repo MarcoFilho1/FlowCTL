@@ -191,19 +191,38 @@ describe("moving around the graph", () => {
   });
 });
 
-test("several sessions become tabs; a tab shows its own graph", () => {
+test("several sessions get a pager, ‹ 1/2 ›, that steps through their graphs", () => {
   const { container } = mount(
     snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/api" }),
-    snapshotOf([task("b"), agent("agent:x", "b")], { sessionId: "s2", cwd: "/w/web", sessionState: "waiting_you" })
+    snapshotOf([task("b"), agent("agent:x", "b")], { sessionId: "s2", cwd: "/w/web" })
   );
-  const tabs = screen.getAllByRole("tab");
-  expect(tabs.map((tab) => tab.textContent)).toEqual(["api", "web"]);
-  expect(tabs[1]?.getAttribute("class")).toContain("waiting");
+  const pager = screen.getByRole("navigation", { name: "Sessions" });
+  expect(within(pager).getByText("1/2")).toBeTruthy();
+  expect(screen.queryAllByRole("tab")).toHaveLength(0);
   expect(container.querySelector('[data-node="a"]')).not.toBeNull();
 
-  fireEvent.click(tabs[1] as HTMLElement);
+  fireEvent.click(within(pager).getByLabelText("Next session: web"));
+  expect(within(pager).getByText("2/2")).toBeTruthy();
   expect(container.querySelector('[data-node="a"]')).toBeNull();
   expect(container.querySelector('[data-node="agent:x"]')).not.toBeNull();
+  expect(screen.getByRole("banner").textContent).toContain("web");
+
+  // It wraps around.
+  fireEvent.click(within(pager).getByLabelText("Next session: api"));
+  expect(within(pager).getByText("1/2")).toBeTruthy();
+});
+
+test("the pager marks another session that needs the person", () => {
+  mount(
+    snapshotOf([task("a", { status: "running" })], { sessionId: "s1", cwd: "/w/api" }),
+    snapshotOf([task("b", { status: "needs_you" })], { sessionId: "s2", cwd: "/w/web", sessionState: "waiting_you" })
+  );
+  expect(screen.getByLabelText("Another session needs you")).toBeTruthy();
+});
+
+test("graph warnings stay out of the overlay's header", () => {
+  mount(snapshotOf([task("a")], { warnings: ["dependency cycle: ignored a → b"] }));
+  expect(screen.getByRole("banner").textContent).not.toContain("⚠");
 });
 
 test("window.flowctl.push redraws, and an older seq is ignored", () => {
@@ -248,7 +267,7 @@ describe("fixture player", () => {
   });
 });
 
-test("window.flowctl.remove drops an expired session's tab without a reload", () => {
+test("window.flowctl.remove drops an expired session without a reload", () => {
   const store = createSessionStore();
   installBridge(store);
   render(<App store={store} />);
@@ -256,19 +275,19 @@ test("window.flowctl.remove drops an expired session's tab without a reload", ()
     window.flowctl?.push(snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/api" }));
     window.flowctl?.push(snapshotOf([task("b")], { sessionId: "s2", cwd: "/w/web" }));
   });
-  expect(screen.getAllByRole("tab")).toHaveLength(2);
+  expect(screen.getByText("1/2")).toBeTruthy();
   act(() => window.flowctl?.remove("s1"));
-  expect(screen.queryAllByRole("tab")).toHaveLength(0);
+  expect(screen.queryByRole("navigation", { name: "Sessions" })).toBeNull();
   expect(store.getState().sessions.map((session) => session.sessionId)).toEqual(["s2"]);
 });
 
 
-test("a session with nothing drawn and nothing going on gets no tab", () => {
+test("a session with nothing drawn and nothing going on is left out of the pager", () => {
   mount(
     snapshotOf([task("a")], { sessionId: "s1", cwd: "/w/api" }),
     snapshotOf([], { sessionId: "s2", cwd: "/w/stale", sessionState: "idle" })
   );
-  expect(screen.queryAllByRole("tab")).toHaveLength(0);
+  expect(screen.queryByRole("navigation", { name: "Sessions" })).toBeNull();
   expect(screen.queryByText("stale")).toBeNull();
 });
 
