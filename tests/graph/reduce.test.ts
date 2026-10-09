@@ -218,3 +218,16 @@ test("hover details: why it waits, what it is about, what came of it", () => {
   assert.deepEqual([task?.status, task?.finishedAt], ["done", 7]);
   assert.deepEqual([agent?.status, agent?.summary, agent?.startedAt, agent?.finishedAt], ["done", "Found 2 issues.", 8, 9]);
 });
+
+test("parallel calls that fail together count as one attempt toward red", () => {
+  const state = initialState();
+  const fail = (t: number): GraphEvent => ({ t, event: "tool.call", input: { tool: "Read" }, result: { isError: true, text: "File does not exist." } });
+  const batchEnd = (t: number): GraphEvent => ({ t, event: "classic.PostToolBatch", input: {} });
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  // One batch of three parallel Reads, all failing: not red.
+  [fail(1), fail(2), fail(3), batchEnd(4)].forEach((event) => apply(state, event));
+  assert.equal(nodes(state)[0]?.status, "running");
+  // Two more failed batches make three failed attempts in a row: red.
+  [fail(5), batchEnd(6), fail(7), batchEnd(8)].forEach((event) => apply(state, event));
+  assert.equal(nodes(state)[0]?.status, "error");
+});

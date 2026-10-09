@@ -55,7 +55,10 @@ interface AgentEntry {
 }
 
 interface LoopState {
+  /** Consecutive tool batches that failed. */
   errorStreak: number;
+  /** The current batch already counted a failure: parallel calls fail together. */
+  batchFailed: boolean;
 }
 
 export interface GraphState {
@@ -137,6 +140,12 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       break;
     case "classic.PermissionRequest":
       onPermissionRequest(state, input, event.t);
+      break;
+    case "classic.PostToolBatch":
+      // A batch of tool calls ended; its loop's next failure starts a new attempt.
+      for (const loopState of state.loops.values()) {
+        loopState.batchFailed = false;
+      }
       break;
     case "classic.Notification":
       if (input["notification_type"] === "idle_prompt") {
@@ -254,8 +263,13 @@ function onToolCall(state: GraphState, event: GraphEvent, input: Record<string, 
   }
 
   if (isError && !denied && !isStoppedByUser(errorText)) {
+    // Calls the model makes in parallel (three Reads of guessed paths) fail
+    // as one attempt: a batch counts once toward the streak.
     const loopState = loopOf(state, loop);
-    loopState.errorStreak += 1;
+    if (!loopState.batchFailed) {
+      loopState.errorStreak += 1;
+      loopState.batchFailed = true;
+    }
     if (loopState.errorStreak >= state.errorThreshold) {
       setAttention(state, loop, { kind: "error", detail: errorDetail(errorText), since: event.t });
     }
@@ -627,7 +641,7 @@ function parentFor(state: GraphState, description: string): string | undefined {
 function loopOf(state: GraphState, loop: string): LoopState {
   let found = state.loops.get(loop);
   if (found === undefined) {
-    found = { errorStreak: 0 };
+    found = { errorStreak: 0, batchFailed: false };
     state.loops.set(loop, found);
   }
   return found;

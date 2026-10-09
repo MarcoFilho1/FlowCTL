@@ -91,7 +91,7 @@ export const FLOWPLAN_SPEC = {
     "Declare or update your plan as steps with dependencies, so the person can follow it as a live graph. " +
     "Call it when work has 3 or more steps: once with all steps, then again whenever a step starts, finishes or a new one appears. " +
     "Steps are matched by id; steps you leave out are kept. Steps that can run in parallel should not block each other. " +
-    "Before your final answer, call it once more so every finished step is marked completed.",
+    "The person watches progress live: when you start a step, mark it in_progress; as soon as it is done, mark it completed, one update per step rather than all at the end.",
   inputSchema: {
     type: "object",
     properties: {
@@ -118,7 +118,8 @@ export const FLOWPLAN_SPEC = {
 export function nudgeText(tool: string): string {
   return (
     `When a request needs 3 or more steps, declare your plan with ${tool} before starting: ` +
-    "one entry per step, with its dependencies, then keep each entry's status current as you work. " +
+    "one entry per step, with its dependencies (steps that can run in parallel do not block each other). " +
+    "Then update it step by step as you work: in_progress when you start a step, completed right after it is done. " +
     "The person follows this plan as a live graph. Skip it for quick, single-step requests."
   );
 }
