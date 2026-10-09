@@ -67,6 +67,13 @@ Settings > Privacy & Security > Automation.
 
 ## How it works
 
+- **Window**: the page fills the panel. The viewer's top bar holds the close
+  (×) and the grip; the viewer reports the grip's rectangle
+  (`{type:"grip", x, y, width, height}`, width 0 when gone) and sends
+  `{type:"close"}` when × is clicked (the panel hides and stays hidden for
+  ordinary activity, as before). A press on the grip drags the window, and
+  makes the panel key so ⌘W and ⌘Q work; a press elsewhere goes to the page.
+  The grip shows an open hand.
 - **Window**: a borderless, non-activating `NSPanel` on every Space and over
   full-screen apps, with no background or shadow of its own: the graph floats
   over the screen. It never takes the terminal's keyboard focus: a click on a
