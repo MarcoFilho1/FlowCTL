@@ -16,13 +16,13 @@ export function statusLine(snapshot: Snapshot): string | undefined {
   }
   const waiting = snapshot.nodes.filter((node) => node.status === "needs_you").length;
   if (waiting > 0) {
-    parts.push(`${waiting} aguardando você`);
+    parts.push(`${waiting} waiting for you`);
   } else if (snapshot.sessionState === "waiting_you") {
-    parts.push("aguardando você");
+    parts.push("waiting for you");
   }
   const failed = snapshot.nodes.filter((node) => node.status === "error").length;
   if (failed > 0) {
-    parts.push(`${failed} com erro`);
+    parts.push(`${failed} failed`);
   }
   return parts.join(" · ");
 }
@@ -36,16 +36,16 @@ export function alerts(before: Snapshot | undefined, after: Snapshot): string[] 
       continue;
     }
     if (node.status === "needs_you") {
-      out.push(`${label(node)} precisa de você${node.attention ? ` (${node.attention.detail})` : ""}`);
+      out.push(`${label(node)} needs you${node.attention ? ` (${node.attention.detail})` : ""}`);
     } else if (node.status === "error") {
-      out.push(`${label(node)} falhou${node.attention ? `: ${node.attention.detail}` : ""}`);
+      out.push(`${label(node)} failed${node.attention ? `: ${node.attention.detail}` : ""}`);
     }
   }
   return out;
 }
 
 function label(node: GraphNode): string {
-  return node.kind === "turn" ? "O agente" : `"${node.title}"`;
+  return node.kind === "turn" ? "The agent" : `"${node.title}"`;
 }
 
 /** The name the engine gives the registered tool: mcp__<plugin>__<name>. */
