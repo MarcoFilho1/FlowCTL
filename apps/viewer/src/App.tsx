@@ -19,7 +19,7 @@ export function App({
   /** How long nothing works before the idle animation (0 starts it at once). */
   dreamAfter?: number;
 }) {
-  const { sessions: all, active, look, showSubagents, sound, soundStyle, idleAnimation, dreamStyle } = useSyncExternalStore(store.subscribe, store.getState);
+  const { sessions: all, active, look, showSubagents, sound, soundStyle, idleAnimation } = useSyncExternalStore(store.subscribe, store.getState);
   const sounds = soundLook(look, soundStyle);
   // A session with nothing drawn that is not working (a fresh one gone idle, a
   // stale file restored at launch) would only be an empty tab.
@@ -53,7 +53,7 @@ export function App({
       {current ? (
         <>
           {/* Keyed per session: each tab keeps its own orientation and tweens. */}
-          <GraphView key={sessionKey(current)} snapshot={current} look={look} sound={sound} sounds={sounds} dreaming={dreaming} dreamStyle={dreamStyle} />
+          <GraphView key={sessionKey(current)} snapshot={current} look={look} sound={sound} sounds={sounds} dreaming={dreaming} />
         </>
       ) : (
         <p className="empty">Waiting for a Claude Code session…</p>
