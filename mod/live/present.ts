@@ -57,7 +57,8 @@ export const FLOWPLAN_SPEC = {
   description:
     "Declare or update your plan as steps with dependencies, so the person can follow it as a live graph. " +
     "Call it when work has 3 or more steps: once with all steps, then again whenever a step starts, finishes or a new one appears. " +
-    "Steps are matched by id; steps you leave out are kept. Steps that can run in parallel should not block each other.",
+    "Steps are matched by id; steps you leave out are kept. Steps that can run in parallel should not block each other. " +
+    "Before your final answer, call it once more so every finished step is marked completed.",
   inputSchema: {
     type: "object",
     properties: {

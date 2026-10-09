@@ -250,7 +250,7 @@ o formato do `Snapshot` fica **congelado** (`schema: 1`).
 
 Nota para a Fase 4: o layout trata subagentes como nós comuns, então numa camada eles podem se intercalar com tasks (fixture 03: `consolidar` entre os agentes). O viewer deve desenhá-los agrupados sob a task `parent`.
 
-### Fase 3: Mod ao vivo + bridge (3 dias)
+### Fase 3: Mod ao vivo + bridge (3 dias) ✅
 **Objetivo:** o mod roda o motor numa sessão real e publica o estado.
 - [ ] `register.ts` liga os eventos ao `reduce`; estado em `$.state`.
 - [ ] Status line (`$.ui.status`): `◆ 3/7 · 1 aguardando você`.
@@ -296,6 +296,7 @@ overlay. Pode começar em paralelo com a Fase 3 assim que o `Snapshot` congelar.
 - [ ] Servidor no socket `~/.flowctl/overlay.sock` recebe snapshots e chama `window.flowctl.push`; descarta `seq` antigo.
 - [ ] Ao abrir, lê `~/.flowctl/sessions/*.json` para recuperar sessões em andamento.
 - [ ] Faxina: apaga snapshots `ended` ou com mais de 24 h (o mod não consegue apagar).
+- [ ] **Sempre dá para fechar**: botão de fechar no painel, item na menu bar com "Encerrar", e Cmd+Q quando o painel tem foco. O spike não tinha nenhum e só fechava com `pkill`.
 - [ ] Menu bar: mostrar/ocultar, opacidade, encerrar. Posição e tamanho lembrados (`UserDefaults`).
 - [ ] Some sozinho quando não há sessão ativa (configurável).
 - [ ] `scripts/install-overlay.sh`: build, assinatura ad-hoc, copia para `/Applications`.
