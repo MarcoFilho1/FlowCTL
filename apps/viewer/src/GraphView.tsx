@@ -23,7 +23,9 @@ export const DRAG_THRESHOLD = 4;
 /** After the person pans, the view stops following the work for this long. */
 export const FOLLOW_PAUSE_MS = 8000;
 const CARD_W = 210;
-/** How far the person can zoom at rest. */
+/** Scroll distance (px) that makes one zoom step. */
+export const WHEEL_STEP = 50;
+/** How far the person can zoom. */
 export const ZOOM_MIN = 0.5;
 export const ZOOM_MAX = 2;
 
@@ -131,9 +133,10 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
 
   const drawn = useGlide(cam, dragging);
 
-  // WebKit (the overlay) reports a trackpad pinch as gesture events, not as a
-  // ctrl + wheel: every 15% of pinch is one zoom step.
+  // A trackpad pinch zooms too: WebKit (the overlay) reports it as gesture
+  // events, every 15% of pinch is one zoom step.
   const zoomRef = useRef<((direction: 1 | -1) => void) | undefined>(undefined);
+  const wheelSum = useRef(0);
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -206,7 +209,7 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
   // Zoom at rest, around a point of the window (the cursor, or the middle).
   const zoom = (direction: 1 | -1, around: Point = { x: viewport.width / 2, y: viewport.height / 2 }) => {
     lastManual.current = performance.now();
-    heldAtRest.current = true;
+    if (mode === "overview") heldAtRest.current = true;
     setCam((current) => {
       const s = zoomStep(current.s, direction, pixel);
       if (s === current.s) return current;
@@ -248,15 +251,19 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
       tellNative({ type: "focus", sessionId: snapshot.sessionId, nodeId: held.node });
     }
   };
-  zoomRef.current = mode === "overview" ? zoom : undefined;
+  zoomRef.current = zoom;
+  // Scroll zooms around the cursor (drag moves). A mouse notch is one step; a
+  // trackpad's small deltas add up to a step, so the zoom does not jitter.
   const onWheel = (event: React.WheelEvent) => {
-    // Pinch on a trackpad arrives as a wheel with ctrl held; ⌘ + wheel zooms too.
-    if ((event.ctrlKey || event.metaKey) && mode === "overview") {
-      const box = (event.currentTarget as Element).getBoundingClientRect();
-      zoom(event.deltaY < 0 ? 1 : -1, { x: event.clientX - box.left, y: event.clientY - box.top });
-      return;
-    }
-    moveTo({ x: cam.x - event.deltaX, y: cam.y - event.deltaY });
+    const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+    if (delta === 0) return;
+    const held = wheelSum.current;
+    wheelSum.current = Math.sign(held) === Math.sign(delta) || held === 0 ? held + delta : delta;
+    if (Math.abs(wheelSum.current) < WHEEL_STEP) return;
+    const direction: 1 | -1 = wheelSum.current < 0 ? 1 : -1;
+    wheelSum.current = 0;
+    const box = (event.currentTarget as Element).getBoundingClientRect();
+    zoom(direction, { x: event.clientX - box.left, y: event.clientY - box.top });
   };
 
   const hoveredShape = hovered && !dragging ? shapes.get(hovered) : undefined;
@@ -356,12 +363,6 @@ export function GraphView({ snapshot, look = "pixel" }: { snapshot: Snapshot; lo
             })}
           </g>
         </svg>
-        {mode === "overview" && (
-          <div className="zoom" onPointerDown={(event) => event.stopPropagation()}>
-            <button type="button" aria-label="Zoom in" onClick={() => zoom(1)}>+</button>
-            <button type="button" aria-label="Zoom out" onClick={() => zoom(-1)}>−</button>
-          </div>
-        )}
         {offscreen.map((shape) => (
           <Beacon
             key={shape.id}
