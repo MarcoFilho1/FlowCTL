@@ -31,6 +31,9 @@ if (requested !== null) {
 const look = params.get("look");
 if (look === "smooth" || look === "pixel") store.setLook(look);
 
+// ?subagents=hide leaves subagents out of the graph.
+if (params.get("subagents") === "hide") store.setShowSubagents(false);
+
 const at = params.get("at");
 const startAt = at === "end" ? "end" : at !== null && Number.isInteger(Number(at)) ? Number(at) : undefined;
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { createSessionStore, installBridge, isSnapshot, sessionKey } from "./store.ts";
-import { golden, snapshotOf, task } from "./goldens.ts";
+import { createSessionStore, installBridge, isSnapshot, sessionKey, withoutSubagents } from "./store.ts";
+import { agent, golden, snapshotOf, task } from "./goldens.ts";
 
 describe("session store", () => {
   test("shows the first session it hears from", () => {
@@ -52,7 +52,7 @@ describe("session store", () => {
     const store = createSessionStore();
     store.push(snapshotOf([], { seq: 9 }));
     store.forget("s1");
-    expect(store.getState()).toEqual({ sessions: [], active: null, look: "pixel" });
+    expect(store.getState()).toEqual({ sessions: [], active: null, look: "pixel", showSubagents: true });
     expect(store.push(snapshotOf([], { seq: 1 }))).toBe(true);
   });
 
@@ -75,4 +75,13 @@ test("the bridge exposes push on window.flowctl", () => {
   expect(target.flowctl?.push(snapshotOf([task("a")]))).toBe(true);
   expect(target.flowctl?.push({ nope: true })).toBe(false);
   expect(store.getState().sessions).toHaveLength(1);
+});
+
+describe("withoutSubagents", () => {
+  test("drops agent nodes and keeps the same object when there are none", () => {
+    const snapshot = snapshotOf([task("a"), agent("x", "a")]);
+    expect(withoutSubagents(snapshot).nodes.map((node) => node.id)).toEqual(["a"]);
+    const plain = snapshotOf([task("a")]);
+    expect(withoutSubagents(plain)).toBe(plain);
+  });
 });

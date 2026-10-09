@@ -1,8 +1,8 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { DevControls, type Replay } from "./DevControls.tsx";
 import { GraphView } from "./GraphView.tsx";
 import { Header, Tabs } from "./Header.tsx";
-import { sessionKey, type SessionStore } from "./store.ts";
+import { sessionKey, withoutSubagents, type SessionStore } from "./store.ts";
 
 export function App({
   store,
@@ -13,13 +13,14 @@ export function App({
   replays?: readonly Replay[];
   startAt?: number | "end";
 }) {
-  const { sessions: all, active, look } = useSyncExternalStore(store.subscribe, store.getState);
+  const { sessions: all, active, look, showSubagents } = useSyncExternalStore(store.subscribe, store.getState);
   // A session with nothing drawn that is not working (a fresh one gone idle, a
   // stale file restored at launch) would only be an empty tab.
   const sessions = all.filter(
     (session) => session.nodes.length > 0 || session.sessionState === "working" || session.sessionState === "waiting_you"
   );
-  const current = sessions.find((session) => sessionKey(session) === active) ?? sessions[0];
+  const chosen = sessions.find((session) => sessionKey(session) === active) ?? sessions[0];
+  const current = useMemo(() => (chosen && !showSubagents ? withoutSubagents(chosen) : chosen), [chosen, showSubagents]);
   return (
     <main className={`app ${replays ? "dev" : "overlay"} look-${look}`}>
       {replays && <DevControls replays={replays} store={store} {...(startAt !== undefined ? { startAt } : {})} />}
