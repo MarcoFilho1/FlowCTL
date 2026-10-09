@@ -4,5 +4,31 @@
   "description": "Live graph of what Claude Code is doing and what comes next",
   "author": {
     "name": "MarcoFilho1"
+  },
+  "userConfig": {
+    "autoOpenOverlay": {
+      "type": "boolean",
+      "title": "Open the overlay",
+      "description": "Open the FlowCTL overlay app when a session starts, if it is installed",
+      "default": true
+    },
+    "nudge": {
+      "type": "boolean",
+      "title": "Ask the agent to declare its plan",
+      "description": "Add a short instruction asking the agent to declare a plan for work of 3 or more steps",
+      "default": false
+    },
+    "errorThreshold": {
+      "type": "number",
+      "title": "Errors before red",
+      "description": "Consecutive tool errors that turn the current step red",
+      "default": 3
+    },
+    "recordEvents": {
+      "type": "boolean",
+      "title": "Record events",
+      "description": "Keep the session's events under ~/.flowctl/recordings (for fixtures)",
+      "default": false
+    }
   }
 }
