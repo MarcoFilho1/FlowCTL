@@ -134,9 +134,30 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// The grip as the viewer last reported it (debug hooks).
+    var debugGrip: CGRect? { (webView as? PageView)?.grip }
+
+    /// The person dragged the panel by the grip: the anchor is re-read from where it is now.
+    var onGripDragEnded: (() -> Void)?
+    /// The viewer's × was clicked: hide the panel, as the native one did.
+    var onClose: (() -> Void)?
+
+    fileprivate func gripDragEnded() {
+        onGripDragEnded?()
+    }
+
     fileprivate func receive(_ body: Any) {
         guard let message = body as? [String: Any], let type = message["type"] as? String else { return }
         switch type {
+        case "grip":
+            guard let x = (message["x"] as? NSNumber)?.doubleValue, let y = (message["y"] as? NSNumber)?.doubleValue,
+                  let width = (message["width"] as? NSNumber)?.doubleValue, let height = (message["height"] as? NSNumber)?.doubleValue,
+                  [x, y, width, height].allSatisfy(\.isFinite), width >= 0, height >= 0
+            else { return log("ignored a grip message: \(message)") }
+            (webView as? PageView)?.grip = width > 0 && height > 0 ? CGRect(x: x, y: y, width: width, height: height) : nil
+            log("grip: \(x),\(y) \(width)x\(height)")
+        case "close":
+            onClose?()
         case "size":
             break
         case "focus":
@@ -218,8 +239,52 @@ private final class MessageProxy: NSObject, WKScriptMessageHandler {
 final class PageView: WKWebView {
     weak var bridge: WebBridge?
 
+    /// The grip the viewer draws in its top bar, in page points from the top-left.
+    /// Nil or empty: no grip.
+    var grip: CGRect? {
+        didSet { window?.invalidateCursorRects(for: self) }
+    }
+
     override func magnify(with event: NSEvent) {
         bridge?.receivePinch(event)
+    }
+
+    /// The panel never activates, so its first click would otherwise only make it
+    /// key and be lost: the page takes the press on the first click too.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    /// The page point (top-left origin, as the viewer lays out) of a window point.
+    private func pagePoint(of event: NSEvent) -> CGPoint {
+        let point = convert(event.locationInWindow, from: nil)
+        return CGPoint(x: point.x, y: isFlipped ? point.y : bounds.height - point.y)
+    }
+
+    /// The grip in this view's own coordinates (its origin at the bottom unless flipped).
+    private func gripInView() -> CGRect? {
+        guard let grip, grip.width > 0, grip.height > 0 else { return nil }
+        let y = isFlipped ? grip.minY : bounds.height - grip.maxY
+        return CGRect(x: grip.minX, y: y, width: grip.width, height: grip.height)
+    }
+
+    /// A press on the grip drags the window, and makes the panel key so ⌘W and
+    /// ⌘Q work after it; a press anywhere else is the page's, as before.
+    override func mouseDown(with event: NSEvent) {
+        guard let grip, grip.width > 0, grip.contains(pagePoint(of: event)) else {
+            super.mouseDown(with: event)
+            return
+        }
+        (window as? OverlayPanel)?.allowKey()
+        window?.performDrag(with: event)
+        bridge?.gripDragEnded()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if let rect = gripInView() {
+            addCursorRect(rect, cursor: .openHand)
+        }
     }
 }
 
