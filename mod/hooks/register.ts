@@ -3,15 +3,18 @@ import { apply, FLOWPLAN_TOOL, initialState, type GraphState } from "../graph/re
 import { snapshot } from "../graph/snapshot.ts";
 import type { GraphEvent, Layout, Snapshot, TerminalInfo } from "../graph/types.ts";
 import { alerts, describeRequest, FLOWPLAN_SPEC, nudgeText, statusLine, summarize } from "../live/present.ts";
-import { appNotice, HELP, init, parseArgs, uninstall, type InstallContext } from "../live/install.ts";
+import { appNotice, HELP, init, openInBackground, parseArgs, uninstall, type InstallContext } from "../live/install.ts";
+import { homeOf, platformOf, type Platform } from "../live/platform.ts";
 import { rebuildEvents } from "../live/rebuild.ts";
+import { overlayClient, type OverlayClient, type OverlayIo } from "../live/transport.ts";
+import { parentPid } from "../live/windows.ts";
 import { omitKeys, Recording, trim } from "../recorder/recording.ts";
 
 // The live mod: every hook below observes one engine event, passes it on
 // untouched, and feeds it to the graph (mod/graph). Each change publishes a
-// snapshot to the overlay's socket and to ~/.flowctl/sessions/<id>.json, and
-// refreshes the status line. Nothing here may fail or slow down a call: all
-// I/O is fire-and-forget.
+// snapshot to the overlay app (mod/live/transport.ts) and to
+// ~/.flowctl/sessions/<id>.json, and refreshes the status line. Nothing here
+// may fail or slow down a call: all I/O is fire-and-forget.
 //
 // The events reach the graph in the same shape the recorder stores them, so
 // the fixtures in fixtures/ replay exactly what a live session sees.
@@ -47,8 +50,6 @@ const CLASSIC_DROPPED = new Set([
 
 const PUBLISH_DELAY_MS = 100;
 const RECORD_FLUSH_DELAY_MS = 500;
-const OVERLAY_URL = "http://overlay";
-const OVERLAY_APP = "FlowCTL";
 
 type Entry = Omit<GraphEvent, "seq">;
 
@@ -62,6 +63,7 @@ interface Settings {
 let settings: Settings = { errorThreshold: 3, nudge: true, autoOpenOverlay: true, recordEvents: false };
 let graph: GraphState = initialState();
 let flowctlDir: string | undefined;
+let overlay: OverlayClient | undefined;
 // Readers drop a snapshot whose seq is not above the last one, and a reload
 // of this module starts its variables over: counting from the clock keeps
 // seq growing across reloads.
@@ -133,35 +135,51 @@ function publish($: EngineInterface): void {
       return;
     }
     const body = JSON.stringify(next);
-    void $.http
-      .fetch(`${OVERLAY_URL}/snapshot`, { method: "POST", socketPath: `${flowctlDir}/overlay.sock`, body })
-      .catch(() => undefined);
+    void overlay?.request("POST", "/snapshot", body).catch(() => undefined);
     void $.fs.write(`${flowctlDir}/sessions/${next.sessionId}.json`, body).catch(() => undefined);
   } catch {
     // The next event publishes again.
   }
 }
 
+/** The host's platform: Windows by its OS variable, else what uname says. */
+async function hostPlatform($: EngineInterface): Promise<Platform> {
+  const osName = await $.env.get("OS");
+  const uname = osName === "Windows_NT" ? "" : await $.process.run(["uname", "-s"]).then((run) => run.stdout).catch(() => "");
+  return platformOf(osName, uname);
+}
+
+/** The host's file and HTTP calls, for the overlay client. */
+function overlayIo($: EngineInterface): OverlayIo {
+  return {
+    fetch: (url, init) => $.http.fetch(url, init),
+    read: (path) => $.fs.read(path),
+    mtime: async (path) => (await $.fs.stat(path)).mtimeMs
+  };
+}
+
 /**
  * Where this session runs: the terminal app, its tty and its own ids, so the
  * overlay can bring this terminal forward when a node is clicked.
  */
-async function findTerminal($: EngineInterface): Promise<TerminalInfo> {
+async function findTerminal($: EngineInterface, platform: Platform): Promise<TerminalInfo> {
   // $.env.get takes literal names, so the variables the mod reads are listed.
   const read = (value: string | undefined) => (value === undefined || value === "" ? undefined : value);
   const ids: Record<string, string> = {};
   const iterm = read(await $.env.get("ITERM_SESSION_ID").catch(() => undefined));
   const apple = read(await $.env.get("TERM_SESSION_ID").catch(() => undefined));
   const maestri = read(await $.env.get("MAESTRI_TERMINAL_ID").catch(() => undefined));
+  const windowsTerminal = read(await $.env.get("WT_SESSION").catch(() => undefined));
   if (iterm !== undefined) ids["ITERM_SESSION_ID"] = iterm;
   if (apple !== undefined) ids["TERM_SESSION_ID"] = apple;
   if (maestri !== undefined) ids["MAESTRI_TERMINAL_ID"] = maestri;
+  if (windowsTerminal !== undefined) ids["WT_SESSION"] = windowsTerminal;
   const app = read(await $.env.get("__CFBundleIdentifier").catch(() => undefined));
   const program = read(await $.env.get("TERM_PROGRAM").catch(() => undefined));
-  // The shell's parent is this Claude Code process: its pid, and its tty,
-  // which is the session's.
+  // The shell's parent is this Claude Code process: its pid, and on Unix its
+  // tty, which is the session's (Windows has no tty).
   const [pidText = "", tty = ""] = await $.process
-    .run(["sh", "-c", "echo $PPID; ps -o tty= -p $PPID"])
+    .run(platform === "win32" ? parentPid() : ["sh", "-c", "echo $PPID; ps -o tty= -p $PPID"])
     .then((run) => run.stdout.trim().split(/\s+/))
     .catch(() => []);
   const pid = Number(pidText);
@@ -200,30 +218,32 @@ async function rebuildFromTranscript($: EngineInterface): Promise<void> {
 }
 
 /** Opens the overlay app when it is installed and not already listening. */
-async function openOverlay($: EngineInterface): Promise<void> {
-  if (flowctlDir === undefined) {
-    return;
-  }
-  const alive = await $.http
-    .fetch(`${OVERLAY_URL}/health`, { socketPath: `${flowctlDir}/overlay.sock` })
-    .then(() => true)
-    .catch(() => false);
+async function openOverlay($: EngineInterface, client: OverlayClient): Promise<void> {
+  const alive = await client.request("GET", "/health");
   if (alive) {
     return;
   }
   // Not installed, or older than this mod: say how to fix it, once per session.
-  const notice = await appNotice(await installContext($)).catch(() => undefined);
+  const ctx = await installContext($);
+  const notice = await appNotice(ctx).catch(() => undefined);
   if (notice) {
     $.ui.toast(notice);
     if (notice.includes("not installed")) return;
   }
-  await $.process.run(["open", "-g", "-a", OVERLAY_APP]).catch(() => undefined);
+  await openInBackground(ctx).catch(() => undefined);
 }
 
 async function installContext($: EngineInterface): Promise<InstallContext> {
   const releaseBase = await $.env.get("FLOWCTL_RELEASE_BASE");
+  const localAppData = await $.env.get("LOCALAPPDATA");
+  const appData = await $.env.get("APPDATA");
+  const temp = (await $.env.get("TEMP")) ?? (await $.env.get("TMP"));
   return {
-    home: (await $.env.get("HOME")) ?? "",
+    home: homeOf(await $.env.get("HOME"), await $.env.get("USERPROFILE")),
+    platform: await hostPlatform($),
+    ...(localAppData ? { localAppData } : {}),
+    ...(appData ? { appData } : {}),
+    ...(temp ? { temp } : {}),
     ...(releaseBase ? { releaseBase } : {}),
     run: (argv, timeoutMs) =>
       $.process.run(argv, timeoutMs === undefined ? {} : { timeoutMs }).catch((error: unknown) => ({ exitCode: 127, stdout: "", stderr: String(error) })),
@@ -294,17 +314,22 @@ export const register: Register = (on, options) => {
   on("session.start", async ($, e, next) => {
     const result = await next(e);
     try {
-      flowctlDir = `${await $.env.get("HOME")}/.flowctl`;
+      const platform = await hostPlatform($);
+      const home = homeOf(await $.env.get("HOME"), await $.env.get("USERPROFILE"));
+      if (home !== "") {
+        flowctlDir = `${home}/.flowctl`;
+        overlay = overlayClient(overlayIo($), flowctlDir, platform);
+      }
       graph.sessionId ??= await $.session.id();
-      terminal = await findTerminal($).catch(() => undefined);
+      terminal = await findTerminal($, platform).catch(() => undefined);
       observe($, "session.start", { input: { cwd: e.cwd } });
       await choosePlanTool($).catch(() => undefined);
       await rebuildFromTranscript($).catch(() => undefined);
       await $.command
         .register({ name: "flowctl", description: "Install, update or remove the FlowCTL overlay app", argumentHint: "init | uninstall" })
         .catch(() => undefined);
-      if (settings.autoOpenOverlay) {
-        void openOverlay($).catch(() => undefined);
+      if (settings.autoOpenOverlay && overlay !== undefined) {
+        void openOverlay($, overlay).catch(() => undefined);
       }
     } catch {
       // Without its home folder the mod still draws the status line.
