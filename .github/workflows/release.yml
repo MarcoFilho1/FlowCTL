@@ -1,0 +1,76 @@
+name: Release
+
+# A tag vX.Y.Z builds the overlay app and publishes it on a GitHub Release,
+# where `/flowctl init` downloads it. Run by hand (Actions > Release > Run
+# workflow), or on a pull request that changes how the app is built, it builds
+# the same zip as a workflow artifact and publishes nothing.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/install-overlay.sh
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.18.0 --activate
+
+      - name: Read the versions
+        id: version
+        run: |
+          app=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" apps/overlay/Resources/Info.plist)
+          mod=$(node -p "require('./mod/.claude-plugin/plugin.json').version")
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            # The mod downloads the app of its own version: the tag, the app and the mod agree.
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$app" ] || [ "$tag" != "$mod" ]; then
+              echo "::error::tag $GITHUB_REF_NAME, app $app (Info.plist) and mod $mod (plugin.json) must be the same version"
+              exit 1
+            fi
+          fi
+
+      - name: Build the app (Apple silicon and Intel)
+        run: scripts/install-overlay.sh --build-only --universal
+
+      - name: Zip it with its checksum
+        run: |
+          name="FlowCTL-${{ steps.version.outputs.app }}-macos.zip"
+          # ditto keeps the bundle's signature and attributes, as Finder's Compress does.
+          ditto -c -k --keepParent apps/overlay/build/FlowCTL.app "$name"
+          shasum -a 256 "$name" > "$name.sha256"
+          echo "ZIP=$name" >> "$GITHUB_ENV"
+
+      - name: Keep the build (manual run)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowCTL-${{ steps.version.outputs.app }}-macos
+          path: FlowCTL-*-macos.zip*
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "$ZIP" "$ZIP.sha256" --title "FlowCTL $GITHUB_REF_NAME" --generate-notes

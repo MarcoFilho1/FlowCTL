@@ -5,6 +5,7 @@
 #   scripts/install-overlay.sh --dest DIR    install somewhere else
 #   scripts/install-overlay.sh --build-only  leave it in apps/overlay/build
 #   scripts/install-overlay.sh --open        launch it when done
+#   scripts/install-overlay.sh --universal   one binary for Apple silicon and Intel
 #
 # Needs pnpm, Node 22 and Swift (the Command Line Tools are enough; no Xcode).
 # An app already at the destination is shown, quit if running, then replaced.
@@ -16,12 +17,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="/Applications"
 INSTALL=1
 OPEN=0
+UNIVERSAL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dest) DEST="$2"; shift 2 ;;
     --build-only) INSTALL=0; shift ;;
     --open) OPEN=1; shift ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    --universal) UNIVERSAL=1; shift ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -34,9 +37,21 @@ APP="$OVERLAY/build/FlowCTL.app"
 echo "==> viewer (without fixtures)"
 ( cd "$ROOT" && pnpm install --frozen-lockfile >/dev/null && FLOWCTL_NO_FIXTURES=1 pnpm viewer:build >/dev/null )
 
-echo "==> overlay (swift build -c release)"
-swift build -c release --package-path "$OVERLAY" --product FlowCTL
-BIN="$(swift build -c release --package-path "$OVERLAY" --product FlowCTL --show-bin-path)/FlowCTL"
+if [ "$UNIVERSAL" = 1 ]; then
+  # One build per architecture, joined by lipo (the Command Line Tools are enough).
+  SLICES=()
+  for arch in arm64 x86_64; do
+    echo "==> overlay (swift build -c release, $arch)"
+    swift build -c release --package-path "$OVERLAY" --product FlowCTL --triple "$arch-apple-macosx13.0"
+    SLICES+=("$(swift build -c release --package-path "$OVERLAY" --product FlowCTL --triple "$arch-apple-macosx13.0" --show-bin-path)/FlowCTL")
+  done
+  BIN="$OVERLAY/.build/FlowCTL-universal"
+  lipo -create "${SLICES[@]}" -output "$BIN"
+else
+  echo "==> overlay (swift build -c release)"
+  swift build -c release --package-path "$OVERLAY" --product FlowCTL
+  BIN="$(swift build -c release --package-path "$OVERLAY" --product FlowCTL --show-bin-path)/FlowCTL"
+fi
 
 echo "==> $APP"
 rm -rf "$APP"
