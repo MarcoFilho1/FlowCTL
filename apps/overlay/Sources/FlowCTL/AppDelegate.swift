@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge.currentShowSubagents = { [weak self] in self?.preferences.showSubagents ?? true }
         bridge.currentSound = { [weak self] in self?.preferences.sound ?? true }
         bridge.currentSoundStyle = { [weak self] in self?.preferences.soundStyle ?? SoundChoice.standard.rawValue }
+        bridge.currentTheme = { [weak self] in self?.preferences.themeChoice.rawValue ?? ThemeChoice.standard.rawValue }
         self.bridge = bridge
         let panel = OverlayPanel(content: bridge.webView)
         panel.onHide = { [weak self] in self?.hidePanel(byUser: true) }
@@ -252,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge?.applyShowSubagents(preferences.showSubagents)
         bridge?.applySound(preferences.sound)
         bridge?.applySoundStyle(preferences.soundStyle)
+        bridge?.applyTheme(preferences.themeChoice.rawValue)
         layOut(animated: true)
     }
 
@@ -357,6 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             "look": preferences.look.rawValue,
             "showSubagents": preferences.showSubagents,
             "sound": preferences.sound,
+            "theme": preferences.themeChoice.rawValue,
             "soundChoice": preferences.soundChoice.rawValue,
             "hoverMovesRelayed": bridge?.hover.moves ?? 0,
             "menu": statusMenu?.describe() ?? []

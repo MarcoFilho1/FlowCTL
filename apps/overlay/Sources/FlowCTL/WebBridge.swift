@@ -22,6 +22,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var currentShowSubagents: () -> Bool = { true }
     /// Whether the viewer plays its sounds (on by default).
     var currentSound: () -> Bool = { true }
+    /// The palette the person picked (auto by default).
+    var currentTheme: () -> String = { ThemeChoice.standard.rawValue }
     /// The style of the sounds (look by default).
     var currentSoundStyle: () -> String = { SoundChoice.standard.rawValue }
     /// Hands the page hover moves while the app is inactive.
@@ -41,7 +43,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         messages.bridge = self
         webView.navigationDelegate = self
         webView.setAccessibilityLabel("FlowCTL task graph")
-        // Let the panel's blur show through: the page itself is transparent.
+        // The page is transparent over whatever is behind the panel, in either theme.
         // `drawsBackground` is private; skip it rather than crash if it is ever gone.
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) || webView.responds(to: NSSelectorFromString("setDrawsBackground:")) {
             webView.setValue(false, forKey: "drawsBackground")
@@ -106,6 +108,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             self.isReady = true
             // The look first, so the sessions below are drawn in it.
             self.applyLook(self.currentLook())
+            self.applyTheme(self.currentTheme())
             self.applyShowSubagents(self.currentShowSubagents())
             self.applySound(self.currentSound())
             self.applySoundStyle(self.currentSoundStyle())
@@ -126,6 +129,11 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     /// load, and logged as not applied to a viewer that does not have it yet.
     func applyShowSubagents(_ show: Bool) {
         setPageOption("setShowSubagents", value: show, what: "subagents \(show ? "shown" : "hidden")", missing: "the viewer has no setShowSubagents yet")
+    }
+
+    /// `window.flowctl.setTheme(theme)`, the same way, right after the look.
+    func applyTheme(_ theme: String) {
+        setPageOption("setTheme", value: theme, what: "theme \(theme)", missing: "the viewer has no setTheme yet")
     }
 
     /// `window.flowctl.setSoundStyle(style)`, the same way, after setSound.
