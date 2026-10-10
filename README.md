@@ -1,7 +1,7 @@
 # FlowCTL
 
 A live graph of what Claude Code is doing and what comes next, in a small
-floating window on your Mac.
+floating window on your Mac or Windows PC.
 
 ![A Claude Code session as a live graph: steps turn blue as they start, a step waits for permission in yellow, a test failure flashes red, and everything ends green](docs/media/working.gif)
 
@@ -33,7 +33,7 @@ and whether a session needs you, without leaving what you are doing.
 - **Subagents** hang from the step that started them, or line up as their own
   timeline when the agent uses them without a plan.
 - **Yellow means you.** A permission prompt or a question turns its step
-  yellow, the menu bar icon blinks, and a short sound plays.
+  yellow, the menu bar (or tray) icon blinks, and a short sound plays.
 - **The camera follows the work** while a session runs, and shows the whole
   graph when it rests. Drag to pan, pinch or scroll to zoom.
 - **Hover a node** for what it is about, how long it took, and what came of it.
@@ -50,7 +50,8 @@ and whether a session needs you, without leaving what you are doing.
 
 ## Install
 
-Requirements: macOS 13 or later and Claude Code 2.1.295 or later. FlowCTL has
+Requirements: macOS 13 or later, or Windows 10 or 11 (64-bit), and Claude Code
+2.1.295 or later. FlowCTL has
 two parts, both installed from a Claude Code session:
 
 ```
@@ -64,8 +65,9 @@ two parts, both installed from a Claude Code session:
    builds the graph.
 2. **The overlay app.** `/flowctl init` downloads the app of the same version
    from this repository's GitHub Releases, checks its SHA-256 and signature,
-   installs it in `~/Applications` (no admin password) and opens it. The app is
-   the floating window and the menu bar icon.
+   installs it (no admin password) and opens it: in `~/Applications` on a Mac,
+   in `%LOCALAPPDATA%\Programs\FlowCTL` with a Start menu shortcut on
+   Windows. The app is the floating window and the menu bar (or tray) icon.
 
 ## Day to day
 
@@ -77,7 +79,7 @@ session:
   running. Several sessions share one window, one page each.
 - The window shows itself when a session starts working and fades out after
   five minutes with nothing running. Close it with **×** and it stays closed
-  until you reopen it from the menu bar icon.
+  until you reopen it from the menu bar (or tray) icon.
 
 **Sessions that were already open** when you installed the plugin: run
 `/reload-plugins` in each to load it. The instruction that asks the agent to
@@ -103,7 +105,8 @@ next session start tells you if the app is older than the plugin: run
 | `/flowctl init --from-source` | Builds it from the tagged source instead of downloading (needs pnpm, Node 22 and Swift) |
 | `/flowctl uninstall` | Quits and removes the app (the plugin is removed from `/plugin`) |
 
-The **menu bar icon** holds the overlay's settings: show or hide the panel,
+The **menu bar icon** (on Windows, the tray icon: left click shows or hides
+the panel, right click opens the menu) holds the overlay's settings: show or hide the panel,
 opacity, size (small, medium, large), look (pixel or smooth), theme (auto,
 dark, light), sound, show subagents, idle animation, always on top, show
 automatically, hide when idle.
@@ -119,8 +122,9 @@ The **plugin's options** (`/plugin`, then flowctl):
 
 ## Privacy
 
-Everything stays on your Mac. The plugin hands the app each graph over a local
-socket (`~/.flowctl/overlay.sock`) and keeps the latest one per session in
+Everything stays on your computer. The plugin hands the app each graph over a
+local socket (`~/.flowctl/overlay.sock`; on Windows, `127.0.0.1` with a token
+from `~/.flowctl/overlay.json`) and keeps the latest one per session in
 `~/.flowctl/sessions`. A graph holds step titles, statuses and times, a short
 summary of what a step or subagent answered, and the first line of a tool
 error; never your prompts, file contents or full command output. Nothing is
@@ -130,7 +134,7 @@ from GitHub.
 ## How it works
 
 ```
-Claude Code session ──hooks──▶ plugin (mod/) ──snapshot──▶ overlay app (apps/overlay)
+Claude Code session ──hooks──▶ plugin (mod/) ──snapshot──▶ overlay app (apps/overlay*)
   tasks, subagents,             builds the graph,           a floating window drawing
   permission prompts            lays it out                 the graph (apps/viewer)
 ```
@@ -138,13 +142,14 @@ Claude Code session ──hooks──▶ plugin (mod/) ──snapshot──▶ o
 The plugin is a [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview):
 it observes the session's events (task tools, subagents, permission checks,
 tool errors) and never changes what the agent does, apart from the optional
-request to declare a plan. The app is a native macOS panel hosting a small web
-view; the graph is drawn by the viewer, a React page bundled into the app.
+request to declare a plan. The app is a native panel (Swift on macOS, Tauri
+on Windows) hosting a small web view; the graph is drawn by the viewer, a
+React page bundled into the app.
 
 ## Roadmap
 
-- **Linux and Windows.** The plugin and the viewer already run anywhere; the
-  overlay window is macOS only for now. A cross-platform app is next.
+- **Linux.** The plugin, the viewer and the Windows app (Tauri) already run
+  there; packaging it is next.
 - Your ideas: open an issue.
 
 ## Develop
@@ -158,6 +163,7 @@ mod/             the Claude Code plugin
   types-vendor/  Claude Code's API types, versioned for CI
 apps/viewer/     the graph, a React page (Vite, single file)
 apps/overlay/    the macOS app (SwiftPM, no Xcode needed)
+apps/overlay-tauri/  the Windows app (Tauri, Rust); see its README
 tests/           unit tests for mod/, run by node --test
 fixtures/        recorded sessions, replayed by the tests and the viewer
 scripts/         install-overlay.sh builds and installs the app from source
@@ -183,10 +189,12 @@ Don't run `--plugin-dir` alongside an installed copy of the plugin: the
 session would load it twice.
 
 **Releasing.** Set the same version in `mod/.claude-plugin/plugin.json`,
-`MOD_VERSION` in `mod/live/install.ts` and `apps/overlay/Resources/Info.plist`,
-then push a tag `vX.Y.Z`. The Release workflow builds the app for Apple
-silicon and Intel and publishes `FlowCTL-X.Y.Z-macos.zip` and its SHA-256,
-which `/flowctl init` downloads. To try a build before tagging, serve a zip
+`MOD_VERSION` in `mod/live/install.ts`, `apps/overlay/Resources/Info.plist`,
+and `apps/overlay-tauri/src-tauri/` (`tauri.conf.json` and `Cargo.toml`), then
+push a tag `vX.Y.Z`. The Release workflow builds the macOS app for Apple
+silicon and Intel and the Windows app for x64, and publishes
+`FlowCTL-X.Y.Z-macos.zip` and `FlowCTL-X.Y.Z-windows-x64.zip` with their
+SHA-256, which `/flowctl init` downloads. To try a build before tagging, serve a zip
 and its `.sha256` under `<base>/vX.Y.Z/` and start the session with
 `FLOWCTL_RELEASE_BASE=<base>`.
 
