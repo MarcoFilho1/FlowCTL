@@ -135,10 +135,6 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .close:hover, .close:focus-visible { color: var(--text); background: var(--chip); outline: none; }
 .app.look-pixel .close { border-radius: 0; }
 .header > * { text-shadow: var(--outline); }
-.state-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-.state-dot.state-working { background: var(--running); }
-.state-dot.state-waiting_you { background: var(--needs-you); animation: pulse 1.4s ease-in-out infinite; }
-.state-dot.state-ended { background: transparent; border: 1px solid var(--muted); }
 .folder { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .progress { font-variant-numeric: tabular-nums; }
 .waiting { color: var(--needs-you); font-weight: 600; }
@@ -250,7 +246,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pulse, .state-dot, .orbit, .beacon { animation: none; }
+  .pulse, .orbit, .beacon { animation: none; }
   .flow { display: none; }
   .node .dot, .node .glow { transition: none; }
 }
@@ -300,8 +296,6 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 /* Digits come from another face with other metrics: align the header's parts
    on their baseline, not their boxes, or "4/8" sits lower than "lab". */
 .app.look-pixel .header { align-items: baseline; }
-.app.look-pixel .header .state-dot { align-self: center; }
-.app.look-pixel .state-dot { border-radius: 0; width: 6px; height: 6px; animation-timing-function: steps(2, jump-none); }
 
 .node.pixel .px-body    { fill: var(--status); }
 .node.pixel .px-light   { fill: color-mix(in srgb, var(--status) 55%, #ffffff); }
