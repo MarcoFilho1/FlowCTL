@@ -1,0 +1,14 @@
+{
+  "name": "flowctl",
+  "description": "FlowCTL: see what Claude Code is doing as a live graph",
+  "owner": {
+    "name": "MarcoFilho1"
+  },
+  "plugins": [
+    {
+      "name": "flowctl-graph",
+      "source": "./mod",
+      "description": "Live graph of what Claude Code is doing and what comes next, in a floating macOS overlay"
+    }
+  ]
+}

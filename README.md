@@ -15,9 +15,19 @@ macOS overlay. It never changes how the agent plans; it only draws it.
 | red    | unrecoverable error                  |
 | green  | done                                 |
 
-**Status:** Phase 0 of the [v2 roadmap](docs/roadmap-agent-graph.md). The mod
-loads but does not observe anything yet. The v0 orchestrator lives in the
-`v0-orchestrator` tag.
+## Install
+
+macOS 13 or later, Claude Code 2.1.295 or later. In a Claude Code session:
+
+```
+/plugin install flowctl-graph --marketplace MarcoFilho1/FlowCTL
+/flowctl init
+```
+
+The first line adds this repository as a plugin marketplace (answer `y`) and
+installs the mod. The second downloads the overlay app of the same version
+from the GitHub Release, checks its SHA-256, installs it in `~/Applications`
+and opens it. `/flowctl uninstall` removes the app.
 
 ## Layout
 
