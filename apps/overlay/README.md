@@ -54,10 +54,14 @@ It can always be closed:
 Hidden by you, it comes back only for a new session or one that starts
 waiting on you (with **Show Automatically** on).
 
-**Hide When Idle** is on by default: when no session has been working or
-waiting for more than five minutes, the panel fades out by itself, and it fades
+**Idle Animation** (on by default): after a minute with no session working or
+  waiting, the viewer forms the nodes into animated shapes (`setIdleAnimation(on)`
+  on every load, like Sound).
+- **Hide When Idle** is on by default: when no session has been working or
+waiting for more than five minutes, the panel fades out by itself, and it fades out over 0.8 s and
 back in as soon as a session starts working or waits on you again, even when
-it was hidden that way (a panel you closed with × stays closed for ordinary
+it was hidden that way. Opening the app (Finder, Spotlight, the Dock, `open -a`)
+does not bring it back after an idle hide: only a session that resumes does (a panel you closed with × stays closed for ordinary
 activity: only a new session or one that starts waiting brings it back). The
 viewer keeps drawing the whole graph meanwhile. Turn the item off to keep it up
 all the time.

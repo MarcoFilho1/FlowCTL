@@ -104,6 +104,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         theme.submenu = themes
         menu.addItem(theme)
+        menu.addItem(toggle("Idle Animation", actions.preferences.idleAnimation, #selector(toggleIdleAnimation)))
         menu.addItem(toggle("Always on Top", actions.preferences.alwaysOnTop, #selector(toggleAlwaysOnTop)))
         menu.addItem(toggle("Show Automatically", actions.preferences.showAutomatically, #selector(toggleShowAutomatically)))
         menu.addItem(toggle("Hide When Idle", actions.preferences.hideWhenIdle, #selector(toggleHideWhenIdle)))
@@ -184,6 +185,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func setSoundChoice(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let choice = SoundChoice(rawValue: raw), let actions else { return }
         actions.preferences.soundChoice = choice
+        actions.preferencesChanged()
+    }
+
+    @objc private func toggleIdleAnimation() {
+        guard let actions else { return }
+        actions.preferences.idleAnimation.toggle()
         actions.preferencesChanged()
     }
 
