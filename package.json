@@ -1,6 +1,7 @@
 {
   "name": "flowctl",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.18.0",
   "engines": { "node": ">=22.6" },

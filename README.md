@@ -193,3 +193,7 @@ and its `.sha256` under `<base>/vX.Y.Z/` and start the session with
 After a Claude Code upgrade, refresh `mod/types-vendor/claude-code.d.ts` from
 `mod/.claude-plugin/types/claude-code/index.d.ts` (written each time a session
 loads the mod) and bump `CLAUDE_CODE_VERSION` in CI.
+
+## License
+
+[MIT](LICENSE)
