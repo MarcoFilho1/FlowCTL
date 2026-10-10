@@ -11,8 +11,8 @@ export const DEFAULT_ERROR_THRESHOLD = 3;
 
 /**
  * What a node shows. Done wins (a finished node needs nothing), then error,
- * then needs-you, then its own progress. A paused node (the turn was aborted
- * with Esc while it ran) shows as pending: stopping is not failing.
+ * then needs-you, then its own progress. A paused node (the turn ended, or
+ * was aborted with Esc, while it ran) shows as pending: stopping is not failing.
  */
 export function displayStatus(base: BaseStatus, attention?: Attention, paused = false): NodeStatus {
   if (base === "completed") {

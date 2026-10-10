@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds the FlowCTL overlay and installs it.
 #
-#   scripts/install-overlay.sh               build and install to /Applications
-#   scripts/install-overlay.sh --dest DIR    install somewhere else
+#   scripts/install-overlay.sh               build and install it where /flowctl init does:
+#                                            in place of an installed copy, else ~/Applications
+#   scripts/install-overlay.sh --dest DIR    install in DIR instead
 #   scripts/install-overlay.sh --build-only  leave it in apps/overlay/build
 #   scripts/install-overlay.sh --open        launch it when done
 #   scripts/install-overlay.sh --universal   one binary for Apple silicon and Intel
@@ -14,7 +15,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="/Applications"
+DEST=""
 INSTALL=1
 OPEN=0
 UNIVERSAL=0
@@ -24,7 +25,7 @@ while [ $# -gt 0 ]; do
     --build-only) INSTALL=0; shift ;;
     --open) OPEN=1; shift ;;
     --universal) UNIVERSAL=1; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -66,6 +67,14 @@ if [ "$INSTALL" = 0 ]; then
   echo "built $APP"
   TARGET="$APP"
 else
+  # Like /flowctl init: replace an installed copy where it is (the person's
+  # own folder first), else install in ~/Applications, no admin password.
+  if [ -z "$DEST" ]; then
+    DEST="$HOME/Applications"
+    for place in "$HOME/Applications" "/Applications"; do
+      if [ -e "$place/FlowCTL.app" ]; then DEST="$place"; break; fi
+    done
+  fi
   TARGET="$DEST/FlowCTL.app"
   if [ -e "$TARGET" ]; then
     OLD_VERSION="$(defaults read "$TARGET/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo unknown)"
