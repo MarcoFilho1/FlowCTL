@@ -1,14 +1,19 @@
 // `/flowctl init`: installs the overlay app the mod talks to. It downloads
 // the app of the mod's own version from the GitHub Release that CI publishes
 // (.github/workflows/release.yml), checks its SHA-256, and puts it where an
-// older copy was, else in ~/Applications. Every step is a host command run
-// through `run`, so the whole flow is tested without a network or a Mac.
+// older copy was, else in ~/Applications (macOS) or %LOCALAPPDATA%\Programs
+// (Windows). Every step is a host command run through `run`, so the whole
+// flow is tested without a network or either system.
+
+import type { Platform } from "./platform.ts";
+import * as windows from "./windows.ts";
 
 /** The mod's version; the release CI refuses a tag that differs from plugin.json's. */
 export const MOD_VERSION = "0.1.0";
 export const REPO = "MarcoFilho1/FlowCTL";
 export const APP_NAME = "FlowCTL.app";
 const APP_ID = "dev.flowctl.overlay";
+const APP_TITLE = "FlowCTL";
 const LSREGISTER =
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 
@@ -22,6 +27,11 @@ export type Run = (argv: readonly string[], timeoutMs?: number) => Promise<RunRe
 export interface InstallContext {
   run: Run;
   home: string;
+  platform: Platform;
+  /** Windows folders: %LOCALAPPDATA% (the app's folder), %APPDATA% (Start menu), %TEMP% (downloads). */
+  localAppData?: string;
+  appData?: string;
+  temp?: string;
   version?: string;
   /**
    * Where the release files are instead of GitHub, `<base>/v<version>/<file>`:
@@ -32,17 +42,22 @@ export interface InstallContext {
   progress?: (line: string) => void;
 }
 
-export function zipName(version: string): string {
-  return `FlowCTL-${version}-macos.zip`;
+/** What finding and checking the app needs. */
+type AppHost = Pick<InstallContext, "run" | "home" | "platform" | "localAppData">;
+
+export function zipName(version: string, platform: Platform): string {
+  return platform === "win32" ? windows.winZipName(version) : `FlowCTL-${version}-macos.zip`;
 }
 
 export function releaseUrl(version: string, file: string, base = `https://github.com/${REPO}/releases/download`): string {
   return `${base.replace(/\/+$/, "")}/v${version}/${file}`;
 }
 
-/** Where an installed app may be, the person's own folder first. */
-export function appPlaces(home: string): string[] {
-  return [`${home}/Applications/${APP_NAME}`, `/Applications/${APP_NAME}`];
+/** Where an installed app may be: the person's own folder first on macOS; the one install folder on Windows. */
+export function appPlaces(host: Pick<AppHost, "home" | "platform" | "localAppData">): string[] {
+  if (host.platform === "win32") return host.localAppData ? [windows.installedExe(host.localAppData)] : [];
+  if (host.platform === "darwin") return [`${host.home}/Applications/${APP_NAME}`, `/Applications/${APP_NAME}`];
+  return [];
 }
 
 /** -1, 0 or 1 as `a` is older, the same or newer than `b` (x.y.z). */
@@ -67,16 +82,22 @@ export interface Installed {
 }
 
 /** The installed app and its version, if there is one. */
-export async function findApp(ctx: Pick<InstallContext, "run" | "home">): Promise<Installed | undefined> {
-  for (const path of appPlaces(ctx.home)) {
-    const read = await ctx.run(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleShortVersionString", `${path}/Contents/Info.plist`]);
+export async function findApp(host: AppHost): Promise<Installed | undefined> {
+  for (const path of appPlaces(host)) {
+    const read = await host.run(
+      host.platform === "win32"
+        ? windows.versionOf(path)
+        : ["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleShortVersionString", `${path}/Contents/Info.plist`]
+    );
     if (read.exitCode === 0) return { path, version: read.stdout.trim() };
   }
   return undefined;
 }
 
 /** What a session start should say about the app, if anything. */
-export async function appNotice(ctx: Pick<InstallContext, "run" | "home" | "version">): Promise<string | undefined> {
+export async function appNotice(ctx: AppHost & Pick<InstallContext, "version">): Promise<string | undefined> {
+  // Linux has no app yet: nothing to install or update.
+  if (ctx.platform === "other") return undefined;
   const want = ctx.version ?? MOD_VERSION;
   const app = await findApp(ctx);
   if (!app) return "FlowCTL: the overlay app is not installed. Run /flowctl init to install it.";
@@ -96,6 +117,10 @@ async function must(ctx: InstallContext, argv: readonly string[], what: string, 
 }
 
 async function quitApp(ctx: InstallContext): Promise<void> {
+  if (ctx.platform === "win32") {
+    await ctx.run(windows.KILL_APP);
+    return;
+  }
   await ctx.run(["osascript", "-e", `tell application id "${APP_ID}" to quit`]);
   for (let i = 0; i < 10; i += 1) {
     if ((await ctx.run(["pgrep", "-x", "FlowCTL"])).exitCode !== 0) return;
@@ -104,16 +129,46 @@ async function quitApp(ctx: InstallContext): Promise<void> {
   await ctx.run(["pkill", "-x", "FlowCTL"]);
 }
 
+/** The command that opens the app at `path` in the foreground. */
+function openArgs(ctx: InstallContext, path: string): readonly string[] {
+  return ctx.platform === "win32" ? windows.startProcess(path) : ["open", path];
+}
+
+/** Opens the installed app in the background, when it is not listening (session start). */
+export async function openInBackground(ctx: InstallContext): Promise<void> {
+  if (ctx.platform === "win32") {
+    const app = await findApp(ctx);
+    if (app) await ctx.run(windows.startProcess(app.path));
+    return;
+  }
+  await ctx.run(["open", "-g", "-a", APP_TITLE]);
+}
+
 /** Puts the app at `source` in place of any installed copy, registers and opens it. */
 async function place(ctx: InstallContext, source: string, existing: Installed | undefined): Promise<string> {
-  const target = existing?.path ?? appPlaces(ctx.home)[0]!;
+  if (ctx.platform === "win32") return placeWindows(ctx, source);
+  const target = existing?.path ?? appPlaces(ctx)[0]!;
   await quitApp(ctx);
   await must(ctx, ["mkdir", "-p", target.slice(0, target.lastIndexOf("/"))], "Creating the Applications folder");
   await must(ctx, ["rm", "-rf", target], `Removing the old ${target}`);
   await must(ctx, ["ditto", source, target], `Copying the app to ${target}`);
   await ctx.run([LSREGISTER, "-f", target]);
-  await ctx.run(["open", target]);
+  await ctx.run(openArgs(ctx, target));
   return target;
+}
+
+/** Windows: the exe into its folder, a Start menu shortcut (best effort), then opened. */
+async function placeWindows(ctx: InstallContext, source: string): Promise<string> {
+  const localAppData = ctx.localAppData ?? "";
+  const exe = windows.installedExe(localAppData);
+  await quitApp(ctx);
+  await must(ctx, windows.makeDir(windows.installDir(localAppData)), "Creating the install folder");
+  await must(ctx, windows.copyFile(source, exe), `Copying the app to ${exe}`);
+  if (ctx.appData) {
+    await ctx.run(windows.shortcut(windows.startMenuShortcut(ctx.appData), exe, windows.installDir(localAppData)));
+  }
+  await ctx.run(openArgs(ctx, exe));
+  return exe;
 }
 
 export interface InitOptions {
@@ -126,17 +181,22 @@ export interface InitOptions {
 /** `/flowctl init`: the line to show the person. Never throws. */
 export async function init(ctx: InstallContext, options: InitOptions = {}): Promise<string> {
   const version = ctx.version ?? MOD_VERSION;
+  if (ctx.platform === "other") {
+    return "FlowCTL's overlay does not run on Linux yet. The graph still shows in the status line.";
+  }
+  if (ctx.platform === "win32" && options.fromSource) {
+    return "FlowCTL's --from-source is not supported on Windows yet. Run /flowctl init to install the release.";
+  }
   try {
-    const os = await ctx.run(["uname", "-s"]);
-    if (os.stdout.trim() !== "Darwin") {
-      return "FlowCTL's overlay runs on macOS only for now; Linux and Windows are on the roadmap. The graph still shows in the status line.";
+    if (ctx.platform === "win32" && (!ctx.localAppData || !ctx.temp)) {
+      throw new Failure("%LOCALAPPDATA% and %TEMP% must be set");
     }
     const existing = await findApp(ctx);
     if (existing && !options.force && compareVersions(existing.version, version) >= 0) {
-      await ctx.run(["open", existing.path]);
+      await ctx.run(openArgs(ctx, existing.path));
       return `FlowCTL ${existing.version} is already installed at ${existing.path}; opened it. (/flowctl init --force installs it again.)`;
     }
-    const work = (await must(ctx, ["mktemp", "-d", "-t", "flowctl"], "Making a temporary folder")).stdout.trim();
+    const work = await makeWork(ctx);
     try {
       const app = options.fromSource ? await build(ctx, work, version) : await download(ctx, work, version);
       ctx.progress?.("FlowCTL: installing…");
@@ -144,7 +204,7 @@ export async function init(ctx: InstallContext, options: InitOptions = {}): Prom
       const was = existing ? ` (was ${existing.version})` : "";
       return `FlowCTL ${version} installed at ${target}${was} and opened. It shows this session's graph from the next change on.`;
     } finally {
-      await ctx.run(["rm", "-rf", work]);
+      await ctx.run(ctx.platform === "win32" ? windows.removeTree(work) : ["rm", "-rf", work]);
     }
   } catch (error) {
     const message = error instanceof Failure ? error.message : String(error);
@@ -152,18 +212,36 @@ export async function init(ctx: InstallContext, options: InitOptions = {}): Prom
   }
 }
 
+/** A new empty folder for the download: mktemp on macOS, a folder in %TEMP% on Windows. */
+async function makeWork(ctx: InstallContext): Promise<string> {
+  if (ctx.platform === "win32") {
+    const dir = `${ctx.temp}\\flowctl-${Math.random().toString(36).slice(2, 10)}`;
+    await must(ctx, windows.makeDir(dir), "Making a temporary folder");
+    return dir;
+  }
+  return (await must(ctx, ["mktemp", "-d", "-t", "flowctl"], "Making a temporary folder")).stdout.trim();
+}
+
 async function download(ctx: InstallContext, work: string, version: string): Promise<string> {
-  const zip = zipName(version);
+  const win = ctx.platform === "win32";
+  const zip = zipName(version, ctx.platform);
+  const file = win ? `${work}\\${zip}` : `${work}/${zip}`;
+  const curl = win ? windows.CURL : "curl";
   ctx.progress?.(`FlowCTL: downloading ${version}…`);
-  await must(ctx, ["curl", "-fsSL", "--retry", "2", "-o", `${work}/${zip}`, releaseUrl(version, zip, ctx.releaseBase)], `Downloading ${zip}`, 180_000);
-  await must(ctx, ["curl", "-fsSL", "--retry", "2", "-o", `${work}/${zip}.sha256`, releaseUrl(version, `${zip}.sha256`, ctx.releaseBase)], "Downloading its checksum", 60_000);
+  await must(ctx, [curl, "-fsSL", "--retry", "2", "-o", file, releaseUrl(version, zip, ctx.releaseBase)], `Downloading ${zip}`, 180_000);
+  await must(ctx, [curl, "-fsSL", "--retry", "2", "-o", `${file}.sha256`, releaseUrl(version, `${zip}.sha256`, ctx.releaseBase)], "Downloading its checksum", 60_000);
   ctx.progress?.("FlowCTL: checking the download…");
-  const expected = digestOf((await must(ctx, ["cat", `${work}/${zip}.sha256`], "Reading the checksum")).stdout);
-  const actual = digestOf((await must(ctx, ["shasum", "-a", "256", `${work}/${zip}`], "Checking the download")).stdout);
+  const expected = digestOf((await must(ctx, win ? windows.readText(`${file}.sha256`) : ["cat", `${file}.sha256`], "Reading the checksum")).stdout);
+  const actual = digestOf((await must(ctx, win ? windows.hashOf(file) : ["shasum", "-a", "256", file], "Checking the download")).stdout);
   if (expected.length !== 64 || actual !== expected) {
     throw new Failure("the download does not match its published SHA-256");
   }
-  await must(ctx, ["ditto", "-x", "-k", `${work}/${zip}`, `${work}/out`], "Unzipping the app");
+  if (win) {
+    await must(ctx, windows.makeDir(`${work}\\out`), "Making the unzip folder");
+    await must(ctx, [windows.TAR, "-xf", file, "-C", `${work}\\out`], "Unzipping the app");
+    return `${work}\\out\\${windows.WIN_EXE}`;
+  }
+  await must(ctx, ["ditto", "-x", "-k", file, `${work}/out`], "Unzipping the app");
   const app = `${work}/out/${APP_NAME}`;
   await must(ctx, ["codesign", "--verify", app], "Checking the app's signature");
   return app;
@@ -182,6 +260,13 @@ export async function uninstall(ctx: InstallContext): Promise<string> {
   const app = await findApp(ctx);
   if (!app) return "FlowCTL's overlay app is not installed.";
   await quitApp(ctx);
+  if (ctx.platform === "win32") {
+    const dir = app.path.slice(0, app.path.lastIndexOf("\\"));
+    const lnk = ctx.appData ? windows.startMenuShortcut(ctx.appData) : undefined;
+    const removed = await ctx.run(windows.removeInstall(dir, lnk));
+    if (removed.exitCode !== 0) return `Could not remove ${dir}: ${removed.stderr.trim()}`;
+    return `Removed ${dir} and its Start menu shortcut. Session files stay in ~/.flowctl; the plugin itself is removed with /plugin.`;
+  }
   await ctx.run([LSREGISTER, "-u", app.path]);
   const removed = await ctx.run(["rm", "-rf", app.path]);
   if (removed.exitCode !== 0) return `Could not remove ${app.path}: ${removed.stderr.trim()}`;
@@ -198,6 +283,6 @@ export function parseArgs(args: string): { action: "init" | "uninstall" | "help"
 export const HELP = [
   "/flowctl init                 install or update the overlay app (downloads the release of this plugin's version)",
   "/flowctl init --force         install it again",
-  "/flowctl init --from-source   build it from the tagged source instead (needs pnpm, Node 22 and Swift)",
+  "/flowctl init --from-source   build it from the tagged source instead (macOS only; needs pnpm, Node 22 and Swift)",
   "/flowctl uninstall            remove the app"
 ].join("\n");
