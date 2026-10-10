@@ -22,12 +22,12 @@ export function Header({ snapshot, showWarnings = false }: { snapshot: Snapshot;
   const waiting = snapshot.nodes.filter((node) => node.status === "needs_you").length;
   return (
     <header className="header">
-      <span className={`state-dot state-${snapshot.sessionState}`} title={STATE_LABEL[snapshot.sessionState]} />
       <span className="folder" title={snapshot.cwd}>
         {folderName(snapshot.cwd)}
       </span>
       {plan.length > 0 && <span className="progress">{`${done}/${plan.length}`}</span>}
       {waiting > 0 && <span className="waiting">{waiting} waiting</span>}
+      {/* The nodes' colors show how the session stands; screen readers hear it. */}
       <span className="visually-hidden">{STATE_LABEL[snapshot.sessionState]}</span>
       {/* Graph warnings are diagnostics for development, not for the overlay. */}
       {showWarnings && snapshot.warnings.length > 0 && (
