@@ -3,6 +3,7 @@ import { apply, FLOWPLAN_TOOL, initialState, type GraphState } from "../graph/re
 import { snapshot } from "../graph/snapshot.ts";
 import type { GraphEvent, Layout, Snapshot, TerminalInfo } from "../graph/types.ts";
 import { alerts, describeRequest, FLOWPLAN_SPEC, nudgeText, statusLine, summarize } from "../live/present.ts";
+import { appNotice, HELP, init, parseArgs, uninstall, type InstallContext } from "../live/install.ts";
 import { rebuildEvents } from "../live/rebuild.ts";
 import { omitKeys, Recording, trim } from "../recorder/recording.ts";
 
@@ -207,9 +208,25 @@ async function openOverlay($: EngineInterface): Promise<void> {
     .fetch(`${OVERLAY_URL}/health`, { socketPath: `${flowctlDir}/overlay.sock` })
     .then(() => true)
     .catch(() => false);
-  if (!alive) {
-    await $.process.run(["open", "-g", "-a", OVERLAY_APP]).catch(() => undefined);
+  if (alive) {
+    return;
   }
+  // Not installed, or older than this mod: say how to fix it, once per session.
+  const notice = await appNotice(await installContext($)).catch(() => undefined);
+  if (notice) {
+    $.ui.toast(notice);
+    if (notice.includes("not installed")) return;
+  }
+  await $.process.run(["open", "-g", "-a", OVERLAY_APP]).catch(() => undefined);
+}
+
+async function installContext($: EngineInterface): Promise<InstallContext> {
+  return {
+    home: (await $.env.get("HOME")) ?? "",
+    run: (argv, timeoutMs) =>
+      $.process.run(argv, timeoutMs === undefined ? {} : { timeoutMs }).catch((error: unknown) => ({ exitCode: 127, stdout: "", stderr: String(error) })),
+    progress: (line) => $.ui.status(line)
+  };
 }
 
 /**
@@ -281,6 +298,9 @@ export const register: Register = (on, options) => {
       observe($, "session.start", { input: { cwd: e.cwd } });
       await choosePlanTool($).catch(() => undefined);
       await rebuildFromTranscript($).catch(() => undefined);
+      await $.command
+        .register({ name: "flowctl", description: "Install, update or remove the FlowCTL overlay app", argumentHint: "init | uninstall" })
+        .catch(() => undefined);
       if (settings.autoOpenOverlay) {
         void openOverlay($).catch(() => undefined);
       }
@@ -288,6 +308,15 @@ export const register: Register = (on, options) => {
       // Without its home folder the mod still draws the status line.
     }
     return result;
+  });
+
+  on("command.run", { command: "flowctl" }, async ($, e) => {
+    const { action, options } = parseArgs(e.args);
+    if (action === "help") return { text: HELP };
+    const ctx = await installContext($);
+    const text = action === "init" ? await init(ctx, options) : await uninstall(ctx);
+    if (lastSnapshot) $.ui.status(statusLine(lastSnapshot));
+    return { text };
   });
 
   on("session.end", async ($, e, next) => {

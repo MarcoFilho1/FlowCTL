@@ -1,6 +1,6 @@
 {
   "name": "flowctl-graph",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Live graph of what Claude Code is doing and what comes next",
   "author": {
     "name": "MarcoFilho1"
