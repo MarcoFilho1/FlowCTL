@@ -15,6 +15,7 @@ export function overlayScene(lang: Lang): Scene {
     cwd: CWD,
     holdMs: 4000,
     still: 6.5,
+    hoverTour: ["plan:read", "agent:coupon", "plan:tests"],
     beats: [
       ...opening(CWD, "1", 80),
       [1.6, plan([

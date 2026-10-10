@@ -3,6 +3,7 @@
 
 import { FLOWPLAN_TOOL } from "../../../../mod/graph/reduce.ts";
 import type { GraphEvent } from "../../../../mod/graph/types.ts";
+import type { Key } from "../i18n/index.ts";
 
 /** One engine event at a time in seconds from the start of the scene (`t` is added by the engine). */
 export type Beat = [seconds: number, event: Omit<GraphEvent, "t">];
@@ -20,6 +21,10 @@ export interface Scene {
   holdMs: number;
   /** Seconds of the frame shown still when motion is reduced: the one that says the most. */
   still: number;
+  /** Named groups of nodes (a request, say), shown as progress chips under the demo. */
+  groups?: Array<{ label: Key; ids: string[] }>;
+  /** Nodes the hover demo points at, in turn, so a card shows on its own. */
+  hoverTour?: string[];
 }
 
 export interface PlanStep {

@@ -23,15 +23,17 @@ export function subagentsScene(lang: Lang): Scene {
         { id: "check", title: s("scene.sub.check"), status: "pending", blockedBy: ["impl"] }
       ])],
       [3.0, { event: "agent.spawn", input: { description: s("scene.sub.agentMap") }, result: { agentId: "map" } }],
-      [4.0, { event: "agent.spawn", input: { description: s("scene.sub.agentRules") }, result: { agentId: "rules" } }],
-      [5.5, { event: "turn.complete", agentId: "map", input: { summary: s("scene.sub.mapDone") }, result: {} }],
+      [3.8, { event: "agent.spawn", input: { description: s("scene.sub.agentRules") }, result: { agentId: "rules" } }],
+      [4.6, { event: "agent.spawn", input: { description: s("scene.sub.agentTests") }, result: { agentId: "tests" } }],
+      [7.0, { event: "turn.complete", agentId: "map", input: { summary: s("scene.sub.mapDone") }, result: {} }],
       [6.5, plan([
         { id: "explore", title: s("scene.sub.explore"), status: "completed" },
         { id: "spec", title: s("scene.sub.spec"), status: "in_progress", blockedBy: ["explore"] },
         { id: "impl", title: s("scene.sub.impl"), status: "pending", blockedBy: ["spec"] },
         { id: "check", title: s("scene.sub.check"), status: "pending", blockedBy: ["impl"] }
       ])],
-      [7.5, { event: "turn.complete", agentId: "rules", input: { summary: s("scene.sub.rulesDone") }, result: {} }],
+      [8.2, { event: "turn.complete", agentId: "rules", input: { summary: s("scene.sub.rulesDone") }, result: {} }],
+      [9.2, { event: "turn.complete", agentId: "tests", input: { summary: s("scene.sub.testsDone") }, result: {} }],
       [8.5, plan([
         { id: "spec", title: s("scene.sub.spec"), status: "completed", blockedBy: ["explore"] },
         { id: "impl", title: s("scene.sub.impl"), status: "in_progress", blockedBy: ["spec"] },

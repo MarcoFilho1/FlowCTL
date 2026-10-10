@@ -441,44 +441,149 @@ main,
   min-height: 32px;
 }
 
+/* The overlay drawn at its own size (480x300 or 360x220), scaled to fit the card. */
 .demo-screen {
   position: relative;
-  height: 340px;
+  width: 100%;
+  overflow: hidden;
   background: var(--s-bg-2);
 }
 
-.demo-screen.app {
-  background: var(--s-bg-2);
+.demo-screen > .demo-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
 }
 
-.feature .demo-screen {
-  height: 260px;
+.demo.demo-float {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
+}
+
+.demo.demo-float .demo-screen {
+  border-radius: 12px;
+  border: 1px solid var(--s-line);
+}
+
+.groups {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--s-muted);
+  border: 1px solid var(--s-line);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.group-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--s-muted);
+}
+
+.group-done .group-dot {
+  background: var(--done);
+}
+
+.group-live {
+  color: var(--s-text);
+}
+
+.group-live .group-dot {
+  background: var(--running);
+}
+
+.group-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Terminal: agent output, the background of the hero and the problem ---- */
+
+.term {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--s-radius);
+  border: 1px solid rgba(231, 236, 243, 0.1);
+  background: #0d1117;
+  color: #9aa6b5;
+  font-family: var(--s-mono);
+}
+
+.term-bar {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(231, 236, 243, 0.08);
+}
+
+.term-bar span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(231, 236, 243, 0.14);
+}
+
+.term-text {
+  margin: 0;
+  padding: 14px 16px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.hero-term {
+  height: 470px;
+}
+
+.hero-float {
+  position: absolute;
+  top: 64px;
+  right: 16px;
+  width: min(62%, 480px);
+  min-width: 250px;
+}
+
+.problem-term {
+  min-height: 100%;
+}
+
+/* ---- Video: quiet until the file exists ---- */
+
+.video-soon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 56px 0 0;
+  color: var(--s-muted);
+  font-size: 14px;
+}
+
+.video-soon span:first-child {
+  font-family: var(--s-pixel-label);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-text);
 }
 
 /* ---- Problem ---- */
-
-.split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 32px;
-  align-items: start;
-}
-
-.wall {
-  display: grid;
-  gap: 12px;
-  padding: 22px;
-  border: 1px dashed var(--s-line);
-  border-radius: var(--s-radius);
-  background: var(--s-bg-2);
-}
-
-.wall span {
-  display: block;
-  height: 10px;
-  border-radius: 2px;
-  background: var(--s-line);
-}
 
 /* ---- Colors ---- */
 
@@ -662,21 +767,6 @@ main,
 
 /* ---- Video ---- */
 
-.video-placeholder,
-.launch-video {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--s-radius);
-  border: 1px dashed var(--s-line);
-  background: var(--s-bg-2);
-  display: grid;
-  place-items: center;
-  color: var(--s-muted);
-  font-family: var(--s-pixel-label);
-  font-size: 13px;
-  letter-spacing: 0.06em;
-}
-
 .launch-video {
   border: 1px solid var(--s-line);
   background: #000;
@@ -755,14 +845,6 @@ main,
 
   .section {
     padding-top: 56px;
-  }
-
-  .demo-screen {
-    height: 300px;
-  }
-
-  .feature .demo-screen {
-    height: 240px;
   }
 
   .copy-line code {

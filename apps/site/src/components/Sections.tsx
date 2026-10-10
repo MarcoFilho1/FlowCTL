@@ -4,15 +4,9 @@ import { t, type Key } from "../i18n/index.ts";
 import type { SceneId } from "../scenes/types.ts";
 import { InstallCommands } from "./Install.tsx";
 import { SceneDemo } from "./Demo.tsx";
+import { Terminal } from "./Terminal.tsx";
 import { LookSwitch, ThemeSwitch } from "./Controls.tsx";
 import { usePrefs } from "./Prefs.tsx";
-
-/**
- * The launch video, once it is rendered: a file under public/ (say
- * public/launch.mp4, with a poster next to it) and its paths here. Until then
- * the section shows a placeholder.
- */
-const LAUNCH_VIDEO: { src: string; poster?: string } | null = null;
 
 function Section({ id, title, children, className }: { id: string; title: string; children: React.ReactNode; className?: string }) {
   return (
@@ -48,14 +42,16 @@ export function Hero() {
         </div>
       </div>
       <figure className="hero-figure">
-        <SceneDemo id="overlay" label={w("hero.caption")} />
+        <Terminal className="hero-term">
+          <div className="hero-float">
+            <SceneDemo id="overlay" label={w("hero.caption")} variant="float" />
+          </div>
+        </Terminal>
         <figcaption>{w("hero.caption")}</figcaption>
       </figure>
     </section>
   );
 }
-
-const WALL = [92, 78, 96, 64, 88, 71, 94, 60, 85, 90, 68, 79, 97, 55];
 
 export function Problem() {
   const w = useWords();
@@ -67,11 +63,7 @@ export function Problem() {
           <p>{w("problem.answer")}</p>
           <p>{w("problem.waiting")}</p>
         </div>
-        <div className="wall" aria-label={w("problem.wall")} role="img">
-          {WALL.map((width, i) => (
-            <span key={i} style={{ width: `${width}%` }} />
-          ))}
-        </div>
+        <Terminal className="problem-term" />
       </div>
     </Section>
   );
@@ -108,6 +100,7 @@ interface FeatureCard {
   title: Key;
   body: Key;
   demo?: SceneId;
+  tour?: boolean;
   controls?: "look" | "theme";
   note?: Key;
 }
@@ -118,7 +111,7 @@ const FEATURES: FeatureCard[] = [
   { title: "features.followup.title", body: "features.followup.body", demo: "followup" },
   { title: "features.looks.title", body: "features.looks.body", demo: "overlay", controls: "look" },
   { title: "features.theme.title", body: "features.theme.body", demo: "overlay", controls: "theme" },
-  { title: "features.hover.title", body: "features.hover.body", demo: "overlay" },
+  { title: "features.hover.title", body: "features.hover.body", demo: "overlay", tour: true },
   { title: "features.idle.title", body: "features.idle.body", demo: "idle", note: "features.idle.note" },
   { title: "features.sessions.title", body: "features.sessions.body", note: "features.sessions.note" }
 ];
@@ -135,7 +128,7 @@ export function Features() {
             <p>{w(feature.body)}</p>
             {feature.controls === "look" && <LookSwitch />}
             {feature.controls === "theme" && <ThemeSwitch />}
-            {feature.demo && <SceneDemo id={feature.demo} label={w(feature.title)} />}
+            {feature.demo && <SceneDemo id={feature.demo} label={w(feature.title)} tour={feature.tour} />}
             {feature.note && <p className="note">{w(feature.note)}</p>}
           </article>
         ))}
@@ -245,17 +238,23 @@ export function How() {
   );
 }
 
-export function LaunchVideo() {
+/**
+ * The launch video. Pass `src` (a file under public/, say /launch.mp4, and a
+ * `poster`) once it is rendered; until then the page shows only a quiet line.
+ */
+export function LaunchVideo({ src, poster }: { src?: string; poster?: string } = {}) {
   const w = useWords();
+  if (!src) {
+    return (
+      <p className="video-soon">
+        <span>{w("video.title")}</span>
+        <span>{w("video.soon")}</span>
+      </p>
+    );
+  }
   return (
     <Section id="video" title={w("video.title")} className="narrow">
-      {LAUNCH_VIDEO ? (
-        <video className="launch-video" controls playsInline preload="metadata" src={LAUNCH_VIDEO.src} poster={LAUNCH_VIDEO.poster} />
-      ) : (
-        <div className="video-placeholder" role="img" aria-label={w("video.soon")}>
-          <span>{w("video.soon")}</span>
-        </div>
-      )}
+      <video className="launch-video" controls playsInline preload="metadata" src={src} poster={poster} />
     </Section>
   );
 }

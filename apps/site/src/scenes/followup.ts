@@ -14,6 +14,10 @@ export function followupScene(lang: Lang): Scene {
     cwd: CWD,
     holdMs: 4000,
     still: 12.8,
+    groups: [
+      { label: "scene.fu.request1", ids: ["plan:read", "plan:code", "plan:tests"] },
+      { label: "scene.fu.request2", ids: ["plan:expire", "plan:expireTests", "plan:changelog"] }
+    ],
     beats: [
       ...opening(CWD, "1", 60),
       [1.4, plan([
