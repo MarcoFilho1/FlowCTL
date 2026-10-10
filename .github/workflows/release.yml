@@ -1,9 +1,10 @@
 name: Release
 
-# A tag vX.Y.Z builds the overlay app and publishes it on a GitHub Release,
-# where `/flowctl init` downloads it. Run by hand (Actions > Release > Run
-# workflow), or on a pull request that changes how the app is built, it builds
-# the same zip as a workflow artifact and publishes nothing.
+# A tag vX.Y.Z builds the overlay app for macOS (apps/overlay) and Windows
+# (apps/overlay-tauri) and publishes both on a GitHub Release, where
+# `/flowctl init` downloads them. Run by hand (Actions > Release > Run
+# workflow), or on a pull request that changes how the apps are built, it
+# builds the same zips as workflow artifacts and publishes nothing.
 
 on:
   push:
@@ -14,12 +15,14 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/install-overlay.sh
+      - apps/overlay-tauri/src-tauri/Cargo.toml
+      - apps/overlay-tauri/src-tauri/tauri.conf.json
 
 permissions:
   contents: write
 
 jobs:
-  app:
+  app-macos:
     runs-on: macos-latest
 
     steps:
@@ -60,17 +63,85 @@ jobs:
           # ditto keeps the bundle's signature and attributes, as Finder's Compress does.
           ditto -c -k --keepParent apps/overlay/build/FlowCTL.app "$name"
           shasum -a 256 "$name" > "$name.sha256"
-          echo "ZIP=$name" >> "$GITHUB_ENV"
 
-      - name: Keep the build (manual run)
-        if: github.ref_type != 'tag'
+      - name: Keep the build
         uses: actions/upload-artifact@v4
         with:
           name: FlowCTL-${{ steps.version.outputs.app }}-macos
           path: FlowCTL-*-macos.zip*
 
+  app-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.18.0 --activate
+
+      - name: Read the versions
+        id: version
+        run: |
+          app=$(node -p "require('./apps/overlay-tauri/src-tauri/tauri.conf.json').version")
+          crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/overlay-tauri/src-tauri/Cargo.toml | head -1)
+          mod=$(node -p "require('./mod/.claude-plugin/plugin.json').version")
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          if [ "$app" != "$crate" ]; then
+            echo "::error::tauri.conf.json ($app) and Cargo.toml ($crate) must be the same version"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$app" ] || [ "$tag" != "$mod" ]; then
+              echo "::error::tag $GITHUB_REF_NAME, app $app (tauri.conf.json) and mod $mod (plugin.json) must be the same version"
+              exit 1
+            fi
+          fi
+
+      - name: Build the viewer the app bundles
+        run: pnpm install --frozen-lockfile && FLOWCTL_NO_FIXTURES=1 pnpm viewer:build
+
+      - name: Build the app (x64)
+        working-directory: apps/overlay-tauri/src-tauri
+        run: cargo build --release --locked
+
+      - name: Zip it with its checksum
+        run: |
+          name="FlowCTL-${{ steps.version.outputs.app }}-windows-x64.zip"
+          # The zip holds FlowCTL.exe alone, at its root (mod/live/windows.ts).
+          (cd apps/overlay-tauri/src-tauri/target/release && 7z a -tzip "$GITHUB_WORKSPACE/$name" FlowCTL.exe)
+          sha256sum "$name" > "$name.sha256"
+
+      - name: Keep the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowCTL-${{ steps.version.outputs.app }}-windows-x64
+          path: FlowCTL-*-windows-x64.zip*
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [app-macos, app-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Collect the builds
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
       - name: Publish the release
-        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "$ZIP" "$ZIP.sha256" --title "FlowCTL $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "FlowCTL $GITHUB_REF_NAME" --generate-notes

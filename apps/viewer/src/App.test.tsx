@@ -164,6 +164,16 @@ describe("moving around the graph", () => {
     expect(messages).toContainEqual({ type: "focus", sessionId: "s9", nodeId: "a" });
   });
 
+  test("on Windows the click reaches the Tauri app's page script instead", () => {
+    delete window.webkit;
+    window.flowctlNative = { postMessage: (message) => void messages.push(message) };
+    const { container } = mount(snapshotOf([task("a")], { sessionId: "w1" }));
+    fireEvent.pointerDown(node(container, "a"), { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(canvas(container), { clientX: 51, clientY: 50, pointerId: 1 });
+    expect(messages).toContainEqual({ type: "focus", sessionId: "w1", nodeId: "a" });
+    delete window.flowctlNative;
+  });
+
   test("dragging moves the view and is not a click", () => {
     const { container } = mount(wide());
     const before = panOf(container);

@@ -1,0 +1,13 @@
+{
+  "name": "@flowctl/overlay-tauri",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev --no-watch",
+    "build": "tauri build --no-bundle",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.5"
+  }
+}
