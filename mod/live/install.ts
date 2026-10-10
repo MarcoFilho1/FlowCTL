@@ -23,6 +23,11 @@ export interface InstallContext {
   run: Run;
   home: string;
   version?: string;
+  /**
+   * Where the release files are instead of GitHub, `<base>/v<version>/<file>`:
+   * FLOWCTL_RELEASE_BASE, to try a build before it is tagged.
+   */
+  releaseBase?: string;
   /** Progress, one short line at a time (the status line). */
   progress?: (line: string) => void;
 }
@@ -31,8 +36,8 @@ export function zipName(version: string): string {
   return `FlowCTL-${version}-macos.zip`;
 }
 
-export function releaseUrl(version: string, file: string): string {
-  return `https://github.com/${REPO}/releases/download/v${version}/${file}`;
+export function releaseUrl(version: string, file: string, base = `https://github.com/${REPO}/releases/download`): string {
+  return `${base.replace(/\/+$/, "")}/v${version}/${file}`;
 }
 
 /** Where an installed app may be, the person's own folder first. */
@@ -150,8 +155,8 @@ export async function init(ctx: InstallContext, options: InitOptions = {}): Prom
 async function download(ctx: InstallContext, work: string, version: string): Promise<string> {
   const zip = zipName(version);
   ctx.progress?.(`FlowCTL: downloading ${version}…`);
-  await must(ctx, ["curl", "-fsSL", "--retry", "2", "-o", `${work}/${zip}`, releaseUrl(version, zip)], `Downloading ${zip}`, 180_000);
-  await must(ctx, ["curl", "-fsSL", "--retry", "2", "-o", `${work}/${zip}.sha256`, releaseUrl(version, `${zip}.sha256`)], "Downloading its checksum", 60_000);
+  await must(ctx, ["curl", "-fsSL", "--retry", "2", "-o", `${work}/${zip}`, releaseUrl(version, zip, ctx.releaseBase)], `Downloading ${zip}`, 180_000);
+  await must(ctx, ["curl", "-fsSL", "--retry", "2", "-o", `${work}/${zip}.sha256`, releaseUrl(version, `${zip}.sha256`, ctx.releaseBase)], "Downloading its checksum", 60_000);
   ctx.progress?.("FlowCTL: checking the download…");
   const expected = digestOf((await must(ctx, ["cat", `${work}/${zip}.sha256`], "Reading the checksum")).stdout);
   const actual = digestOf((await must(ctx, ["shasum", "-a", "256", `${work}/${zip}`], "Checking the download")).stdout);

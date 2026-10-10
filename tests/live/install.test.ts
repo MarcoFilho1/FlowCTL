@@ -67,6 +67,13 @@ test("init downloads the release of the mod's version, checks it and installs it
   assert.deepEqual(m.calls.at(-1), ["rm", "-rf", "/tmp/flowctl.x"], "the download is cleaned up");
 });
 
+test("FLOWCTL_RELEASE_BASE points the download elsewhere, to try a build before it is tagged", async () => {
+  const m = mac();
+  await init({ run: m.run, home: HOME, releaseBase: "http://127.0.0.1:8765/" });
+  const urls = m.calls.filter((c) => c[0] === "curl").map((c) => c.at(-1));
+  assert.equal(urls[0], `http://127.0.0.1:8765/v${MOD_VERSION}/FlowCTL-${MOD_VERSION}-macos.zip`);
+});
+
 test("a download that does not match its checksum is not installed", async () => {
   const m = mac({ digest: "b".repeat(64) });
   const text = await init({ run: m.run, home: HOME });

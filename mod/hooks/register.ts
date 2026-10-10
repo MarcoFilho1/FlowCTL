@@ -221,8 +221,10 @@ async function openOverlay($: EngineInterface): Promise<void> {
 }
 
 async function installContext($: EngineInterface): Promise<InstallContext> {
+  const releaseBase = await $.env.get("FLOWCTL_RELEASE_BASE");
   return {
     home: (await $.env.get("HOME")) ?? "",
+    ...(releaseBase ? { releaseBase } : {}),
     run: (argv, timeoutMs) =>
       $.process.run(argv, timeoutMs === undefined ? {} : { timeoutMs }).catch((error: unknown) => ({ exitCode: 127, stdout: "", stderr: String(error) })),
     progress: (line) => $.ui.status(line)
