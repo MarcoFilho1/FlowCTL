@@ -7,19 +7,20 @@ session running the FlowCTL mod. It is the viewer (`apps/viewer`) in a
 ## Install
 
 ```
-scripts/install-overlay.sh            # builds and installs /Applications/FlowCTL.app
+scripts/install-overlay.sh            # builds and installs ~/Applications/FlowCTL.app
 scripts/install-overlay.sh --open     # ...and opens it
 scripts/install-overlay.sh --build-only   # leaves it in apps/overlay/build
 ```
 
 Needs pnpm, Node 22 and Swift (the Command Line Tools are enough, no Xcode).
-An app already installed is shown (version, date), quit if running, then
-replaced. The local build is then unregistered from Launch Services and
+An app already installed (in `~/Applications` or `/Applications`) is shown
+(version, date), quit if running, then replaced where it is; `--dest DIR`
+installs elsewhere. The local build is then unregistered from Launch Services and
 removed, so `open -a FlowCTL` finds the installed app. The app is signed ad hoc, not notarized: if macOS says it cannot be
 opened (an app downloaded rather than built here), clear the quarantine flag:
 
 ```
-xattr -dr com.apple.quarantine /Applications/FlowCTL.app
+xattr -dr com.apple.quarantine ~/Applications/FlowCTL.app
 ```
 
 The mod opens the overlay by itself when a session starts (`open -g -a
@@ -73,7 +74,7 @@ Hiding and showing fade over 0.25 s.
 Quit it from the menu bar, then:
 
 ```
-rm -rf /Applications/FlowCTL.app
+rm -rf ~/Applications/FlowCTL.app      # or /Applications, wherever it is
 defaults delete dev.flowctl.overlay      # window place and menu settings
 rm -rf ~/.flowctl/sessions               # snapshots the mod left (optional)
 ```

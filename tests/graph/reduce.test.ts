@@ -185,6 +185,23 @@ test("FlowPlan steps become nodes with their dependencies", () => {
   ]);
 });
 
+test("a step left in_progress when the turn ends stops showing as running, and runs again with the next call", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(state, {
+    t: 1,
+    event: "tool.call",
+    input: { tool: FLOWPLAN_TOOL, steps: [{ id: "pr", title: "Open the PR", status: "completed" }, { id: "merge", title: "Merge", status: "in_progress", blockedBy: ["pr"] }] },
+    result: { result: "ok" }
+  });
+  assert.equal(byId(nodes(state), "plan:merge").status, "running");
+  apply(state, { t: 2, event: "turn.complete", input: { reason: "answer" } });
+  assert.equal(byId(nodes(state), "plan:merge").status, "pending", "the agent stopped without updating its plan");
+  apply(state, { t: 3, event: "turn.start", input: { turnId: "b" } });
+  apply(state, { t: 4, event: "tool.call", input: { tool: "Bash" }, result: { result: {} } });
+  assert.equal(byId(nodes(state), "plan:merge").status, "running");
+});
+
 test("one event costs the same early and late in a long session", () => {
   const state = initialState();
   const call = (tool: string, input: object, result: object): GraphEvent => ({ t: 0, event: "tool.call", input: { tool, ...input }, result: { result } });

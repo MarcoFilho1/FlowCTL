@@ -638,15 +638,18 @@ function onTurnComplete(
   if (summary !== undefined) {
     state.turn.summary = summary;
   }
+  // The main loop stopped: a step it left in_progress is not running any
+  // more, whether the turn was aborted with Esc or ended without the agent
+  // updating its plan. It runs again with the loop's next tool call.
+  for (const entry of state.entries.values()) {
+    if (entry.base === "in_progress" && entry.agentId === undefined) {
+      entry.paused = true;
+    }
+  }
   const reason = input["reason"];
   if (reason === "aborted") {
     // Esc: what was running stops, it did not fail.
     clearAttention(state, () => true, MAIN);
-    for (const entry of state.entries.values()) {
-      if (entry.base === "in_progress" && entry.agentId === undefined) {
-        entry.paused = true;
-      }
-    }
   } else if (reason === "error" || reason === "refusal") {
     setAttention(state, MAIN, { kind: "error", detail: `turn ended: ${String(reason)}`, since: event.t });
   } else {
