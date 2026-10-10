@@ -100,7 +100,7 @@ next session start tells you if the app is older than the plugin: run
 | ------- | ------------ |
 | `/flowctl init` | Installs or updates the overlay app to the plugin's version; opens it if it is already there |
 | `/flowctl init --force` | Installs it again |
-| `/flowctl init --from-source` | Builds it from the tagged source instead of downloading (needs pnpm, Node 22 and Swift) |
+| `/flowctl init --from-source` | Builds it from the tagged source instead of downloading (macOS only; needs pnpm, Node 22 and Swift) |
 | `/flowctl uninstall` | Quits and removes the app (the plugin is removed from `/plugin`) |
 
 The **menu bar icon** holds the overlay's settings: show or hide the panel,
