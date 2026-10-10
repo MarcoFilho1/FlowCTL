@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The panel calls only FlowCTL's own commands.",
+  "windows": ["panel"],
+  "permissions": []
+}

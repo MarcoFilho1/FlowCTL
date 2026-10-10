@@ -64,3 +64,40 @@ jobs:
 
       - name: Run the overlay checks (plain runner)
         run: swift run --package-path apps/overlay overlay-checks
+
+  overlay-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.18.0 --activate
+
+      - name: Build the viewer the app bundles
+        run: pnpm install --frozen-lockfile && FLOWCTL_NO_FIXTURES=1 pnpm viewer:build
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/overlay-tauri/src-tauri
+
+      - name: Lint, test and build the Windows overlay
+        working-directory: apps/overlay-tauri/src-tauri
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cargo build --release
+
