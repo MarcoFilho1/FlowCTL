@@ -43,6 +43,9 @@ jobs:
       - name: Test and build the viewer
         run: pnpm viewer:test && pnpm viewer:build
 
+      - name: Test and build the landing page
+        run: pnpm site:test && pnpm site:build
+
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 

@@ -1,0 +1,198 @@
+// Every piece of text the page shows, in Portuguese. This file defines the keys:
+// en.ts must have exactly the same ones (the type checks it, and so does a test).
+
+export const pt = {
+  "meta.title": "FlowCTL: veja a sua sessão do Claude Code como um grafo",
+  "meta.description":
+    "Um grafo ao vivo do que o Claude Code está fazendo e do que vem a seguir, numa janela flutuante no Mac e no Windows.",
+
+  "nav.problem": "O problema",
+  "nav.features": "Recursos",
+  "nav.install": "Instalação",
+  "nav.privacy": "Privacidade",
+  "nav.github": "GitHub",
+  "nav.label": "Seções",
+
+  "control.language": "Idioma",
+  "control.theme": "Tema",
+  "control.theme.auto": "Automático",
+  "control.theme.dark": "Escuro",
+  "control.theme.light": "Claro",
+  "control.look": "Visual",
+  "control.look.pixel": "Pixel",
+  "control.look.smooth": "Suave",
+  "control.sound.on": "Som ligado",
+  "control.sound.off": "Ligar som",
+  "control.sound.hint": "Os sons acompanham as demos e as trocas de visual e de tema.",
+  "control.play": "Reproduzir",
+  "control.pause": "Pausar",
+  "control.replay": "Ver de novo",
+
+  "hero.kicker": "Para quem usa Claude Code",
+  "hero.title": "Veja a sua sessão do Claude Code como um grafo.",
+  "hero.lead":
+    "O FlowCTL desenha o plano do agente ao vivo, numa janela flutuante sobre as suas outras janelas. Num relance você vê o que está rodando, o que vem a seguir e quando um passo espera por você.",
+  "hero.caption": "Uma sessão de exemplo, em loop.",
+  "hero.cta.install": "Como instalar",
+  "hero.cta.github": "Dar uma estrela no GitHub",
+
+  "install.title": "Instale uma vez",
+  "install.lead": "Duas linhas, digitadas numa sessão do Claude Code.",
+  "install.copy": "Copiar",
+  "install.copied": "Copiado",
+  "install.copyFailed": "Selecione e copie",
+
+  "problem.title": "Uma sessão longa é um muro de texto.",
+  "problem.body":
+    "Para saber onde ela está (o que roda agora, o que falta e se parou esperando você), é preciso rolar e ler. Com várias sessões abertas em terminais diferentes, você confere uma por uma.",
+  "problem.wall": "Sessão longa, sem desenho",
+  "problem.answer":
+    "O FlowCTL desenha a sessão. O plano do agente vira um grafo: um nó por passo, setas para o que depende de quê e cores para o estado de cada um. Ele flutua sobre as outras janelas, então um olhar basta.",
+  "problem.waiting":
+    "E quando o agente para e pede uma permissão, o passo fica amarelo. Você não precisa descobrir no meio do texto que ele parou esperando você.",
+
+  "colors.title": "O que cada cor significa",
+  "colors.pending": "Pendente",
+  "colors.pending.desc": "Ainda não começou.",
+  "colors.running": "Em andamento",
+  "colors.running.desc": "Está rodando agora.",
+  "colors.needs": "Precisa de você",
+  "colors.needs.desc": "Um pedido de permissão ou uma pergunta.",
+  "colors.error": "Falhando",
+  "colors.error.desc": "Um erro de ferramenta pisca; erros seguidos mantêm o vermelho.",
+  "colors.done": "Concluído",
+  "colors.done.desc": "Terminou.",
+
+  "features.title": "Recursos",
+  "features.lead": "Cada demo é a tela real do FlowCTL, rodando uma sessão de exemplo.",
+  "features.plan.title": "O plano vira grafo",
+  "features.plan.body":
+    "Os passos que o agente declara, com as dependências entre eles. Passos em paralelo ficam lado a lado. A câmera acompanha o passo atual enquanto a sessão roda e mostra o grafo inteiro quando ela descansa.",
+  "features.subagents.title": "Subagentes",
+  "features.subagents.body": "Saem do passo que os iniciou, com um resumo do que cada um respondeu.",
+  "features.followup.title": "Um novo pedido continua o grafo",
+  "features.followup.body": "A próxima pergunta entra à direita do que já existia, então você vê a sessão inteira de uma vez.",
+  "features.looks.title": "Visual pixel ou suave, com som",
+  "features.looks.body":
+    "Pixel, com sons de 8 bits. Suave, com tons limpos. Experimente o botão Visual no topo: a troca toca o som do visual escolhido.",
+  "features.theme.title": "Claro ou escuro",
+  "features.theme.body": "Automático segue o sistema. Você também pode escolher escuro ou claro. A troca de tema toca o som do visual atual.",
+  "features.hover.title": "Passe o mouse num passo",
+  "features.hover.body":
+    "Veja do que se trata, quanto tempo levou e o que resultou. Clique num passo para trazer a aba do terminal dessa sessão.",
+  "features.idle.title": "Ociosidade vira animação",
+  "features.idle.body":
+    "Depois de um minuto sem nada rodando, os nós formam uma figura que gira devagar. Depois de cinco, a janela some até uma sessão voltar a trabalhar.",
+  "features.idle.note": "Demo acelerada: aqui a figura aparece depois de alguns segundos.",
+  "features.sessions.title": "Todas as sessões numa janela",
+  "features.sessions.body":
+    "Cada sessão aberta ganha uma página, e os controles ‹ 1/3 › alternam entre elas. Quando a que está na tela descansa, a janela vai para a sessão que começa a trabalhar ou precisa de você.",
+  "features.sessions.note": "Um indicador pisca quando outra sessão precisa de você.",
+
+  "demo.label": "Demo ao vivo",
+  "demo.topbar.sessions": "Sessões",
+  "demo.idle.label": "Ociosidade",
+
+  "install.section.title": "Instalação e dia a dia",
+  "install.requirements":
+    "Requisitos: macOS 13 ou mais novo, ou Windows 10 ou 11, e Claude Code 2.1.295 ou mais novo.",
+  "install.step1.title": "1. O plugin",
+  "install.step1.body":
+    "A primeira linha adiciona este repositório como marketplace de plugins (responda y) e instala o plugin. Escolha o escopo user para que ele funcione em todos os projetos. O plugin observa a sessão e monta o grafo.",
+  "install.step2.title": "2. O app",
+  "install.step2.body":
+    "O /flowctl init baixa do GitHub Releases o app da mesma versão do plugin, confere o SHA-256 e a assinatura, instala e abre. O app é a janela flutuante e o ícone do menu.",
+  "install.daily.title": "Você instala uma vez",
+  "install.daily.1": "Toda sessão do Claude Code carrega o plugin sozinha. Você não roda nada ao abrir uma sessão nova.",
+  "install.daily.2":
+    "Ao começar uma sessão, o plugin abre a janela se ela não estiver aberta. Várias sessões dividem uma janela, com uma página por sessão.",
+  "install.daily.3":
+    "A janela aparece quando uma sessão começa a trabalhar e some depois de cinco minutos sem nada rodando. Se você fechar com ×, ela fica fechada até você reabri-la pelo app.",
+  "install.daily.4":
+    "Sessões que já estavam abertas quando você instalou: rode /reload-plugins em cada uma. Para ganhar o plano nelas, reinicie com claude --continue.",
+  "install.commands.title": "Comandos",
+  "install.commands.init": "Instala ou atualiza o app para a versão do plugin e o abre.",
+  "install.commands.force": "Instala de novo, mesmo que já esteja instalado.",
+  "install.commands.source": "Compila a partir do código-fonte da tag, em vez de baixar (só macOS).",
+  "install.commands.uninstall": "Fecha e remove o app. O plugin sai pelo /plugin.",
+  "install.update": "Quando sai uma versão nova, atualize o plugin pelo /plugin, rode /reload-plugins e depois /flowctl init para atualizar o app.",
+
+  "privacy.title": "Tudo fica no seu computador.",
+  "privacy.1": "O plugin entrega o grafo ao app por um canal local e guarda o último de cada sessão no seu computador.",
+  "privacy.2":
+    "O grafo tem os títulos dos passos, os estados, os horários, um resumo curto do que cada passo respondeu e a primeira linha de um erro de ferramenta.",
+  "privacy.3": "Nunca tem seus prompts, o conteúdo dos arquivos nem a saída completa dos comandos.",
+  "privacy.4":
+    "Nada é enviado para lugar nenhum. A única chamada de rede é o /flowctl init baixando o app do GitHub.",
+  "privacy.5": "A gravação de eventos é opcional e vem desligada. Ligada, ela guarda os eventos da sessão para relatar bugs.",
+
+  "how.title": "Como funciona",
+  "how.lead": "O plugin observa a sessão e nunca muda o que o agente faz, a não ser pelo pedido opcional para declarar um plano.",
+  "how.session": "Sessão do Claude Code",
+  "how.session.desc": "Tarefas, subagentes, pedidos de permissão.",
+  "how.plugin": "Plugin",
+  "how.plugin.desc": "Monta o grafo e o posiciona.",
+  "how.app": "App do overlay",
+  "how.app.desc": "A janela flutuante que desenha o grafo.",
+  "how.arrow.hooks": "hooks",
+  "how.arrow.snapshot": "grafo",
+
+  "video.title": "Vídeo de lançamento",
+  "video.soon": "Em breve.",
+
+  "footer.star": "Se o FlowCTL te ajuda, dê uma estrela no GitHub.",
+  "footer.github": "Ver no GitHub",
+  "footer.license": "Código aberto, licença MIT.",
+  "footer.back": "Voltar ao topo",
+
+  // The hover card and the labels screen readers hear (the viewer's own words, in the page's language).
+  "hover.kind.task": "Passo",
+  "hover.kind.agent": "Subagente",
+  "hover.kind.turn": "Turno",
+  "hover.done": "{kind} concluído",
+  "hover.done.took": "{kind} concluído em {took}",
+  "hover.failed": "{kind} falhou",
+  "hover.question": "Pergunta para você",
+  "hover.permission": "Precisa da sua permissão",
+  "hover.running": "Em andamento",
+  "hover.waitingOn": "Aguardando {titles}",
+  "hover.paused": "Pausado",
+  "hover.notStarted": "Não começou",
+  "hover.lastError": "Último erro: {detail}",
+  "hover.lastError.ago": "Último erro há {ago}: {detail}",
+  "hover.graph": "Grafo de tarefas, {n} nós",
+  "hover.outOfView": "fora da tela",
+
+  "scene.cwd.label": "projeto",
+  "scene.overlay.read": "Ler o código do checkout",
+  "scene.overlay.api": "Adicionar o endpoint de desconto",
+  "scene.overlay.ui": "Montar o campo de cupom",
+  "scene.overlay.tests": "Escrever os testes",
+  "scene.overlay.docs": "Atualizar a documentação da API",
+  "scene.overlay.agent": "Montar o campo de cupom",
+  "scene.overlay.permission": "npm install adiciona uma dependência ao package.json",
+  "scene.overlay.agentDone": "Campo de cupom com validação e estados de erro",
+  "scene.overlay.error": "Código de saída 1: 2 testes falharam",
+  "scene.overlay.done": "Descontos prontos: endpoint, campo de cupom, testes e documentação.",
+  "scene.sub.explore": "Mapear os fluxos de pagamento",
+  "scene.sub.spec": "Escrever a regra dos cupons",
+  "scene.sub.impl": "Implementar a validação",
+  "scene.sub.check": "Revisar os resultados",
+  "scene.sub.agentMap": "Mapear os pagamentos",
+  "scene.sub.agentRules": "Checar as regras de cupom",
+  "scene.sub.mapDone": "Fluxos: checkout, webhook do pagamento e API de pedidos.",
+  "scene.sub.rulesDone": "Um cupom não pode passar do valor do carrinho.",
+  "scene.fu.read": "Ler o fluxo de cupons",
+  "scene.fu.code": "Aplicar o desconto no carrinho",
+  "scene.fu.tests": "Escrever os testes do carrinho",
+  "scene.fu.turn1": "Desconto aplicado no carrinho, com testes.",
+  "scene.fu.expire": "Adicionar a data de validade",
+  "scene.fu.expireTests": "Testar cupons vencidos",
+  "scene.fu.changelog": "Registrar a mudança no changelog",
+  "scene.fu.turn2": "Cupons agora vencem na data marcada.",
+  "scene.idle.read": "Ler o README",
+  "scene.idle.answer": "Responder a pergunta",
+  "scene.idle.done": "Resposta enviada."
+} as const;
+
+export type Key = keyof typeof pt;

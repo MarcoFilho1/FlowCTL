@@ -1,0 +1,196 @@
+// English. Same keys as pt.ts, enforced by the type: a missing or extra key fails `pnpm site:build`.
+
+import type { Key } from "./pt.ts";
+
+export const en: Record<Key, string> = {
+  "meta.title": "FlowCTL: see your Claude Code session as a graph",
+  "meta.description":
+    "A live graph of what Claude Code is doing and what comes next, in a small floating window on Mac and Windows.",
+
+  "nav.problem": "The problem",
+  "nav.features": "Features",
+  "nav.install": "Install",
+  "nav.privacy": "Privacy",
+  "nav.github": "GitHub",
+  "nav.label": "Sections",
+
+  "control.language": "Language",
+  "control.theme": "Theme",
+  "control.theme.auto": "Auto",
+  "control.theme.dark": "Dark",
+  "control.theme.light": "Light",
+  "control.look": "Look",
+  "control.look.pixel": "Pixel",
+  "control.look.smooth": "Smooth",
+  "control.sound.on": "Sound on",
+  "control.sound.off": "Turn sound on",
+  "control.sound.hint": "Sounds play in the demos and when you change the look or the theme.",
+  "control.play": "Play",
+  "control.pause": "Pause",
+  "control.replay": "Watch again",
+
+  "hero.kicker": "For people who use Claude Code",
+  "hero.title": "See your Claude Code session as a graph.",
+  "hero.lead":
+    "FlowCTL draws the agent's plan live, in a small floating window above your other windows. At a glance you see what is running, what comes next, and when a step is waiting for you.",
+  "hero.caption": "A sample session, on loop.",
+  "hero.cta.install": "How to install",
+  "hero.cta.github": "Star it on GitHub",
+
+  "install.title": "Install once",
+  "install.lead": "Two lines, typed in a Claude Code session.",
+  "install.copy": "Copy",
+  "install.copied": "Copied",
+  "install.copyFailed": "Select and copy",
+
+  "problem.title": "A long session is a wall of text.",
+  "problem.body":
+    "To know where it stands (what is running now, what is left, and whether it stopped to wait for you), you have to scroll back and read. With several sessions open in different terminals, you check each one in turn.",
+  "problem.wall": "Long session, not drawn",
+  "problem.answer":
+    "FlowCTL draws the session instead. The agent's plan becomes a graph: one node per step, arrows for what depends on what, and colors for where each step is. It floats above your other windows, so a glance is enough.",
+  "problem.waiting":
+    "When the agent stops to ask for a permission, its step turns yellow. You don't have to find out in the middle of the text that it stopped waiting for you.",
+
+  "colors.title": "What each color means",
+  "colors.pending": "Pending",
+  "colors.pending.desc": "Not started yet.",
+  "colors.running": "In progress",
+  "colors.running.desc": "Running right now.",
+  "colors.needs": "Needs you",
+  "colors.needs.desc": "A permission prompt or a question.",
+  "colors.error": "Failing",
+  "colors.error.desc": "A tool error flashes it; repeated errors keep it red.",
+  "colors.done": "Done",
+  "colors.done.desc": "Finished.",
+
+  "features.title": "Features",
+  "features.lead": "Each demo is the real FlowCTL screen, running a sample session.",
+  "features.plan.title": "The plan becomes a graph",
+  "features.plan.body":
+    "The steps the agent declares, with the dependencies between them. Steps that run in parallel sit side by side. The camera follows the current step while the session runs, and shows the whole graph when it rests.",
+  "features.subagents.title": "Subagents",
+  "features.subagents.body": "They hang from the step that started them, with a summary of what each one answered.",
+  "features.followup.title": "A new request continues the graph",
+  "features.followup.body": "The next request lands to the right of what was already there, so you see the whole session at once.",
+  "features.looks.title": "Pixel or smooth look, with sound",
+  "features.looks.body":
+    "Pixel, with 8-bit sounds. Smooth, with clean tones. Try the Look button at the top: switching plays the sound of the look you picked.",
+  "features.theme.title": "Light or dark",
+  "features.theme.body": "Auto follows the system. You can also pick dark or light. Switching the theme plays the sound of the current look.",
+  "features.hover.title": "Hover a step",
+  "features.hover.body":
+    "See what it is about, how long it took, and what came of it. Click a step to bring that session's terminal tab forward.",
+  "features.idle.title": "Idleness becomes animation",
+  "features.idle.body":
+    "After a minute with nothing running, the nodes form a shape that turns slowly. After five, the window fades out until a session works again.",
+  "features.idle.note": "Accelerated demo: here the shape appears after a few seconds.",
+  "features.sessions.title": "Every session in one window",
+  "features.sessions.body":
+    "Each open session gets a page, and the ‹ 1/3 › controls switch between them. When the page on screen is resting, the window turns to the session that starts working or needs you.",
+  "features.sessions.note": "A dot blinks when another session needs you.",
+
+  "demo.label": "Live demo",
+  "demo.topbar.sessions": "Sessions",
+  "demo.idle.label": "Idle",
+
+  "install.section.title": "Install and day to day",
+  "install.requirements": "Requirements: macOS 13 or later, or Windows 10 or 11, and Claude Code 2.1.295 or later.",
+  "install.step1.title": "1. The plugin",
+  "install.step1.body":
+    "The first line adds this repository as a plugin marketplace (answer y) and installs the plugin. Choose the user scope so it works in every project. The plugin watches the session and builds the graph.",
+  "install.step2.title": "2. The app",
+  "install.step2.body":
+    "/flowctl init downloads the app of the same version as the plugin from GitHub Releases, checks its SHA-256 and signature, installs it and opens it. The app is the floating window and the menu icon.",
+  "install.daily.title": "You install once",
+  "install.daily.1": "Every Claude Code session loads the plugin by itself. You run nothing when you open a new session.",
+  "install.daily.2":
+    "When a session starts, the plugin opens the window if it is not open yet. Several sessions share one window, one page each.",
+  "install.daily.3":
+    "The window appears when a session starts working and fades out after five minutes with nothing running. If you close it with ×, it stays closed until you reopen it from the app.",
+  "install.daily.4":
+    "Sessions that were already open when you installed: run /reload-plugins in each. To get the plan in them, restart with claude --continue.",
+  "install.commands.title": "Commands",
+  "install.commands.init": "Installs or updates the app to the plugin's version and opens it.",
+  "install.commands.force": "Installs it again, even if it is already there.",
+  "install.commands.source": "Builds it from the tagged source instead of downloading (macOS only).",
+  "install.commands.uninstall": "Quits and removes the app. The plugin is removed from /plugin.",
+  "install.update":
+    "When a new version is out, update the plugin from /plugin, run /reload-plugins, then /flowctl init to update the app.",
+
+  "privacy.title": "Everything stays on your computer.",
+  "privacy.1": "The plugin hands the graph to the app over a local channel and keeps the latest one per session on your computer.",
+  "privacy.2":
+    "A graph holds step titles, statuses, times, a short summary of what a step answered, and the first line of a tool error.",
+  "privacy.3": "It never holds your prompts, file contents or full command output.",
+  "privacy.4": "Nothing is sent anywhere. The only network call is /flowctl init downloading the app from GitHub.",
+  "privacy.5": "Recording events is optional and off by default. When on, it keeps the session's events for bug reports.",
+
+  "how.title": "How it works",
+  "how.lead": "The plugin watches the session and never changes what the agent does, except for the optional request to declare a plan.",
+  "how.session": "Claude Code session",
+  "how.session.desc": "Tasks, subagents, permission prompts.",
+  "how.plugin": "Plugin",
+  "how.plugin.desc": "Builds the graph and lays it out.",
+  "how.app": "Overlay app",
+  "how.app.desc": "The floating window that draws the graph.",
+  "how.arrow.hooks": "hooks",
+  "how.arrow.snapshot": "graph",
+
+  "video.title": "Launch video",
+  "video.soon": "Coming soon.",
+
+  "footer.star": "If FlowCTL helps you, star it on GitHub.",
+  "footer.github": "View on GitHub",
+  "footer.license": "Open source, MIT license.",
+  "footer.back": "Back to the top",
+
+  // The hover card and the labels screen readers hear (the viewer's own words, in the page's language).
+  "hover.kind.task": "Step",
+  "hover.kind.agent": "Subagent",
+  "hover.kind.turn": "Turn",
+  "hover.done": "{kind} done",
+  "hover.done.took": "{kind} done in {took}",
+  "hover.failed": "{kind} failed",
+  "hover.question": "Question for you",
+  "hover.permission": "Needs your permission",
+  "hover.running": "Running",
+  "hover.waitingOn": "Waiting on {titles}",
+  "hover.paused": "Paused",
+  "hover.notStarted": "Not started",
+  "hover.lastError": "Last error: {detail}",
+  "hover.lastError.ago": "Last error {ago} ago: {detail}",
+  "hover.graph": "Task graph, {n} nodes",
+  "hover.outOfView": "out of view",
+
+  "scene.cwd.label": "project",
+  "scene.overlay.read": "Read the checkout code",
+  "scene.overlay.api": "Add the discount endpoint",
+  "scene.overlay.ui": "Build the coupon field",
+  "scene.overlay.tests": "Write the tests",
+  "scene.overlay.docs": "Update the API docs",
+  "scene.overlay.agent": "Build the coupon field",
+  "scene.overlay.permission": "npm install adds a dependency to package.json",
+  "scene.overlay.agentDone": "Coupon field with validation and error states",
+  "scene.overlay.error": "Exit code 1: 2 tests failed",
+  "scene.overlay.done": "Discounts are in: endpoint, coupon field, tests and docs.",
+  "scene.sub.explore": "Map the payment flows",
+  "scene.sub.spec": "Write the coupon rule",
+  "scene.sub.impl": "Implement the validation",
+  "scene.sub.check": "Review the results",
+  "scene.sub.agentMap": "Map the payments",
+  "scene.sub.agentRules": "Check the coupon rules",
+  "scene.sub.mapDone": "Flows: checkout, payment webhook and orders API.",
+  "scene.sub.rulesDone": "A coupon cannot exceed the cart's total.",
+  "scene.fu.read": "Read the coupon flow",
+  "scene.fu.code": "Apply the discount to the cart",
+  "scene.fu.tests": "Write the cart tests",
+  "scene.fu.turn1": "Discount applied to the cart, with tests.",
+  "scene.fu.expire": "Add the expiry date",
+  "scene.fu.expireTests": "Test expired coupons",
+  "scene.fu.changelog": "Note the change in the changelog",
+  "scene.fu.turn2": "Coupons now expire on the date set.",
+  "scene.idle.read": "Read the README",
+  "scene.idle.answer": "Answer the question",
+  "scene.idle.done": "Answer sent."
+};
