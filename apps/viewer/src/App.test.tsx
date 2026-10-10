@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { GraphNode } from "../../../mod/graph/types.ts";
 import { App } from "./App.tsx";
 import { EFFECT_MS, ZOOM_ARM_MS, zoomStep } from "./GraphView.tsx";
+import { DREAM_AFTER_MS } from "./dream.ts";
 import type { Replay } from "./DevControls.tsx";
 import { agent, golden, snapshotOf, task } from "./goldens.ts";
 import { loadFixture, replaySnapshots } from "./player.ts";
@@ -570,4 +571,66 @@ test("scroll does not zoom until the pointer has rested on the window for 400 ms
   arm(canvas);
   fireEvent.wheel(canvas, { deltaY: -100 });
   expect(canvas.getAttribute("data-scale")).not.toBe(before);
+});
+
+describe("the idle animation", () => {
+  const graph = (state: "working" | "idle") =>
+    snapshotOf([task("a", { status: "done" }), task("b", { status: "done", blockedBy: ["a"] }), task("c", { status: "done", blockedBy: ["b"] })], {
+      sessionState: state,
+      layout: { a: { rank: 0, order: 0 }, b: { rank: 1, order: 0 }, c: { rank: 2, order: 0 } }
+    });
+  const place = (container: HTMLElement, id: string) => node(container, id).innerHTML;
+  const canvas = (container: HTMLElement) => container.querySelector("[data-mode]")!;
+
+  test("a minute with nothing working forms a shape; a working session brings the graph back", () => {
+    vi.useFakeTimers();
+    try {
+      const store = createSessionStore();
+      store.push(graph("idle"));
+      const { container } = render(<App store={store} />);
+      const before = place(container, "c");
+      act(() => vi.advanceTimersByTime(DREAM_AFTER_MS - 10));
+      expect(canvas(container).getAttribute("data-mode")).toBe("overview");
+      act(() => vi.advanceTimersByTime(20));
+      expect(canvas(container).getAttribute("data-mode")).toBe("dream");
+      expect(container.querySelector("svg.dreaming")).not.toBeNull();
+      expect(place(container, "c")).not.toBe(before);
+      act(() => void store.push({ ...graph("working"), seq: 2 }));
+      expect(canvas(container).getAttribute("data-mode")).toBe("follow");
+      expect(container.querySelector("svg.dreaming")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("hovering a node in the shape shows its card", () => {
+    vi.useFakeTimers();
+    try {
+      const store = createSessionStore();
+      store.push(graph("idle"));
+      const { container } = render(<App store={store} />);
+      act(() => vi.advanceTimersByTime(DREAM_AFTER_MS + 10));
+      expect(canvas(container).getAttribute("data-mode")).toBe("dream");
+      expect(hover(container, "c")).not.toBeNull();
+      fireEvent.mouseLeave(node(container, "c"));
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the overlay can turn it off", () => {
+    vi.useFakeTimers();
+    try {
+      const store = createSessionStore();
+      installBridge(store);
+      store.push(graph("idle"));
+      const { container } = render(<App store={store} />);
+      act(() => window.flowctl?.setIdleAnimation(false));
+      act(() => vi.advanceTimersByTime(DREAM_AFTER_MS * 2));
+      expect(canvas(container).getAttribute("data-mode")).toBe("overview");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

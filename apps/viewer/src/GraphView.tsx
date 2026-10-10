@@ -7,6 +7,7 @@ import { tellNative, type Look } from "./store.ts";
 import { cue, cuesFor } from "./sound.ts";
 import { errorsOf, statusesOf, transitions } from "./transitions.ts";
 import { useTween } from "./useTween.ts";
+import { BAR_H, dreamFit, dreamFrame, dreamOutline, dreamPoints, MORPH_MS, type DreamShape } from "./dream.ts";
 
 /** How long a finish burst and a handoff packet stay on screen. */
 export const EFFECT_MS = 1000;
@@ -114,21 +115,56 @@ export function GraphView({
   snapshot,
   look = "pixel",
   sound = false,
-  sounds = look
+  sounds = look,
+  dreaming = false
 }: {
   snapshot: Snapshot;
   look?: Look;
   sound?: boolean;
   /** Which set of sounds plays; the look's own unless chosen otherwise. */
   sounds?: Look;
+  /** Nothing has worked for a while: the nodes form shapes (the idle animation). */
+  dreaming?: boolean;
 }) {
   const pixel = look === "pixel";
   const [ref, viewport] = useViewport();
   const scene = useMemo(() => buildScene(snapshot), [snapshot]);
-  const targets = useMemo(() => new Map<string, Box>(scene.nodes.map((shape) => [shape.id, circleBox(shape)])), [scene]);
-  const boxes = useTween(targets);
+  const layoutBoxes = useMemo(() => new Map<string, Box>(scene.nodes.map((shape) => [shape.id, circleBox(shape)])), [scene]);
 
+  // The dream: the nodes leave the graph for a shape, centered on the graph's middle.
   const [hovered, setHovered] = useState<string | null>(null);
+  // Hovering a node holds the dream still, so its card can be read.
+  const elapsed = useDreamClock(dreaming, pixel, hovered !== null);
+  const center = { x: scene.width / 2, y: scene.height / 2 };
+  const fit = dreamFit(scene.nodes.length, Math.max(1, ...scene.nodes.map((shape) => shape.r)), viewport, pixel);
+  const dreamBoxes = useMemo(() => {
+    if (!dreaming) return layoutBoxes;
+    const frame = dreamFrame(scene.nodes.length, elapsed);
+    const points = dreamPoints(scene.nodes.length, frame);
+    const leaving = frame.from === "graph" ? frame.mix : 1;
+    return new Map<string, Box>(
+      scene.nodes.map((shape, i) => {
+        const p = points[i]!;
+        const cx = center.x + p.x * fit.radius;
+        const cy = center.y + p.y * fit.radius;
+        return [shape.id, circleBox({ r: shape.r, cx: shape.cx + (cx - shape.cx) * leaving, cy: shape.cy + (cy - shape.cy) * leaving })];
+      })
+    );
+  }, [dreaming, elapsed, layoutBoxes, fit.radius]);
+  const frame = dreaming ? dreamFrame(scene.nodes.length, elapsed) : undefined;
+  const outlinePath = (shape: DreamShape) => {
+    const points = dreamOutline(shape);
+    if (!points) return null;
+    const at = (p: { x: number; y: number }) => {
+      const x = center.x + p.x * fit.radius;
+      const y = center.y + p.y * fit.radius;
+      return pixel ? `${snap(x)} ${snap(y)}` : `${x.toFixed(1)} ${y.toFixed(1)}`;
+    };
+    return `M ${points.map(at).join(" L ")} Z`;
+  };
+  // Back from the dream, the nodes fly home a little slower than a layout change.
+  const boxes = useTween(dreamBoxes, { instant: dreaming, ms: dreaming ? undefined : 900 });
+
   const [cam, setCam] = useState<Camera>({ x: 0, y: 0, s: 1 });
   const [dragging, setDragging] = useState(false);
   const press = useRef<{ start: Point; cam: Camera; moved: boolean; node: string | null } | null>(null);
@@ -136,7 +172,13 @@ export function GraphView({
 
   // Working: follow the current step. Resting: the whole graph ("idle" mode).
   const mode = snapshot.sessionState === "working" || snapshot.sessionState === "waiting_you" ? "follow" : "overview";
-  const auto = useMemo(() => cameraFor(scene, viewport, mode, pixel), [scene, viewport, mode, pixel]);
+  const auto = useMemo(
+    () =>
+      dreaming
+        ? { x: viewport.width / 2 - center.x * fit.s, y: (viewport.height + BAR_H) / 2 - center.y * fit.s, s: fit.s }
+        : cameraFor(scene, viewport, mode, pixel),
+    [scene, viewport, mode, pixel, dreaming, fit.s]
+  );
   // While the session rests, a view the person chose (zoom, pan) stays until
   // the session works again; while it works, the camera takes over again
   // after a short pause.
@@ -145,10 +187,16 @@ export function GraphView({
     if (mode === "follow") heldAtRest.current = false;
   }, [mode]);
   useEffect(() => {
+    // The dream frames itself, whatever view the person chose before.
+    if (dreaming) {
+      heldAtRest.current = false;
+      setCam(auto);
+      return;
+    }
     if (mode === "overview" && heldAtRest.current) return;
     if (performance.now() - lastManual.current < FOLLOW_PAUSE_MS) return;
     setCam(auto);
-  }, [auto.x, auto.y, auto.s]);
+  }, [auto.x, auto.y, auto.s, dreaming]);
 
   const drawn = useGlide(cam, dragging);
 
@@ -305,6 +353,7 @@ export function GraphView({
 
   const hoveredShape = hovered && !dragging ? shapes.get(hovered) : undefined;
   const offscreen = scene.nodes.filter((shape) => {
+    if (dreaming) return false;
     if (shape.node.status !== "needs_you" && shape.node.status !== "error") return false;
     const x = shape.cx * drawn.s + drawn.x;
     const y = shape.cy * drawn.s + drawn.y;
@@ -331,11 +380,12 @@ export function GraphView({
         }}
         data-pan={`${Math.round(cam.x)},${Math.round(cam.y)}`}
         data-scale={cam.s}
-        data-mode={mode}
+        data-mode={dreaming ? "dream" : mode}
       >
         <svg
           role="img"
           aria-label={`Task graph, ${snapshot.nodes.length} nodes`}
+          className={dreaming ? "dreaming" : undefined}
           width="100%"
           height="100%"
           {...(pixel ? { shapeRendering: "crispEdges" } : {})}
@@ -386,6 +436,14 @@ export function GraphView({
                 </g>
               );
             })}
+            {frame &&
+              [
+                { shape: frame.shape, opacity: frame.mix },
+                ...(frame.from !== "graph" && frame.mix < 1 ? [{ shape: frame.from, opacity: 1 - frame.mix }] : [])
+              ].map(({ shape, opacity }) => {
+                const d = outlinePath(shape);
+                return d && <path key={shape} className="dream-outline" d={d} style={{ opacity: opacity * 0.5 }} />;
+              })}
             {scene.nodes.map((shape) => (
               <NodeView
                 pixel={pixel}
@@ -397,7 +455,7 @@ export function GraphView({
                 onHover={(on) => setHovered(on ? shape.id : (current) => (current === shape.id ? null : current))}
               />
             ))}
-            {effects.map((effect) => {
+            {!dreaming && effects.map((effect) => {
               const from = boxes.get(effect.from);
               if (!from) return null;
               if (effect.kind === "burst") return <Burst key={effect.key} box={from} pixel={pixel} />;
@@ -421,10 +479,54 @@ export function GraphView({
             }}
           />
         ))}
-        {hoveredShape && <Card shape={hoveredShape} snapshot={snapshot} cam={drawn} viewport={viewport} />}
+        {hoveredShape && (
+          <Card shape={hoveredShape} box={boxes.get(hoveredShape.id) ?? circleBox(hoveredShape)} snapshot={snapshot} cam={drawn} viewport={viewport} />
+        )}
       </div>
     </div>
   );
+}
+
+/**
+ * Milliseconds since the dream began, ticking while it lasts: every frame for
+ * the smooth look, at 12 fps for pixel art (its shapes step like a sprite).
+ * With reduced motion the shape is shown still, already formed. While
+ * `paused` the clock holds, and it goes on from there.
+ */
+function useDreamClock(dreaming: boolean, pixel: boolean, paused: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  const elapsedRef = useRef(0);
+  useEffect(() => {
+    if (!dreaming) {
+      elapsedRef.current = 0;
+      setElapsed(0);
+      return;
+    }
+    if (paused) return;
+    const motion =
+      typeof requestAnimationFrame === "function" &&
+      typeof matchMedia === "function" &&
+      !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!motion) {
+      setElapsed(MORPH_MS);
+      return;
+    }
+    const began = performance.now() - elapsedRef.current;
+    const every = pixel ? 1000 / 12 : 1000 / 30;
+    let last = -Infinity;
+    let frame = 0;
+    const step = (now: number) => {
+      if (now - last >= every) {
+        last = now;
+        elapsedRef.current = now - began;
+        setElapsed(now - began);
+      }
+      frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [dreaming, pixel, paused]);
+  return elapsed;
 }
 
 function steppedLink(from: Box, to: Box): string {
@@ -540,10 +642,11 @@ function Beacon({ shape, cam, viewport, onGo }: { shape: NodeShape; cam: Camera;
   );
 }
 
-function Card({ shape, snapshot, cam, viewport }: { shape: NodeShape; snapshot: Snapshot; cam: Camera; viewport: Size }) {
+function Card({ shape, box, snapshot, cam, viewport }: { shape: NodeShape; box: Box; snapshot: Snapshot; cam: Camera; viewport: Size }) {
   const card = hoverCard(shape.node, snapshot);
-  const x = shape.cx * cam.s + cam.x;
-  const y = shape.cy * cam.s + cam.y;
+  // Where the node is drawn now: in the dream, away from its place in the graph.
+  const x = (box.x + box.w / 2) * cam.s + cam.x;
+  const y = (box.y + box.h / 2) * cam.s + cam.y;
   const width = Math.min(CARD_W, viewport.width - 12);
   // Beside the node, on whichever side has room, kept inside the window.
   const left = x + shape.r + 10 + width <= viewport.width ? x + shape.r + 10 : Math.max(6, x - shape.r - 10 - width);
