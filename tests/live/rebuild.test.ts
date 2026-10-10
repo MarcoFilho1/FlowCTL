@@ -71,3 +71,27 @@ test("a transcript with no plan rebuilds nothing", () => {
   const messages: TranscriptMessage[] = [{ role: "assistant", toolUses: [use("Bash", { command: "ls" }, "a b")] }];
   assert.deepEqual(rebuildEvents(messages, { flowPlanTool: FLOWPLAN_TOOL, at: 5 }), []);
 });
+
+test("the person's prompts keep the rebuilt requests apart, so subagents read as a timeline", () => {
+  const spawn = (id: string, description: string) => use("Agent", { description }, { agentId: id });
+  const messages: TranscriptMessage[] = [
+    { role: "user", text: "Review the code", toolUses: [] },
+    { role: "assistant", toolUses: [spawn("a1", "Review engine"), spawn("a2", "Review UI")] },
+    // The engine's own user messages are not requests.
+    { role: "user", text: "", toolUses: [], toolResults: [{ tool_use_id: "x" }] },
+    { role: "user", text: "<task-notification>done</task-notification>", toolUses: [] },
+    { role: "user", text: "[Request interrupted by user]", toolUses: [] },
+    { role: "user", text: "Now review PR #7", toolUses: [] },
+    { role: "assistant", toolUses: [spawn("a3", "Review PR #7")] }
+  ];
+  const graph = replay(rebuildEvents(messages, { flowPlanTool: FLOWPLAN_TOOL, at: 5 }));
+  assert.equal(graph.request, 2);
+  assert.deepEqual(
+    nodes(graph).map((node) => [node.id, node.after?.join() ?? ""]),
+    [
+      ["agent:a1", ""],
+      ["agent:a2", ""],
+      ["agent:a3", "agent:a1,agent:a2"]
+    ]
+  );
+});

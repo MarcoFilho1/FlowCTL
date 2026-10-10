@@ -288,6 +288,55 @@ test("one session, one graph: a new request's first steps come after the last re
   assert.equal(shown.find((node) => node.id === "plan:a")?.after, undefined);
 });
 
+test("subagents spawned without a plan read as a timeline: each request's after the one before", () => {
+  const state = initialState();
+  const spawn = (id: string, t: number): GraphEvent => ({ t, event: "agent.spawn", input: { description: id }, result: { agentId: id } });
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, spawn("r1", 1));
+  apply(state, spawn("r2", 2));
+  apply(state, { t: 3, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, spawn("r3", 4));
+  apply(state, { t: 5, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, spawn("r4", 6));
+  apply(state, spawn("r5", 7));
+  const shown = nodes(state);
+  const after = (id: string) => shown.find((node) => node.id === `agent:${id}`)?.after;
+  // Request 1 starts the timeline; its two parallel agents both end it.
+  assert.equal(after("r1"), undefined);
+  assert.equal(after("r2"), undefined);
+  assert.deepEqual(after("r3"), ["agent:r1", "agent:r2"]);
+  assert.deepEqual(after("r4"), ["agent:r3"]);
+  assert.deepEqual(after("r5"), ["agent:r3"]);
+  // Laid out left to right, a column per request, not one column of all of them.
+  const { layout } = snapshot(state, { seq: 1, now: 0 });
+  assert.deepEqual(["r1", "r2", "r3", "r4", "r5"].map((id) => layout[`agent:${id}`]?.rank), [0, 0, 1, 2, 2]);
+});
+
+test("a subagent under a step hangs from it, outside the timeline", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, { t: 0, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "a", title: "Alpha", status: "completed" }] }, result: { result: [] } });
+  apply(state, { t: 1, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, { t: 1, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "b", title: "Beta", status: "in_progress" }] }, result: { result: [] } });
+  apply(state, { t: 2, event: "agent.spawn", input: { description: "Helper" }, result: { agentId: "h" } });
+  const helper = nodes(state).find((node) => node.id === "agent:h");
+  assert.equal(helper?.parent, "plan:b");
+  assert.equal(helper?.after, undefined);
+  assert.deepEqual(nodes(state).find((node) => node.id === "plan:b")?.after, ["plan:a"]);
+});
+
+test("the turn node of a new request hangs after the last request's subagents", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "1" } });
+  apply(state, { t: 1, event: "agent.spawn", input: { description: "Review" }, result: { agentId: "r1" } });
+  apply(state, { t: 2, event: "turn.complete", input: {} });
+  apply(state, { t: 3, event: "prompt.submit", input: { chars: 10 } });
+  apply(state, { t: 3, event: "turn.start", input: { turnId: "2" } });
+  const turn = nodes(state).find((node) => node.kind === "turn");
+  assert.deepEqual(turn?.after, ["agent:r1"]);
+});
+
 test("every tool error marks the current node; it stays blue unless errors repeat", () => {
   const state = initialState();
   apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });

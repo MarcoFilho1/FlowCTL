@@ -9,7 +9,11 @@ import type { GraphEvent } from "../graph/types.ts";
 /** The part of a transcript message the rebuild reads ($.session.messages()). */
 export interface TranscriptMessage {
   role: "user" | "assistant";
+  /** The message's text blocks joined; a person's prompt has some. */
+  text?: string;
   toolUses: ReadonlyArray<{ tool: string; input: Record<string, unknown>; result?: unknown; isError?: true; text?: string }>;
+  /** A user message carrying tool results is the engine's, not the person's. */
+  toolResults?: readonly unknown[];
 }
 
 /** The part of $.agent.list() the rebuild reads. */
@@ -34,6 +38,12 @@ export function rebuildEvents(
   const spawned: string[] = [];
 
   for (const message of messages) {
+    // Each of the person's prompts starts a request, so the rebuilt graph
+    // keeps its requests apart, in order, as the live one does.
+    if (isPersonPrompt(message)) {
+      events.push({ t, event: "prompt.submit", input: { chars: message.text!.length } });
+      continue;
+    }
     if (message.role !== "assistant") continue;
     for (const use of message.toolUses) {
       // An unanswered call has not happened yet, and a failed one changed nothing.
@@ -62,6 +72,17 @@ export function rebuildEvents(
     });
   }
   return events;
+}
+
+/**
+ * A user message the person typed: text, no tool results, and none of the
+ * engine's own wrappers (task notifications, system reminders, a slash
+ * command's echo, an interruption note).
+ */
+function isPersonPrompt(message: TranscriptMessage): boolean {
+  if (message.role !== "user" || (message.toolResults?.length ?? 0) > 0) return false;
+  const text = message.text?.trim() ?? "";
+  return text !== "" && !text.startsWith("<") && !text.startsWith("[Request interrupted");
 }
 
 function agentIdOf(result: unknown): string | undefined {

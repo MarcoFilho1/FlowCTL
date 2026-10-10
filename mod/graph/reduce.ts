@@ -56,6 +56,8 @@ interface AgentEntry {
   parent?: string;
   attention?: Attention;
   createdAt: number;
+  /** Which of the person's requests spawned it. */
+  request: number;
 }
 
 interface LoopState {
@@ -192,7 +194,7 @@ export function nodes(state: GraphState): GraphNode[] {
   const out: GraphNode[] = [];
   const known = new Set([...state.entries.keys(), ...[...state.agents.values()].map((agent) => agent.id)]);
 
-  const after = sequenceLinks(state);
+  const after = sequenceLinks(state, known);
   for (const entry of [...state.entries.values()].sort(byCreation)) {
     const follows = after.get(entry.id);
     out.push({
@@ -226,6 +228,7 @@ export function nodes(state: GraphState): GraphNode[] {
       ...(attention !== undefined ? { attention } : {}),
       agentId: agent.agentId,
       blockedBy: [],
+      ...(after.has(agent.id) ? { after: after.get(agent.id)! } : {}),
       ...(agent.lastError !== undefined ? { lastError: agent.lastError } : {}),
       ...(agent.parent !== undefined && known.has(agent.parent) ? { parent: agent.parent } : {})
     });
@@ -241,7 +244,7 @@ export function nodes(state: GraphState): GraphNode[] {
     state.turn.n > 0 &&
     (out.length === 0 || (state.turn.running && !currentPlanned) || (state.turn.attention !== undefined && !stepRunning));
   if (showTurn) {
-    const ends = out.length > 0 ? lastEnds(main) : [];
+    const ends = out.length > 0 ? lastEnds(steps(state, known)) : [];
     out.push({
       id: `turn:${state.turn.n}`,
       kind: "turn",
@@ -281,13 +284,6 @@ export function sessionState(state: GraphState): SessionState {
   return "idle";
 }
 
-/**
- * One session, one graph: the first steps of each request come after the last
- * steps of the request before it (the main loop's entries only). Steps with
- * no dependency inside their request start it; steps nothing in their
- * request depends on end it.
- */
-/** The steps that end the latest request with a plan: nothing in it depends on them. */
 /** The person's own prompts; recordings from before the origin was kept count as theirs. */
 const PERSON_ORIGINS = new Set(["composer", "bridge", "sdk", "channel"]);
 
@@ -295,22 +291,49 @@ function isPersonPrompt(origin: unknown): boolean {
   return typeof origin !== "string" || PERSON_ORIGINS.has(origin);
 }
 
-function lastEnds(main: readonly PlanEntry[]): string[] {
-  if (main.length === 0) return [];
-  const latest = Math.max(...main.map((entry) => entry.request));
-  const group = main.filter((entry) => entry.request === latest);
-  const needed = new Set(group.flatMap((entry) => entry.blockedBy));
-  return group.filter((entry) => !needed.has(entry.id)).sort(byCreation).map((entry) => entry.id);
+/** A node in the session's timeline: a main-loop step, or a subagent under no step. */
+interface Step {
+  id: string;
+  request: number;
+  blockedBy: readonly string[];
+  createdAt: number;
 }
 
-function sequenceLinks(state: GraphState): Map<string, string[]> {
-  const byRequest = new Map<number, PlanEntry[]>();
-  for (const entry of state.entries.values()) {
-    if (entry.agentId !== undefined) continue;
-    byRequest.set(entry.request, [...(byRequest.get(entry.request) ?? []), entry]);
+/**
+ * The timeline's steps: the main loop's plan entries, and the subagents that
+ * hang under no step (spawned without a plan), which stand for their request
+ * the way its steps would. A subagent under a step follows that step instead.
+ */
+function steps(state: GraphState, known: ReadonlySet<string>): Step[] {
+  const main: Step[] = [...state.entries.values()].filter((entry) => entry.agentId === undefined);
+  const loose: Step[] = [...state.agents.values()]
+    .filter((agent) => agent.parent === undefined || !known.has(agent.parent))
+    .map((agent) => ({ id: agent.id, request: agent.request, blockedBy: [], createdAt: agent.createdAt }));
+  return [...main, ...loose];
+}
+
+/** The steps that end the latest request with any: nothing in it depends on them. */
+function lastEnds(all: readonly Step[]): string[] {
+  if (all.length === 0) return [];
+  const latest = Math.max(...all.map((step) => step.request));
+  const group = all.filter((step) => step.request === latest);
+  const needed = new Set(group.flatMap((step) => step.blockedBy));
+  return group.filter((step) => !needed.has(step.id)).sort(byCreation).map((step) => step.id);
+}
+
+/**
+ * One session, one graph: the first steps of each request come after the last
+ * steps of the request before it, so the requests read left to right in the
+ * order they were made. Steps with no dependency inside their request start
+ * it; steps nothing in their request depends on end it.
+ */
+function sequenceLinks(state: GraphState, known: ReadonlySet<string>): Map<string, string[]> {
+  const byRequest = new Map<number, Step[]>();
+  for (const step of steps(state, known)) {
+    byRequest.set(step.request, [...(byRequest.get(step.request) ?? []), step]);
   }
   const links = new Map<string, string[]>();
-  let previous: PlanEntry[] | undefined;
+  let previous: Step[] | undefined;
   for (const request of [...byRequest.keys()].sort((a, b) => a - b)) {
     const entries = (byRequest.get(request) ?? []).sort(byCreation);
     const ids = new Set(entries.map((entry) => entry.id));
@@ -568,7 +591,8 @@ function onAgentSpawn(state: GraphState, event: GraphEvent, input: Record<string
     state: "running",
     startedT: event.t,
     ...(parent !== undefined ? { parent } : {}),
-    createdAt: state.clock
+    createdAt: state.clock,
+    request: state.request
   });
 }
 
