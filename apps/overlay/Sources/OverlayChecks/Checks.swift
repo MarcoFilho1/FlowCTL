@@ -24,7 +24,7 @@ public struct Check {
 }
 
 public enum OverlayChecks {
-    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look + sound + viewerState
+    public static let all: [Check] = http + snapshots + registry + files + geometry + focus + look + sound + theme + attention + viewerState
 }
 
 // MARK: - Helpers
@@ -220,16 +220,29 @@ private let registry: [Check] = [
         expect.equal(try? Snapshot.parse(snapshotJSON()).get().pid, nil, "older snapshots have none")
         expect.equal(try? Snapshot.parse(bytes(String(decoding: snapshotJSON(), as: UTF8.self).replacingOccurrences(of: #""planSource""#, with: #""terminal":{"pid":-5},"planSource""#))).get().pid, nil, "a pid that is not a process is ignored")
     },
-    Check(group: "sessions", name: "auto-show: active sessions bring the panel up unless the person closed it") { expect in
+    Check(group: "sessions", name: "auto-show: an active session brings the panel up unless the person closed it") { expect in
         let fresh = SessionRegistry.Outcome.accepted(isNewSession: false, startedWaiting: false)
-        expect.that(AutoShow.shouldShow(outcome: fresh, state: .working, enabled: true, userHidden: false), "working shows")
-        expect.that(!AutoShow.shouldShow(outcome: fresh, state: .idle, enabled: true, userHidden: false), "idle does not")
-        expect.that(!AutoShow.shouldShow(outcome: fresh, state: .working, enabled: false, userHidden: false), "disabled")
-        expect.that(!AutoShow.shouldShow(outcome: .stale, state: .working, enabled: true, userHidden: false), "stale")
-        expect.that(!AutoShow.shouldShow(outcome: fresh, state: .working, enabled: true, userHidden: true), "closed by the person")
-        expect.that(AutoShow.shouldShow(outcome: .accepted(isNewSession: true, startedWaiting: false), state: .working, enabled: true, userHidden: true), "a new session reopens")
-        expect.that(AutoShow.shouldShow(outcome: .accepted(isNewSession: false, startedWaiting: true), state: .waitingYou, enabled: true, userHidden: true), "waiting on the person reopens")
-    }
+        expect.that(AutoShow.shouldShow(outcome: fresh, state: .working, enabled: true, hiddenBy: .nobody), "working shows")
+        expect.that(!AutoShow.shouldShow(outcome: fresh, state: .idle, enabled: true, hiddenBy: .nobody), "idle does not")
+        expect.that(!AutoShow.shouldShow(outcome: fresh, state: .working, enabled: false, hiddenBy: .nobody), "disabled")
+        expect.that(!AutoShow.shouldShow(outcome: .stale, state: .working, enabled: true, hiddenBy: .nobody), "stale")
+        expect.that(!AutoShow.shouldShow(outcome: fresh, state: .working, enabled: true, hiddenBy: .user), "closed by the person")
+        expect.that(AutoShow.shouldShow(outcome: .accepted(isNewSession: true, startedWaiting: false), state: .working, enabled: true, hiddenBy: .user), "a new session reopens")
+        expect.that(AutoShow.shouldShow(outcome: .accepted(isNewSession: false, startedWaiting: true), state: .waitingYou, enabled: true, hiddenBy: .user), "waiting on the person reopens")
+    },
+    Check(group: "sessions", name: "after an idle hide only a session that is working or waiting brings the panel back") { expect in
+        let fresh = SessionRegistry.Outcome.accepted(isNewSession: false, startedWaiting: false)
+        let newcomer = SessionRegistry.Outcome.accepted(isNewSession: true, startedWaiting: false)
+        expect.that(AutoShow.shouldShow(outcome: fresh, state: .working, enabled: true, hiddenBy: .idle), "a session resumes: it shows")
+        expect.that(AutoShow.shouldShow(outcome: .accepted(isNewSession: false, startedWaiting: true), state: .waitingYou, enabled: true, hiddenBy: .idle), "a session waits on the person: it shows")
+        expect.that(!AutoShow.shouldShow(outcome: newcomer, state: .idle, enabled: true, hiddenBy: .idle), "a new idle session does not")
+        expect.that(!AutoShow.shouldShow(outcome: fresh, state: .idle, enabled: true, hiddenBy: .idle), "an idle snapshot does not")
+    },
+    Check(group: "sessions", name: "opening the app does not bring back an idle hide, but does after the person closed it") { expect in
+        expect.that(AutoShow.reopenShows(.nobody), "not hidden: shows")
+        expect.that(AutoShow.reopenShows(.user), "the person closed it: opening the app shows it")
+        expect.that(!AutoShow.reopenShows(.idle), "idle: nothing resumed, so opening the app does not show it")
+    },
 ]
 
 // MARK: - Files
@@ -451,5 +464,42 @@ private let sound: [Check] = [
         expect.equal(SoundChoice.from(sound: true, style: "pixel"), .pixel)
         expect.equal(SoundChoice.from(sound: true, style: "off"), .look, "a style that is not one is the default")
         expect.equal(SoundChoice.from(sound: true, style: "retro"), .look)
+    }
+]
+
+private let attention: [Check] = [
+    Check(group: "attention", name: "the pixel node is a round sprite with a rim, a light and a shade corner") { expect in
+        let disc = AttentionIcon.pixelDisc(size: 8)
+        expect.equal(disc.count, 8)
+        expect.equal(disc[0][0], nil, "the corners are outside the disc")
+        expect.equal(disc[7][7], nil)
+        expect.equal(disc[0][3], .outline, "the top edge is rim")
+        expect.equal(disc[4][4], .body)
+        expect.equal(disc.flatMap { $0 }.contains(.light), true)
+        expect.equal(disc.flatMap { $0 }.contains(.shade), true)
+        expect.equal(disc.map { $0.map { $0 == nil } }, disc.map { $0.reversed().map { $0 == nil } }, "the disc is symmetric")
+    },
+    Check(group: "attention", name: "pixel blinks in steps, smooth pulses, both within reach") { expect in
+        expect.equal(AttentionIcon.alpha(look: .pixel, at: 0), 1)
+        expect.equal(AttentionIcon.alpha(look: .pixel, at: AttentionIcon.pixelStep * 1.5), AttentionIcon.dimmest)
+        expect.equal(AttentionIcon.alpha(look: .pixel, at: AttentionIcon.pixelStep * 2.1), 1)
+        expect.equal(AttentionIcon.alpha(look: .smooth, at: 0), 1)
+        expect.equal(abs(AttentionIcon.alpha(look: .smooth, at: AttentionIcon.smoothPeriod / 2) - AttentionIcon.dimmest) < 0.001, true)
+        let mid = AttentionIcon.alpha(look: .smooth, at: AttentionIcon.smoothPeriod / 4)
+        expect.equal(mid > AttentionIcon.dimmest && mid < 1, true, "smooth passes through the values in between")
+        expect.equal(AttentionIcon.frameInterval(look: .pixel), AttentionIcon.pixelStep)
+    }
+]
+
+// MARK: - Theme choice
+
+private let theme: [Check] = [
+    Check(group: "theme", name: "auto, dark and light; auto is the default and an unknown value is auto") { expect in
+        expect.equal(ThemeChoice.allCases.map(\.rawValue), ["auto", "dark", "light"])
+        expect.equal(ThemeChoice.allCases.map(\.title), ["Auto", "Dark", "Light"])
+        expect.equal(ThemeChoice.standard, .auto)
+        expect.equal(ThemeChoice.from("dark"), .dark)
+        expect.equal(ThemeChoice.from("purple"), .auto)
+        expect.equal(ThemeChoice.from(""), .auto)
     }
 ]

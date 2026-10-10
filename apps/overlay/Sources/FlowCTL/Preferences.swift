@@ -17,7 +17,9 @@ final class Preferences {
             Key.hideWhenIdle: true,
             Key.showSubagents: true,
             Key.sound: true,
-            Key.soundStyle: SoundChoice.standard.rawValue
+            Key.soundStyle: SoundChoice.standard.rawValue,
+            Key.theme: ThemeChoice.standard.rawValue,
+            Key.idleAnimation: true
         ])
     }
 
@@ -54,6 +56,18 @@ final class Preferences {
     var soundStyle: String {
         get { defaults.string(forKey: Key.soundStyle) ?? SoundChoice.standard.rawValue }
         set { defaults.set(newValue, forKey: Key.soundStyle) }
+    }
+
+    /// The graph's shapes after a minute with nothing working (on by default; setIdleAnimation).
+    var idleAnimation: Bool {
+        get { defaults.bool(forKey: Key.idleAnimation) }
+        set { defaults.set(newValue, forKey: Key.idleAnimation) }
+    }
+
+    /// The palette: auto (follow macOS), dark or light (sent as setTheme).
+    var themeChoice: ThemeChoice {
+        get { ThemeChoice.from(defaults.string(forKey: Key.theme) ?? ThemeChoice.standard.rawValue) }
+        set { defaults.set(newValue.rawValue, forKey: Key.theme) }
     }
 
     /// The sound menu's choice, from the two stored values.
@@ -110,5 +124,7 @@ final class Preferences {
         static let showSubagents = "showSubagents"
         static let sound = "sound"
         static let soundStyle = "soundStyle"
+        static let theme = "theme"
+        static let idleAnimation = "idleAnimation"
     }
 }

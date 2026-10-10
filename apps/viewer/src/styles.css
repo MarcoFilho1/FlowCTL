@@ -22,19 +22,23 @@
   --error: #d1242f;
   --done: #1a8f3c;
   --tint: 12%;
+  /* A crisp outline in the halo's tone, then a soft one: labels read on any backdrop. */
+  --outline: 1px 0 var(--halo), -1px 0 var(--halo), 0 1px var(--halo), 0 -1px var(--halo), 0 0 4px var(--halo);
 }
 
+/* Dark: macOS in dark mode (unless the person chose light), or chosen. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --text: #e6edf3;
     --muted: #9198a1;
     --panel: rgba(22, 24, 29, 0.72);
     --panel-solid: #16181d;
     --surface: #22262d;
     --line: rgba(230, 237, 243, 0.14);
-    --edge: #6e7681;
+    --edge: #8b949e;
     --veil: rgba(13, 15, 19, 0.10);
-    --grid: rgba(230, 237, 243, 0.12);
+    --grid: rgba(230, 237, 243, 0.16);
     --rim: rgba(13, 15, 19, 0.9);
     --halo: rgba(13, 15, 19, 0.85);
     --card: rgba(30, 33, 40, 0.97);
@@ -49,6 +53,31 @@
     --tint: 18%;
   }
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --text: #e6edf3;
+  --muted: #9198a1;
+  --panel: rgba(22, 24, 29, 0.72);
+  --panel-solid: #16181d;
+  --surface: #22262d;
+  --line: rgba(230, 237, 243, 0.14);
+  --edge: #8b949e;
+  --veil: rgba(13, 15, 19, 0.10);
+  --grid: rgba(230, 237, 243, 0.16);
+  --rim: rgba(13, 15, 19, 0.9);
+  --halo: rgba(13, 15, 19, 0.85);
+  --card: rgba(30, 33, 40, 0.97);
+  --chip: rgba(230, 237, 243, 0.10);
+
+  --pending: #e6edf3;
+  --pending-fill: #2a2f37;
+  --running: #4c8dff;
+  --needs-you: #f2c94c;
+  --error: #ff6b6b;
+  --done: #3fb950;
+  --tint: 18%;
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 
@@ -101,11 +130,11 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 }
 .close {
   flex: none; width: 18px; height: 18px; padding: 0; font: 600 14px/1 var(--font); color: var(--muted);
-  background: none; border: 0; border-radius: 4px; cursor: pointer; text-shadow: 0 0 3px var(--halo);
+  background: none; border: 0; border-radius: 4px; cursor: pointer; text-shadow: var(--outline);
 }
 .close:hover, .close:focus-visible { color: var(--text); background: var(--chip); outline: none; }
 .app.look-pixel .close { border-radius: 0; }
-.header > * { text-shadow: 0 0 3px var(--halo), 0 0 6px var(--halo); }
+.header > * { text-shadow: var(--outline); }
 .folder { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .progress { font-variant-numeric: tabular-nums; }
 .waiting { color: var(--needs-you); font-weight: 600; }
@@ -115,7 +144,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .pager {
   flex: none;
   display: flex; align-items: center; gap: 2px; font-size: 11px; color: var(--muted);
-  text-shadow: 0 0 3px var(--halo);
+  text-shadow: var(--outline);
 }
 .pager-step {
   font: inherit; font-size: 14px; line-height: 1; color: var(--text); background: none; border: 0;
@@ -134,6 +163,11 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .canvas.dragging { cursor: grabbing; }
 .canvas svg { display: block; }
 .grid-dot { fill: var(--grid); }
+/* The graph's marks (edges, nodes, effects) wear the same outline as the labels. */
+.ink { filter: drop-shadow(0 0 0.75px var(--halo)) drop-shadow(0 0 0.75px var(--halo)); }
+.app.look-pixel .ink {
+  filter: drop-shadow(1px 0 0 var(--halo)) drop-shadow(-1px 0 0 var(--halo)) drop-shadow(0 1px 0 var(--halo)) drop-shadow(0 -1px 0 var(--halo));
+}
 
 .status-pending   { --status: var(--pending); }
 .status-running   { --status: var(--running); }
@@ -217,7 +251,7 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
   .node .dot, .node .glow { transition: none; }
 }
 
-.empty { margin: auto; color: var(--muted); padding: 8px; text-align: center; font-size: 11px; text-shadow: 0 0 3px var(--halo); }
+.empty { margin: auto; color: var(--muted); padding: 8px; text-align: center; font-size: 11px; text-shadow: var(--outline); }
 
 /* Dev player */
 .dev-controls {
@@ -368,3 +402,9 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 }
 
 .canvas > .empty { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; }
+
+/* The idle animation: the edges fade while the nodes form a shape. */
+.link, .arrow-head, .flow { transition: opacity 600ms ease; }
+.app svg.dreaming .link, .app svg.dreaming .flow { opacity: 0; }
+.dream-outline { fill: none; stroke: var(--edge); stroke-width: 1; stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.app.look-pixel .dream-outline { stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: square; }
