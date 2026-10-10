@@ -175,6 +175,8 @@ declare global {
       setTheme(theme: Theme): void;
     };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
+    /** The Windows overlay's (Tauri) way in, set by its page script. */
+    flowctlNative?: { postMessage(message: NativeMessage): void };
   }
 }
 
@@ -187,9 +189,9 @@ export type NativeMessage =
   /** The person closed the overlay with the × in the top bar. */
   | { type: "close" };
 
-/** Sends a message to the overlay app; a no-op in a plain browser. */
+/** Sends a message to the overlay app (macOS: WebKit's handler; Windows: the Tauri page script's); a no-op in a plain browser. */
 export function tellNative(message: NativeMessage, target: Window = window): boolean {
-  const handler = target.webkit?.messageHandlers?.flowctl;
+  const handler = target.webkit?.messageHandlers?.flowctl ?? target.flowctlNative;
   if (!handler) return false;
   handler.postMessage(message);
   return true;
