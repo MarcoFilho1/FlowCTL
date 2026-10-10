@@ -37,6 +37,10 @@ if (params.get("sound") === "off") store.setSound(false);
 const sounds = params.get("sounds");
 if (sounds === "smooth" || sounds === "pixel") store.setSoundStyle(sounds);
 
+// ?theme=dark|light overrides macOS's appearance.
+const theme = params.get("theme");
+if (theme === "dark" || theme === "light") store.setTheme(theme);
+
 // ?dream=now starts the idle animation at once (demos, screenshots).
 const dreamAfter = params.get("dream") === "now" ? 0 : undefined;
 

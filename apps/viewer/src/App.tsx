@@ -19,8 +19,14 @@ export function App({
   /** How long nothing works before the idle animation (0 starts it at once). */
   dreamAfter?: number;
 }) {
-  const { sessions: all, active, look, showSubagents, sound, soundStyle, idleAnimation } = useSyncExternalStore(store.subscribe, store.getState);
+  const { sessions: all, active, look, showSubagents, sound, soundStyle, idleAnimation, theme } = useSyncExternalStore(store.subscribe, store.getState);
   const sounds = soundLook(look, soundStyle);
+  // The palette's tokens hang off the root, so the theme goes there.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "auto") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", theme);
+  }, [theme]);
   // A session with nothing drawn that is not working (a fresh one gone idle, a
   // stale file restored at launch) would only be an empty tab.
   const sessions = all.filter(

@@ -53,7 +53,7 @@ describe("session store", () => {
     const store = createSessionStore();
     store.push(snapshotOf([], { seq: 9 }));
     store.forget("s1");
-    expect(store.getState()).toEqual({ sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true });
+    expect(store.getState()).toEqual({ sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true, theme: "auto" });
     expect(store.push(snapshotOf([], { seq: 1 }))).toBe(true);
   });
 
@@ -143,5 +143,18 @@ describe("sound style", () => {
     expect(store.getState().soundStyle).toBe("pixel");
     target.flowctl?.setSoundStyle("loud" as never);
     expect(store.getState().soundStyle).toBe("pixel");
+  });
+});
+
+describe("theme", () => {
+  test("follows macOS by default; the overlay picks dark or light through the bridge", () => {
+    const store = createSessionStore();
+    const target = {} as Window;
+    installBridge(store, target);
+    expect(store.getState().theme).toBe("auto");
+    target.flowctl?.setTheme("dark");
+    expect(store.getState().theme).toBe("dark");
+    target.flowctl?.setTheme("purple" as never);
+    expect(store.getState().theme).toBe("dark");
   });
 });

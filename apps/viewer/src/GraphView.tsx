@@ -360,6 +360,7 @@ export function GraphView({
     return x < 0 || y < 0 || x > viewport.width || y > viewport.height;
   });
 
+  const camera = pixel ? `translate(${snap(drawn.x)} ${snap(drawn.y)}) scale(${drawn.s})` : `translate(${drawn.x} ${drawn.y}) scale(${drawn.s})`;
   return (
     <div className="graph">
       <div
@@ -406,15 +407,15 @@ export function GraphView({
               )
             )}
           </defs>
-          <g
-            transform={
-              pixel
-                ? `translate(${snap(drawn.x)} ${snap(drawn.y)}) scale(${drawn.s})`
-                : `translate(${drawn.x} ${drawn.y}) scale(${drawn.s})`
-            }
-          >
+          <g transform={camera}>
             {/* A faint grid that moves with the graph, so a drag reads as a drag. */}
             <rect className="grid" x={-2000} y={-2000} width={scene.width + 4000} height={scene.height + 4000} fill="url(#dots)" />
+          </g>
+          {/* Everything drawn wears a thin outline in the backdrop's opposite
+              tone (the halo), applied outside the camera so it keeps its width
+              at any zoom: the graph reads over a black terminal or a white page. */}
+          <g className="ink">
+          <g transform={camera}>
             {scene.links.map((link) => {
               const from = boxes.get(link.from);
               const to = boxes.get(link.to);
@@ -463,6 +464,7 @@ export function GraphView({
               if (!to) return null;
               return <Packet key={effect.key} path={pixel ? steppedLink(from, to) : linkPath(from, to, "dependency")} pixel={pixel} />;
             })}
+          </g>
           </g>
         </svg>
         {offscreen.map((shape) => (

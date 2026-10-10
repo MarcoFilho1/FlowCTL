@@ -9,6 +9,13 @@ export type Look = "pixel" | "smooth";
 /** Which sounds play: the look's own (default), or clean or 8-bit whatever the look. */
 export type SoundStyle = "look" | "smooth" | "pixel";
 
+/**
+ * The palette: macOS's appearance (default), or dark or light whatever it is.
+ * The overlay cannot see what is behind it, so a light Mac over a dark
+ * terminal picks dark here.
+ */
+export type Theme = "auto" | "dark" | "light";
+
 export interface SessionsState {
   /** In the order they first arrived. */
   sessions: readonly Snapshot[];
@@ -21,6 +28,7 @@ export interface SessionsState {
   soundStyle: SoundStyle;
   /** Nodes form moving shapes once nothing has worked for a minute (default on). */
   idleAnimation: boolean;
+  theme: Theme;
 }
 
 export interface SessionStore {
@@ -34,6 +42,7 @@ export interface SessionStore {
   setSound(on: boolean): void;
   setSoundStyle(style: SoundStyle): void;
   setIdleAnimation(on: boolean): void;
+  setTheme(theme: Theme): void;
   getState(): SessionsState;
   subscribe(listener: () => void): () => void;
 }
@@ -75,7 +84,7 @@ const isLive = (snapshot: Snapshot | undefined) =>
 
 export function createSessionStore(now: () => number = () => Date.now()): SessionStore {
   let pickedAt = -Infinity;
-  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true };
+  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true, theme: "auto" };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
 
@@ -125,6 +134,11 @@ export function createSessionStore(now: () => number = () => Date.now()): Sessio
       state = { ...state, idleAnimation: on };
       emit();
     },
+    setTheme(theme) {
+      if ((theme !== "auto" && theme !== "dark" && theme !== "light") || state.theme === theme) return;
+      state = { ...state, theme };
+      emit();
+    },
     setSound(on) {
       if (typeof on !== "boolean" || state.sound === on) return;
       state = { ...state, sound: on };
@@ -158,6 +172,7 @@ declare global {
       setSound(on: boolean): void;
       setSoundStyle(style: SoundStyle): void;
       setIdleAnimation(on: boolean): void;
+      setTheme(theme: Theme): void;
     };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
   }
@@ -193,7 +208,8 @@ export function installBridge(store: SessionStore, target: Window = window): voi
     setShowSubagents: (show) => store.setShowSubagents(show),
     setSound: (on) => store.setSound(on),
     setSoundStyle: (style) => store.setSoundStyle(style),
-    setIdleAnimation: (on) => store.setIdleAnimation(on)
+    setIdleAnimation: (on) => store.setIdleAnimation(on),
+    setTheme: (theme) => store.setTheme(theme)
   };
 }
 
