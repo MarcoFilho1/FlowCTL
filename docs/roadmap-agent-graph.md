@@ -316,7 +316,7 @@ Entraram no MVP a pedido do usuário (out/2026): grafo só de nós da esquerda p
 - [ ] Desempenho: 50 nós e 20 eventos/s sem atrasar o terminal.
 - [ ] Distribuição:
   - `.claude-plugin/marketplace.json` na raiz;
-  - README com `/plugin install flowctl-graph --marketplace MarcoFilho1/FlowCTL`;
+  - README com `/plugin install flowctl --marketplace MarcoFilho1/FlowCTL`;
   - overlay em GitHub Release (`.zip`).
 - [ ] Gatekeeper: documentar `xattr -dr com.apple.quarantine /Applications/FlowCTL.app` para o MVP. Notarização (Apple Developer, US$ 99/ano) fica para depois.
 - [ ] Tag **`v0.1.0`** = MVP.

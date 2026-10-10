@@ -39,7 +39,7 @@ test("alerts fire once, when a node turns yellow or red", () => {
 test("the FlowPlan spec and the nudge name the plan tool", () => {
   assert.equal(FLOWPLAN_SPEC.name, "FlowPlan");
   assert.deepEqual(FLOWPLAN_SPEC.inputSchema.required, ["steps"]);
-  assert.ok(nudgeText("mcp__flowctl-graph__FlowPlan").includes("mcp__flowctl-graph__FlowPlan"));
+  assert.ok(nudgeText("mcp__flowctl__FlowPlan").includes("mcp__flowctl__FlowPlan"));
 });
 
 test("a request is described by its question, its own description or its target", () => {

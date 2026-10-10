@@ -1,6 +1,6 @@
 import { expect, test } from "claude-code/testing";
 
-const FLOWPLAN = "mcp__flowctl-graph__FlowPlan";
+const FLOWPLAN = "mcp__flowctl__FlowPlan";
 const COMPOSE = {
   model: "claude-fable-5-1",
   promptModel: "claude-fable-5-1",
