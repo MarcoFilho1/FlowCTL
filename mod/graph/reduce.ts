@@ -19,7 +19,7 @@ import type { Attention, GraphEvent, GraphNode, SessionState } from "./types.ts"
  * The mod's own plan tool, registered when the session has no task tools; the
  * engine names a plugin's tool mcp__<plugin>__<name>.
  */
-export const FLOWPLAN_TOOL = "mcp__flowctl-graph__FlowPlan";
+export const FLOWPLAN_TOOL = "mcp__flowctl__FlowPlan";
 
 const MAIN = "main";
 

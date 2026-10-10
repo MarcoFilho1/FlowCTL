@@ -6,7 +6,7 @@
   },
   "plugins": [
     {
-      "name": "flowctl-graph",
+      "name": "flowctl",
       "source": "./mod",
       "description": "Live graph of what Claude Code is doing and what comes next, in a floating macOS overlay"
     }

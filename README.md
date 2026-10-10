@@ -20,7 +20,7 @@ macOS overlay. It never changes how the agent plans; it only draws it.
 macOS 13 or later, Claude Code 2.1.295 or later. In a Claude Code session:
 
 ```
-/plugin install flowctl-graph --marketplace MarcoFilho1/FlowCTL
+/plugin install flowctl --marketplace MarcoFilho1/FlowCTL
 /flowctl init
 ```
 
