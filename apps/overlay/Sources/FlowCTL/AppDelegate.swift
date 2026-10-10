@@ -260,6 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge?.applySoundStyle(preferences.soundStyle)
         bridge?.applyTheme(preferences.themeChoice.rawValue)
         bridge?.applyIdleAnimation(preferences.idleAnimation)
+        statusMenu?.refreshIcon()
         layOut(animated: true)
     }
 
