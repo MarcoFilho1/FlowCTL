@@ -222,6 +222,21 @@ describe("the camera", () => {
     expect(smooth.s).toBeGreaterThanOrEqual(cam.s);
   });
 
+  test("a graph too big to show whole at rest is framed on the latest work, not its middle", () => {
+    const nodes = Array.from({ length: 40 }, (_, i) =>
+      task(`t${i}`, { blockedBy: i > 0 ? [`t${i - 1}`] : [], status: i < 38 ? "done" : "pending", startedAt: i * 10, finishedAt: i < 38 ? i * 10 + 5 : undefined })
+    );
+    const scene = buildScene(laidOut(nodes));
+    const cam = cameraFor(scene, view, "overview", true);
+    expect(cam.s).toBe(0.5);
+    const latest = scene.nodes.find((shape) => shape.id === "t37")!;
+    const x = latest.cx * cam.s + cam.x;
+    expect(x).toBeGreaterThan(0);
+    expect(x).toBeLessThan(view.width);
+    // The graph still fills the view: its right edge is not pulled inside it.
+    expect(scene.width * cam.s + cam.x).toBeGreaterThanOrEqual(view.width - 0.001);
+  });
+
   test("a small graph at rest stays at full size, centered", () => {
     const scene = chain(2, []);
     const cam = cameraFor(scene, view, "overview", true);

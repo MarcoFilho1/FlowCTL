@@ -158,6 +158,7 @@ export const en: Record<Key, string> = {
   "hover.waitingOn": "Waiting on {titles}",
   "hover.paused": "Paused",
   "hover.notStarted": "Not started",
+  "hover.skipped": "Skipped: the turn ended without it",
   "hover.lastError": "Last error: {detail}",
   "hover.lastError.ago": "Last error {ago} ago: {detail}",
   "hover.graph": "Task graph, {n} nodes",

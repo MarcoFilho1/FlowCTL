@@ -158,6 +158,7 @@ export const pt = {
   "hover.waitingOn": "Aguardando {titles}",
   "hover.paused": "Pausado",
   "hover.notStarted": "Não começou",
+  "hover.skipped": "Pulada: a vez terminou sem ela",
   "hover.lastError": "Último erro: {detail}",
   "hover.lastError.ago": "Último erro há {ago}: {detail}",
   "hover.graph": "Grafo de tarefas, {n} nós",

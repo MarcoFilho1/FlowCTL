@@ -28,6 +28,7 @@ export interface HoverLabels {
   waitingOn: (titles: string) => string;
   paused: string;
   notStarted: string;
+  skipped: string;
   lastError: (detail: string, ago?: string) => string;
   graph: (nodes: number) => string;
   outOfView: string;
@@ -44,6 +45,7 @@ export const ENGLISH_LABELS: HoverLabels = {
   waitingOn: (titles) => `Waiting on ${titles}`,
   paused: "Paused",
   notStarted: "Not started",
+  skipped: "Skipped: the turn ended without it",
   lastError: (detail, ago) => `Last error${ago ? ` ${ago} ago` : ""}: ${detail}`,
   graph: (nodes) => `Task graph, ${nodes} nodes`,
   outOfView: "out of view"
@@ -83,8 +85,13 @@ function baseCard(node: GraphNode, snapshot: Snapshot, labels: HoverLabels): Hov
         .map((id) => snapshot.nodes.find((other) => other.id === id))
         .filter((other): other is GraphNode => other !== undefined && other.status !== "done")
         .map((other) => other.title);
-      const status =
-        waiting.length > 0 ? labels.waitingOn(waiting.join(", ")) : node.startedAt !== undefined ? labels.paused : labels.notStarted;
+      const status = node.skipped
+        ? labels.skipped
+        : waiting.length > 0
+          ? labels.waitingOn(waiting.join(", "))
+          : node.startedAt !== undefined
+            ? labels.paused
+            : labels.notStarted;
       return withBody({ title: node.title, status }, node.description);
     }
   }

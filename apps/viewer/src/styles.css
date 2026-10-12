@@ -305,6 +305,10 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .node.pixel.status-pending .px-light,
 .node.pixel.status-pending .px-shade { fill: var(--pending-fill); }
 .node.pixel.status-pending .px-outline { fill: var(--pending); }
+/* A step the turn ended without starting: faded, its outline broken. */
+.node.skipped { opacity: 0.6; }
+.node.status-pending.skipped .dot { stroke-dasharray: 2 2; stroke: var(--muted); }
+.node.pixel.skipped .px-outline { fill: var(--muted); }
 .node.pixel:hover .px-outline, .node.pixel:focus-visible .px-outline { fill: var(--text); }
 .node.pixel .hit { fill: transparent; }
 

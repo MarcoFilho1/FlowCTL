@@ -36,6 +36,8 @@ interface PlanEntry {
   blockedBy: string[];
   attention?: Attention;
   paused: boolean;
+  /** Still pending when its loop's turn ended (see GraphNode.skipped). */
+  skipped?: boolean;
   /** When it last became in_progress; picks the "current" task of a loop. */
   startedAt?: number;
   createdAt: number;
@@ -210,7 +212,8 @@ export function nodes(state: GraphState): GraphNode[] {
       ...(entry.agentId !== undefined ? { agentId: entry.agentId } : {}),
       blockedBy: entry.blockedBy.filter((id) => known.has(id)),
       ...(follows !== undefined ? { after: follows } : {}),
-      ...(entry.lastError !== undefined ? { lastError: entry.lastError } : {})
+      ...(entry.lastError !== undefined ? { lastError: entry.lastError } : {}),
+      ...(entry.skipped === true && entry.base === "pending" ? { skipped: true } : {})
     });
   }
   for (const agent of [...state.agents.values()].sort(byCreation)) {
@@ -630,6 +633,7 @@ function onTurnComplete(
       }
       agent.summary = summary ?? agent.summary;
     }
+    skipUnstarted(state, agentId);
     return;
   }
 
@@ -646,6 +650,7 @@ function onTurnComplete(
       entry.paused = true;
     }
   }
+  skipUnstarted(state, undefined);
   const reason = input["reason"];
   if (reason === "aborted") {
     // Esc: what was running stops, it did not fail.
@@ -715,6 +720,19 @@ function clearAttention(state: GraphState, match: (attention: Attention) => bool
   }
 }
 
+/**
+ * A loop's turn ended: the steps of its plan it never started were left
+ * undone. They stay in the graph, as skipped, until the agent starts them or
+ * declares them again.
+ */
+function skipUnstarted(state: GraphState, agentId: string | undefined): void {
+  for (const entry of state.entries.values()) {
+    if (entry.base === "pending" && entry.startedT === undefined && entry.agentId === agentId) {
+      entry.skipped = true;
+    }
+  }
+}
+
 function setBase(state: GraphState, entry: PlanEntry, base: BaseStatus, t: number): void {
   if (base === "in_progress" && entry.base !== "in_progress") {
     entry.startedAt = state.clock;
@@ -736,6 +754,7 @@ function setBase(state: GraphState, entry: PlanEntry, base: BaseStatus, t: numbe
   }
   entry.base = base;
   entry.paused = false;
+  delete entry.skipped;
   if (base === "completed") {
     delete entry.attention;
   }

@@ -17,7 +17,8 @@ export function folderName(cwd: string): string {
 
 /** One quiet line: where the session runs, how it stands, how far the plan got. */
 export function Header({ snapshot, showWarnings = false }: { snapshot: Snapshot; showWarnings?: boolean }) {
-  const plan = snapshot.nodes.filter((node) => node.kind !== "turn");
+  // Steps left undone when a turn ended are not part of the progress.
+  const plan = snapshot.nodes.filter((node) => node.kind !== "turn" && node.skipped !== true);
   const done = plan.filter((node) => node.status === "done").length;
   const waiting = snapshot.nodes.filter((node) => node.status === "needs_you").length;
   return (

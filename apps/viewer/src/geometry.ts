@@ -226,11 +226,27 @@ const OVERVIEW_PAD = 14;
 /** Room kept around the followed nodes. */
 const FOLLOW_PAD = 28;
 
+/** The node the work last touched: the latest to finish or start, else the last one. */
+export function latestWork(scene: Scene): NodeShape | undefined {
+  let latest: NodeShape | undefined;
+  let at = -Infinity;
+  for (const shape of scene.nodes) {
+    const when = shape.node.finishedAt ?? shape.node.startedAt;
+    if (!shape.isSatellite && when !== undefined && when >= at) {
+      latest = shape;
+      at = when;
+    }
+  }
+  return latest ?? scene.nodes.at(-1);
+}
+
 /**
  * The camera for a session. While it works it follows the current nodes at
  * full size (their middle, so parallel steps stay in view together); when it
  * rests it pulls back to show the whole graph, down to half size, in steps
- * of a quarter for the pixel look so art pixels stay whole.
+ * of a quarter for the pixel look so art pixels stay whole. A graph too big
+ * to show whole even then is framed on the latest work, not on its middle,
+ * so what just happened stays in sight.
  */
 export function cameraFor(
   scene: Scene,
@@ -241,9 +257,17 @@ export function cameraFor(
   if (mode === "overview") {
     let s = Math.min(1, (viewport.width - 2 * OVERVIEW_PAD) / scene.width, (viewport.height - 2 * OVERVIEW_PAD) / scene.height);
     if (pixel) s = Math.floor(s * 4) / 4;
+    const fits = s >= MIN_OVERVIEW_SCALE;
     s = Math.max(MIN_OVERVIEW_SCALE, s);
     const sized = { width: scene.width * s, height: scene.height * s };
-    return { ...clampPan({ x: (viewport.width - sized.width) / 2, y: (viewport.height - sized.height) / 2 }, sized, viewport), s };
+    const latest = fits ? undefined : latestWork(scene);
+    if (latest === undefined) {
+      return { ...clampPan({ x: (viewport.width - sized.width) / 2, y: (viewport.height - sized.height) / 2 }, sized, viewport), s };
+    }
+    // Centered on it, with the graph still filling the view on each axis it overflows.
+    const axis = (center: number, size: number, room: number) =>
+      size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, room / 2 - center * s));
+    return { x: axis(latest.cx, sized.width, viewport.width), y: axis(latest.cy, sized.height, viewport.height), s };
   }
   const current = currentNodes(scene);
   // Between steps (one just finished, the next not marked yet) aim at the
