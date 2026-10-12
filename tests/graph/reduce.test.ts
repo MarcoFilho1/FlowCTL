@@ -240,6 +240,56 @@ test("a step paused by the end of a turn is not skipped: it started", () => {
   assert.equal(byId(nodes(state), "plan:x").skipped, undefined);
 });
 
+test("a question turns its step yellow even when no permission prompt comes, until it is answered", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(state, { t: 1, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "name", title: "Pick a name", status: "in_progress" }] }, result: { result: "ok" } });
+  apply(state, { t: 2, event: "tool.check", input: { tool: "AskUserQuestion", tool_use_id: "q1" }, result: { decision: "allow" } });
+  const asked = byId(nodes(state), "plan:name");
+  assert.equal(asked.status, "needs_you");
+  assert.equal(asked.attention?.kind, "question");
+  assert.equal(sessionState(state), "waiting_you");
+  apply(state, { t: 3, event: "tool.call", input: { tool: "AskUserQuestion" }, result: { result: {} } });
+  assert.equal(byId(nodes(state), "plan:name").status, "running");
+});
+
+test("without PermissionRequest (Windows), the ask itself turns the step yellow until the call runs", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(state, { t: 1, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "clean", title: "Clean", status: "in_progress" }] }, result: { result: "ok" } });
+  apply(state, { t: 2, event: "tool.check", input: { tool: "Bash", reason: "Bash: rm -rf tmp" }, result: { decision: "ask" } });
+  const asked = byId(nodes(state), "plan:clean");
+  assert.equal(asked.status, "needs_you");
+  assert.equal(asked.attention?.kind, "permission");
+  assert.equal(asked.attention?.reason, "Bash: rm -rf tmp");
+  assert.equal(sessionState(state), "waiting_you");
+  apply(state, { t: 3, event: "tool.call", input: { tool: "Bash" }, result: {} });
+  assert.equal(byId(nodes(state), "plan:clean").status, "running");
+});
+
+test("without PostToolBatch (Windows), failures in successive batches still add up to red; a parallel batch counts once", () => {
+  const plan = { tool: FLOWPLAN_TOOL, steps: [{ id: "x", title: "X", status: "in_progress" }] };
+  const failing = (t: number) => ({ t, event: "tool.call", input: { tool: "Bash" }, result: { isError: true, text: "Exit code 1" } });
+  const check = (t: number) => ({ t, event: "tool.check", input: { tool: "Bash" }, result: { decision: "allow" } });
+
+  const one = initialState();
+  apply(one, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(one, { t: 1, event: "tool.call", input: plan, result: { result: "ok" } });
+  for (const t of [2, 4, 6]) {
+    apply(one, check(t));
+    apply(one, failing(t + 1));
+  }
+  assert.equal(byId(nodes(one), "plan:x").status, "error", "three batches in a row");
+
+  const parallel = initialState();
+  apply(parallel, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(parallel, { t: 1, event: "tool.call", input: plan, result: { result: "ok" } });
+  for (const t of [2, 3, 4]) apply(parallel, check(t));
+  for (const t of [5, 6, 7]) apply(parallel, failing(t));
+  assert.equal(byId(nodes(parallel), "plan:x").status, "running", "one batch of three");
+  assert.ok(byId(nodes(parallel), "plan:x").lastError, "but it flashes");
+});
+
 test("one event costs the same early and late in a long session", () => {
   const state = initialState();
   const call = (tool: string, input: object, result: object): GraphEvent => ({ t: 0, event: "tool.call", input: { tool, ...input }, result: { result } });

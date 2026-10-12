@@ -23,6 +23,24 @@ pub fn lock(shared: &Shared) -> MutexGuard<'_, Overlay> {
     shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Runs `job` with the overlay on the main thread, later (it does not wait).
+///
+/// Window, tray and menu calls made from any other thread wait for the main
+/// thread to run them. A thread holding the lock while making one would wait
+/// for the main thread while the main thread waits for the lock (a page
+/// message, the panel moving, a tray click): both stop for good, and if the
+/// panel was being dragged, Windows leaves the mouse captured by it. So the
+/// lock is only ever held on the main thread; other threads hand it the work.
+pub fn on_main(app: &AppHandle, job: impl FnOnce(&mut Overlay) + Send + 'static) {
+    let handle = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        let shared = handle.state::<Shared>();
+        job(&mut lock(&shared));
+    }) {
+        log(&format!("could not reach the main thread: {error}"));
+    }
+}
+
 pub fn log(message: &str) {
     eprintln!("[flowctl {:.3}] {message}", system::now());
 }
@@ -80,29 +98,37 @@ impl Overlay {
 
     // MARK: snapshots
 
-    /// The HTTP routes. Runs on a connection's thread.
-    pub fn route(shared: &Shared, request: Request) -> Response {
+    /// The HTTP routes. Runs on a connection's thread, which never holds the
+    /// lock: the work goes to the main thread (see `on_main`).
+    pub fn route(app: &AppHandle, request: Request) -> Response {
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/health") => Response::ok("ok\n"),
             ("POST", "/snapshot") => match snapshot::parse(&request.body) {
                 Err(error) => Response::bad_request(&format!("not a schema 1 snapshot: {error}")),
                 Ok(info) => {
-                    let shared = shared.clone();
-                    // Answer at once; the page is updated after.
-                    std::thread::spawn(move || lock(&shared).receive(info, request.body));
+                    // Answer at once; the page is updated after, in the order snapshots came.
+                    on_main(app, move |overlay| overlay.receive(info, request.body));
                     Response::ok("accepted\n")
                 }
             },
             // What automated checks read, without screen access (FLOWCTL_DEBUG=1 only).
             ("GET", "/debug/state") if std::env::var("FLOWCTL_DEBUG").as_deref() == Ok("1") => {
-                Response::ok(&format!("{}\n", lock(shared).debug_state()))
+                let (sent, state) = std::sync::mpsc::channel();
+                on_main(app, move |overlay| {
+                    let _ = sent.send(overlay.debug_state());
+                });
+                match state.recv_timeout(Duration::from_secs(5)) {
+                    Ok(state) => Response::ok(&format!("{state}\n")),
+                    Err(_) => Response::bad_request("the main thread did not answer"),
+                }
             }
             // Opening the app again (the Start menu, a second launch) shows the panel.
             ("POST", "/show") => {
-                let mut overlay = lock(shared);
-                if registry::reopen_shows(overlay.hidden_by) {
-                    overlay.show();
-                }
+                on_main(app, |overlay| {
+                    if registry::reopen_shows(overlay.hidden_by) {
+                        overlay.show();
+                    }
+                });
                 Response::ok("ok\n")
             }
             (_, "/health" | "/snapshot" | "/show") => Response::method_not_allowed(),
@@ -276,15 +302,15 @@ impl Overlay {
         let app = self.app.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_secs_f64(seconds + 0.05));
-            let shared = app.state::<Shared>();
-            let mut overlay = lock(&shared);
-            if overlay.fade == fade {
-                if let Some(panel) = overlay.panel() {
-                    let _ = panel.hide();
+            on_main(&app, move |overlay| {
+                if overlay.fade == fade {
+                    if let Some(panel) = overlay.panel() {
+                        let _ = panel.hide();
+                    }
+                    overlay.visible = false;
+                    tray::refresh(overlay);
                 }
-                overlay.visible = false;
-                tray::refresh(&overlay);
-            }
+            });
         });
     }
 
@@ -330,23 +356,24 @@ impl Overlay {
     }
 
     /// After the panel moved: once it rests, the dragged-to corner becomes the anchor.
+    /// Called on the main thread (a window event, the drag command).
     pub fn moved(shared: &Shared) {
-        let generation = {
+        let (generation, app) = {
             let mut overlay = lock(shared);
             if !overlay.dragging {
                 return;
             }
             overlay.moved += 1;
-            overlay.moved
+            (overlay.moved, overlay.app.clone())
         };
-        let shared = shared.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(400));
-            let mut overlay = lock(&shared);
-            if overlay.moved == generation {
-                overlay.dragging = false;
-                overlay.reanchor();
-            }
+            on_main(&app, move |overlay| {
+                if overlay.moved == generation {
+                    overlay.dragging = false;
+                    overlay.reanchor();
+                }
+            });
         });
     }
 
