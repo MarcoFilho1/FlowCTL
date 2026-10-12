@@ -8,6 +8,7 @@ import {
   digestOf,
   init,
   MOD_VERSION,
+  newerVersion,
   parseArgs,
   releaseUrl,
   uninstall,
@@ -301,6 +302,13 @@ test("Windows: uninstall closes the app and removes its folder and shortcut", as
   assert.deepEqual(quoted(removal), [`${LOCAL_APP_DATA}\\Programs\\FlowCTL`, `${APP_DATA}\\Microsoft\\Windows\\Start Menu\\Programs\\FlowCTL.lnk`]);
   assert.ok(m.calls.some((c) => c[0] === "taskkill"));
   assert.match(await uninstall(winContext(m.run)), /not installed/);
+});
+
+test("a newer plugin version is found among the cache's version folders", () => {
+  assert.equal(newerVersion(["0.1.0", "1.0.0", "1.0.1", "notes"], "1.0.0"), "1.0.1");
+  assert.equal(newerVersion(["0.1.0", "1.0.0"], "1.0.0"), undefined);
+  assert.equal(newerVersion(["1.0.10", "1.0.9"], "1.0.2"), "1.0.10", "compared as versions, not text");
+  assert.equal(newerVersion(["mod", "apps"], "1.0.0"), undefined, "a plugin run from a folder, not the cache");
 });
 
 test("arguments, versions and checksums", () => {

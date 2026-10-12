@@ -134,6 +134,16 @@ export async function autoUpdate(ctx: InstallContext): Promise<string | undefine
   }
 }
 
+/**
+ * A newer version of this plugin among the folder names next to it (the
+ * plugin cache keeps one folder per version): the one to announce, if any.
+ */
+export function newerVersion(names: readonly string[], current = MOD_VERSION): string | undefined {
+  const versions = names.filter((name) => /^\d+\.\d+\.\d+$/.test(name)).sort(compareVersions);
+  const newest = versions.at(-1);
+  return newest !== undefined && compareVersions(newest, current) > 0 ? newest : undefined;
+}
+
 class Failure extends Error {}
 
 async function must(ctx: InstallContext, argv: readonly string[], what: string, timeoutMs?: number): Promise<RunResult> {
