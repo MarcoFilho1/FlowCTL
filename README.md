@@ -6,6 +6,10 @@
 </h1>
 
 <p align="center">
+  <b>English</b> · <a href="README.pt-BR.md">Português</a>
+</p>
+
+<p align="center">
   What Claude Code is doing, what comes next and when it needs you,<br>
   in a small floating window on your Mac or Windows PC.
 </p>
