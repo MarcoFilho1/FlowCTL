@@ -46,6 +46,7 @@ and whether a session needs you, without leaving what you are doing.
 | yellow | needs you: a permission prompt or a question    |
 | red    | failing: a tool error flashes it, repeated ones keep it red |
 | green  | done                                            |
+| faded, dashed | skipped: the turn ended without starting it (left out of the progress count) |
 
 ## Features
 

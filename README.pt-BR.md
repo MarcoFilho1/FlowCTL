@@ -47,6 +47,7 @@ alguma sessão precisa de você, sem sair do que você está fazendo.
 | amarelo  | precisa de você: um pedido de permissão ou uma pergunta |
 | vermelho | falhando: um erro de ferramenta faz a etapa piscar, erros seguidos a deixam vermelha |
 | verde    | concluída                                         |
+| esmaecida, tracejada | pulada: a vez terminou sem ela começar (fica fora da contagem) |
 
 ## Recursos
 

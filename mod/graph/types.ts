@@ -64,6 +64,12 @@ export interface GraphNode {
   parent?: string;
   /** Edges were inferred (creation order), not declared by the agent. */
   inferred?: boolean;
+  /**
+   * A pending step its loop's turn ended without starting: planned, then left
+   * undone. Drawn faded and left out of the plan's progress count; a step the
+   * agent starts or declares again is not skipped any more.
+   */
+  skipped?: boolean;
 }
 
 /** Where a node sits: its column (rank, from the roots) and row within it. */

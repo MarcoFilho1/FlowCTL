@@ -571,11 +571,11 @@ function PixelNode({ shape, box, onHover }: { shape: NodeShape; box: Box; onHove
   const top = snap(cy - (size * PX) / 2);
   return (
     <g
-      className={`node pixel status-${node.status} kind-${node.kind}${shape.isSatellite ? " satellite" : ""}`}
+      className={`node pixel status-${node.status} kind-${node.kind}${shape.isSatellite ? " satellite" : ""}${node.skipped ? " skipped" : ""}`}
       data-node={node.id}
       role="button"
       tabIndex={0}
-      aria-label={`${node.title}: ${labels.status[node.status]}`}
+      aria-label={`${node.title}: ${node.skipped ? labels.skipped : labels.status[node.status]}`}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onFocus={() => onHover(true)}
@@ -607,11 +607,11 @@ function Node({ shape, box, onHover }: { shape: NodeShape; box: Box; onHover: (o
   const r = box.w / 2;
   return (
     <g
-      className={`node status-${node.status} kind-${node.kind}${shape.isSatellite ? " satellite" : ""}`}
+      className={`node status-${node.status} kind-${node.kind}${shape.isSatellite ? " satellite" : ""}${node.skipped ? " skipped" : ""}`}
       data-node={node.id}
       role="button"
       tabIndex={0}
-      aria-label={`${node.title}: ${labels.status[node.status]}`}
+      aria-label={`${node.title}: ${node.skipped ? labels.skipped : labels.status[node.status]}`}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onFocus={() => onHover(true)}

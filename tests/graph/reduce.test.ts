@@ -202,6 +202,44 @@ test("a step left in_progress when the turn ends stops showing as running, and r
   assert.equal(byId(nodes(state), "plan:merge").status, "running");
 });
 
+test("steps the turn ended without starting are skipped, until the agent starts or plans them again", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(state, {
+    t: 1,
+    event: "tool.call",
+    input: {
+      tool: FLOWPLAN_TOOL,
+      steps: [
+        { id: "map", title: "Map", status: "completed" },
+        { id: "docs", title: "Docs", status: "pending", blockedBy: ["map"] },
+        { id: "pr", title: "PR", status: "pending", blockedBy: ["docs"] }
+      ]
+    },
+    result: { result: "ok" }
+  });
+  assert.equal(byId(nodes(state), "plan:docs").skipped, undefined, "not while the turn runs");
+  apply(state, { t: 2, event: "turn.complete", input: { reason: "answer" } });
+  assert.equal(byId(nodes(state), "plan:docs").skipped, true);
+  assert.equal(byId(nodes(state), "plan:docs").status, "pending");
+  assert.equal(byId(nodes(state), "plan:map").skipped, undefined, "a done step is not skipped");
+  apply(state, { t: 3, event: "turn.start", input: { turnId: "b" } });
+  apply(state, { t: 4, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "docs", status: "in_progress" }] }, result: { result: "ok" } });
+  assert.equal(byId(nodes(state), "plan:docs").skipped, undefined, "started");
+  assert.equal(byId(nodes(state), "plan:pr").skipped, true, "still left undone");
+  apply(state, { t: 5, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "pr", status: "pending" }] }, result: { result: "ok" } });
+  assert.equal(byId(nodes(state), "plan:pr").skipped, undefined, "planned again");
+});
+
+test("a step paused by the end of a turn is not skipped: it started", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(state, { t: 1, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "x", title: "X", status: "in_progress" }] }, result: { result: "ok" } });
+  apply(state, { t: 2, event: "turn.complete", input: { reason: "aborted" } });
+  assert.equal(byId(nodes(state), "plan:x").status, "pending");
+  assert.equal(byId(nodes(state), "plan:x").skipped, undefined);
+});
+
 test("one event costs the same early and late in a long session", () => {
   const state = initialState();
   const call = (tool: string, input: object, result: object): GraphEvent => ({ t: 0, event: "tool.call", input: { tool, ...input }, result: { result } });

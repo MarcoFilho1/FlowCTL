@@ -45,6 +45,7 @@ export function hoverLabels(lang: Lang): HoverLabels {
     waitingOn: (titles) => say("hover.waitingOn", { titles }),
     paused: say("hover.paused"),
     notStarted: say("hover.notStarted"),
+    skipped: say("hover.skipped"),
     lastError: (detail, ago) => (ago ? say("hover.lastError.ago", { detail, ago }) : say("hover.lastError", { detail })),
     graph: (nodes) => say("hover.graph", { n: nodes }),
     outOfView: say("hover.outOfView")
