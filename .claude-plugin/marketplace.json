@@ -8,7 +8,7 @@
     {
       "name": "flowctl",
       "source": "./mod",
-      "description": "Live graph of what Claude Code is doing and what comes next, in a floating macOS overlay"
+      "description": "Live graph of what Claude Code is doing and what comes next, in a floating window on macOS and Windows"
     }
   ]
 }

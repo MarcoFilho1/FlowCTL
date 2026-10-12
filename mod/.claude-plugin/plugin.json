@@ -1,6 +1,6 @@
 {
   "name": "flowctl",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Live graph of what Claude Code is doing and what comes next",
   "license": "MIT",
   "author": {
