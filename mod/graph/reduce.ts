@@ -160,6 +160,12 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
         const reason = text(input["reason"]);
         state.askedBy.set(text(input["tool"]) ?? "", { loop: event.agentId ?? MAIN, ...(reason !== undefined ? { reason } : {}) });
       }
+      // A question for the person waits on them whether or not the session's
+      // permission mode prompts for it (no PermissionRequest comes when it
+      // doesn't); the answer, the tool call, clears it.
+      if (text(input["tool"]) === "AskUserQuestion" && result["decision"] !== "deny") {
+        setAttention(state, event.agentId ?? MAIN, { kind: "question", detail: "AskUserQuestion", since: event.t });
+      }
       break;
     case "classic.PermissionRequest":
       onPermissionRequest(state, input, event.t);

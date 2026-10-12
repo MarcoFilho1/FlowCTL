@@ -240,6 +240,19 @@ test("a step paused by the end of a turn is not skipped: it started", () => {
   assert.equal(byId(nodes(state), "plan:x").skipped, undefined);
 });
 
+test("a question turns its step yellow even when no permission prompt comes, until it is answered", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+  apply(state, { t: 1, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "name", title: "Pick a name", status: "in_progress" }] }, result: { result: "ok" } });
+  apply(state, { t: 2, event: "tool.check", input: { tool: "AskUserQuestion", tool_use_id: "q1" }, result: { decision: "allow" } });
+  const asked = byId(nodes(state), "plan:name");
+  assert.equal(asked.status, "needs_you");
+  assert.equal(asked.attention?.kind, "question");
+  assert.equal(sessionState(state), "waiting_you");
+  apply(state, { t: 3, event: "tool.call", input: { tool: "AskUserQuestion" }, result: { result: {} } });
+  assert.equal(byId(nodes(state), "plan:name").status, "running");
+});
+
 test("one event costs the same early and late in a long session", () => {
   const state = initialState();
   const call = (tool: string, input: object, result: object): GraphEvent => ({ t: 0, event: "tool.call", input: { tool, ...input }, result: { result } });
