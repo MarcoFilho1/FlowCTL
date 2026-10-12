@@ -1,0 +1,165 @@
+{
+  "views": {
+    "2026-09-28": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-09-29": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-09-30": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-01": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-02": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-03": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-04": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-05": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-06": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-07": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-08": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-09": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-10": {
+      "count": 7,
+      "uniques": 1
+    },
+    "2026-10-11": {
+      "count": 1,
+      "uniques": 1
+    }
+  },
+  "clones": {
+    "2026-09-28": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-09-29": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-09-30": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-01": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-02": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-03": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-04": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-05": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-06": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-07": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-08": {
+      "count": 0,
+      "uniques": 0
+    },
+    "2026-10-09": {
+      "count": 217,
+      "uniques": 2
+    },
+    "2026-10-10": {
+      "count": 95,
+      "uniques": 3
+    },
+    "2026-10-11": {
+      "count": 0,
+      "uniques": 0
+    }
+  },
+  "snapshots": {
+    "2026-10-12": {
+      "stars": 1,
+      "forks": 0,
+      "watchers": 0,
+      "uniqueVisitors14d": 1,
+      "uniqueCloners14d": 3,
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 4,
+          "uniques": 1
+        }
+      ],
+      "paths": [
+        {
+          "path": "/MarcoFilho1/FlowCTL",
+          "count": 4,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/runs/38070636767",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/runs/38070636767/job/114267141250",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/commits/main",
+          "count": 1,
+          "uniques": 1
+        }
+      ],
+      "downloads": {
+        "v1.0.0 FlowCTL-1.0.0-macos.zip": 1,
+        "v1.0.0 FlowCTL-1.0.0-windows-x64.zip": 1
+      }
+    }
+  }
+}
