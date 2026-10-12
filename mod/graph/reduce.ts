@@ -67,6 +67,8 @@ interface LoopState {
   errorStreak: number;
   /** The current batch already counted a failure: parallel calls fail together. */
   batchFailed: boolean;
+  /** A call of the current batch has returned: the loop's next check starts a new batch. */
+  sawResult?: boolean;
 }
 
 export interface GraphState {
@@ -155,12 +157,34 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
     case "agent.spawn":
       onAgentSpawn(state, event, input, result);
       break;
-    case "tool.check":
+    case "tool.check": {
+      const loop = event.agentId ?? MAIN;
+      const tool = text(input["tool"]) ?? "";
+      const reason = text(input["reason"]);
+      // Calls the model makes together are all checked before any returns; a
+      // check after a result is the model's next batch (PostToolBatch, where it
+      // comes, says the same; it does not come everywhere, e.g. on Windows).
+      const loopState = loopOf(state, loop);
+      if (loopState.sawResult) {
+        loopState.batchFailed = false;
+        loopState.sawResult = false;
+      }
       if (result["decision"] === "ask") {
-        const reason = text(input["reason"]);
-        state.askedBy.set(text(input["tool"]) ?? "", { loop: event.agentId ?? MAIN, ...(reason !== undefined ? { reason } : {}) });
+        state.askedBy.set(tool, { loop, ...(reason !== undefined ? { reason } : {}) });
+        // The person is asked now: yellow from the check itself, as the
+        // PermissionRequest hook (which does not come everywhere) would do.
+        setAttention(state, loop, {
+          kind: tool === "AskUserQuestion" ? "question" : "permission",
+          detail: tool,
+          ...(reason !== undefined ? { reason } : {}),
+          since: event.t
+        });
+      } else if (tool === "AskUserQuestion" && result["decision"] !== "deny") {
+        // A question waits on the person even when the permission mode lets it through unasked.
+        setAttention(state, loop, { kind: "question", detail: tool, since: event.t });
       }
       break;
+    }
     case "classic.PermissionRequest":
       onPermissionRequest(state, input, event.t);
       break;
@@ -168,6 +192,7 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       // A batch of tool calls ended; its loop's next failure starts a new attempt.
       for (const loopState of state.loops.values()) {
         loopState.batchFailed = false;
+        loopState.sawResult = false;
       }
       break;
     case "tool.call":
@@ -369,6 +394,7 @@ function onToolCall(state: GraphState, event: GraphEvent, input: Record<string, 
     }
   }
 
+  loopOf(state, loop).sawResult = true;
   if (isError && !denied && !isStoppedByUser(errorText)) {
     // Calls the model makes in parallel (three Reads of guessed paths) fail
     // as one attempt: a batch counts once toward the streak.
