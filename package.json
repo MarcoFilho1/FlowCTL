@@ -4,14 +4,19 @@
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.18.0",
-  "engines": { "node": ">=22.6" },
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
     "typecheck": "tsc -p mod && tsc -p tests",
     "test": "node --test --experimental-strip-types --no-warnings=ExperimentalWarning \"tests/**/*.test.ts\"",
     "validate": "claude plugin validate mod && claude plugin test mod",
     "viewer:dev": "pnpm --filter @flowctl/viewer dev",
     "viewer:test": "pnpm --filter @flowctl/viewer test",
-    "viewer:build": "pnpm --filter @flowctl/viewer build"
+    "viewer:build": "pnpm --filter @flowctl/viewer build",
+    "site:dev": "pnpm --filter @flowctl/site dev",
+    "site:test": "pnpm --filter @flowctl/site test",
+    "site:build": "pnpm --filter @flowctl/site build"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

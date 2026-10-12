@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import type { NodeStatus, Snapshot } from "../../../mod/graph/types.ts";
 import { buildScene, cameraFor, centerOn, circleBox, clampPan, linkPath, type Box, type Camera, type NodeShape } from "./geometry.ts";
-import { hoverCard } from "./hover.ts";
+import { ENGLISH_LABELS, hoverCard, type HoverLabels } from "./hover.ts";
 import { BANG, discSprite, PX, ringPixels, snap, steppedPath } from "./pixel.ts";
 import { tellNative, type Look } from "./store.ts";
 import { cue, cuesFor } from "./sound.ts";
@@ -42,13 +42,10 @@ export function zoomStep(s: number, direction: 1 | -1, pixel: boolean): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
 }
 
-export const STATUS_LABEL: Record<NodeStatus, string> = {
-  pending: "Pending",
-  running: "Running",
-  needs_you: "Needs you",
-  error: "Error",
-  done: "Done"
-};
+export const STATUS_LABEL: Record<NodeStatus, string> = ENGLISH_LABELS.status;
+
+/** The words the graph shows: English unless the page passes its own. */
+const LabelsContext = createContext<HoverLabels>(ENGLISH_LABELS);
 
 type Point = { x: number; y: number };
 type Size = { width: number; height: number };
@@ -111,7 +108,15 @@ function useGlide(target: Camera, instant: boolean): Camera {
  */
 const isLive = (state: Snapshot["sessionState"]) => state === "working" || state === "waiting_you";
 
-export function GraphView({
+export function GraphView({ labels = ENGLISH_LABELS, ...props }: ComponentProps<typeof GraphBody> & { labels?: HoverLabels }) {
+  return (
+    <LabelsContext.Provider value={labels}>
+      <GraphBody {...props} />
+    </LabelsContext.Provider>
+  );
+}
+
+function GraphBody({
   snapshot,
   look = "pixel",
   sound = false,
@@ -127,6 +132,7 @@ export function GraphView({
   dreaming?: boolean;
 }) {
   const pixel = look === "pixel";
+  const labels = useContext(LabelsContext);
   const [ref, viewport] = useViewport();
   const scene = useMemo(() => buildScene(snapshot), [snapshot]);
   const layoutBoxes = useMemo(() => new Map<string, Box>(scene.nodes.map((shape) => [shape.id, circleBox(shape)])), [scene]);
@@ -384,7 +390,7 @@ export function GraphView({
       >
         <svg
           role="img"
-          aria-label={`Task graph, ${snapshot.nodes.length} nodes`}
+          aria-label={labels.graph(snapshot.nodes.length)}
           className={dreaming ? "dreaming" : undefined}
           width="100%"
           height="100%"
@@ -555,6 +561,7 @@ function NodeView({
 
 /** A node as a pixel-art sprite: outline, body, light and shade, with its status effects. */
 function PixelNode({ shape, box, onHover }: { shape: NodeShape; box: Box; onHover: (on: boolean) => void }) {
+  const labels = useContext(LabelsContext);
   const { node } = shape;
   const size = shape.isSatellite ? 5 : 9;
   const sprite = discSprite(size);
@@ -568,7 +575,7 @@ function PixelNode({ shape, box, onHover }: { shape: NodeShape; box: Box; onHove
       data-node={node.id}
       role="button"
       tabIndex={0}
-      aria-label={`${node.title}: ${STATUS_LABEL[node.status]}`}
+      aria-label={`${node.title}: ${labels.status[node.status]}`}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onFocus={() => onHover(true)}
@@ -593,6 +600,7 @@ function PixelNode({ shape, box, onHover }: { shape: NodeShape; box: Box; onHove
 }
 
 function Node({ shape, box, onHover }: { shape: NodeShape; box: Box; onHover: (on: boolean) => void }) {
+  const labels = useContext(LabelsContext);
   const { node } = shape;
   const cx = box.x + box.w / 2;
   const cy = box.y + box.h / 2;
@@ -603,7 +611,7 @@ function Node({ shape, box, onHover }: { shape: NodeShape; box: Box; onHover: (o
       data-node={node.id}
       role="button"
       tabIndex={0}
-      aria-label={`${node.title}: ${STATUS_LABEL[node.status]}`}
+      aria-label={`${node.title}: ${labels.status[node.status]}`}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onFocus={() => onHover(true)}
@@ -622,6 +630,7 @@ function Node({ shape, box, onHover }: { shape: NodeShape; box: Box; onHover: (o
 
 /** A marker on the edge of the view pointing at a node that needs attention out of sight. */
 function Beacon({ shape, cam, viewport, onGo }: { shape: NodeShape; cam: Camera; viewport: Size; onGo: () => void }) {
+  const labels = useContext(LabelsContext);
   const sx = shape.cx * cam.s + cam.x;
   const sy = shape.cy * cam.s + cam.y;
   const x = Math.min(Math.max(sx, 10), viewport.width - 10);
@@ -632,7 +641,7 @@ function Beacon({ shape, cam, viewport, onGo }: { shape: NodeShape; cam: Camera;
       type="button"
       className={`beacon status-${shape.node.status}`}
       data-beacon={shape.id}
-      aria-label={`${shape.node.title}: ${STATUS_LABEL[shape.node.status]}, out of view`}
+      aria-label={`${shape.node.title}: ${labels.status[shape.node.status]}, ${labels.outOfView}`}
       style={{ left: x - 8, top: y - 8, transform: `rotate(${angle}deg)` }}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onGo}
@@ -643,7 +652,8 @@ function Beacon({ shape, cam, viewport, onGo }: { shape: NodeShape; cam: Camera;
 }
 
 function Card({ shape, box, snapshot, cam, viewport }: { shape: NodeShape; box: Box; snapshot: Snapshot; cam: Camera; viewport: Size }) {
-  const card = hoverCard(shape.node, snapshot);
+  const labels = useContext(LabelsContext);
+  const card = hoverCard(shape.node, snapshot, labels);
   // Where the node is drawn now: in the dream, away from its place in the graph.
   const x = (box.x + box.w / 2) * cam.s + cam.x;
   const y = (box.y + box.h / 2) * cam.s + cam.y;
