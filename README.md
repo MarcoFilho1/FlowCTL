@@ -1,16 +1,34 @@
-# FlowCTL
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/logo-dark.png">
+    <img alt="FlowCTL: a live graph of what Claude Code is doing" src="docs/media/logo-light.png" width="560">
+  </picture>
+</p>
 
-A live graph of what Claude Code is doing and what comes next, in a small
-floating window on your Mac or Windows PC.
+<p align="center">
+  What Claude Code is doing, what comes next and when it needs you,<br>
+  in a small floating window on your Mac or Windows PC.
+</p>
 
-![A Claude Code session as a live graph: steps turn blue as they start, a step waits for permission in yellow, a test failure flashes red, and everything ends green](docs/media/working.gif)
+<p align="center">
+  <a href="https://flowctl.vercel.app"><b>Website</b></a> ·
+  <a href="#install"><b>Install</b></a> ·
+  <a href="#features"><b>Features</b></a> ·
+  <a href="LICENSE"><b>MIT license</b></a>
+</p>
+
+<p align="center">
+  <img alt="A Claude Code request becomes a graph: the plan arrives a step at a time, steps turn blue as they run and green when they are done, and two subagents branch out" src="docs/media/graph.gif" width="800">
+</p>
 
 ## Why
 
-A long Claude Code session is a wall of text. To know where it stands (what
-it is doing now, what is left, whether it is stuck waiting for you) you have
-to scroll back and read. With a few sessions open in different terminals, you
-end up checking each one in turn.
+You ask Claude Code for something, then go do something else while it works.
+You think it is working. But it may have stopped a while ago to ask you
+something, and you only find out when you come back. And when it is working, a
+long session is a wall of text: to know what it is doing, what is left and
+whether it needs you, you have to scroll back and read. With a few sessions
+open in different terminals, you end up checking each one in turn.
 
 FlowCTL draws the session instead. The agent's plan becomes a graph: one node
 per step, arrows for what depends on what, colors for where each step is. It
@@ -25,28 +43,77 @@ and whether a session needs you, without leaving what you are doing.
 | red    | failing: a tool error flashes it, repeated ones keep it red |
 | green  | done                                            |
 
-## What you get
+## Features
 
-- **The plan as a graph.** Steps the agent declares (Claude Code's task tools,
-  or FlowCTL's own FlowPlan tool) with their dependencies. Steps that run in
-  parallel sit side by side; each new request continues the graph to the right.
-- **Subagents** hang from the step that started them, or line up as their own
-  timeline when the agent uses them without a plan.
-- **Yellow means you.** A permission prompt or a question turns its step
-  yellow, the menu bar (or tray) icon blinks, and a short sound plays.
-- **The camera follows the work** while a session runs, and shows the whole
-  graph when it rests. Drag to pan, pinch or scroll to zoom.
-- **Hover a node** for what it is about, how long it took, and what came of it.
-  Click it to bring its terminal tab forward.
-- **Every session in one place.** Each open session gets a page and `‹ 1/3 ›`
-  switches between them. When the page on screen is resting, the window turns
-  to the session that starts working or needs you.
-- **Two looks:** pixel art (with 8-bit sounds) or smooth (with clean tones).
-- **An idle animation.** After a minute with nothing running, the nodes form a
-  shape that turns slowly; after five, the window fades out until a session
-  works again.
+### The plan as a graph
 
-![When nothing runs, the nodes leave the graph and form a slowly turning shape (smooth look)](docs/media/idle.gif)
+Steps the agent declares (Claude Code's task tools, or FlowCTL's own FlowPlan
+tool) with their dependencies. Steps that run in parallel sit side by side.
+Subagents hang from the step that started them, or line up as their own
+timeline when the agent uses them without a plan. The camera follows the work
+while a session runs and shows the whole graph when it rests; drag to pan,
+pinch or scroll to zoom.
+
+### Errors flash red
+
+A tool error flashes its step red; repeated ones keep it red, so you see the
+agent working around a problem, or stuck on one. Hover a node for what it is
+about, how long it took and what came of it; click it to bring its terminal
+tab forward.
+
+<p align="center">
+  <img alt="A subagent's test fails twice: its node flashes red, then goes on; hovering it shows its summary" src="docs/media/error.gif" width="800">
+</p>
+
+### Yellow means you
+
+A permission prompt or a question turns its step yellow, the menu bar (or
+tray) icon blinks, and a short sound plays. The window stays on top of
+whatever you are doing, and one click takes you to the terminal that is
+waiting.
+
+<p align="center">
+  <img alt="While a video plays, a step turns yellow on an rm -rf permission prompt; a click on it brings the terminal forward to answer" src="docs/media/yellow.gif" width="800">
+</p>
+
+### Done? You'll know
+
+When the last step goes green, the whole graph pulses.
+
+<p align="center">
+  <img alt="The last step turns green and the whole graph pulses" src="docs/media/done.gif" width="800">
+</p>
+
+### Every prompt grows the graph
+
+Each new request continues the same graph to the right, so a session reads as
+one story. And every open session gets a page: `‹ 1/3 ›` switches between
+them, and when the page on screen is resting, the window turns to the session
+that starts working or needs you.
+
+<p align="center">
+  <img alt="A second prompt is typed and sent; the overlay lights up and the new steps grow onto the same graph, after the first prompt's" src="docs/media/prompt.gif" width="800">
+</p>
+
+### Make it yours
+
+Everything is in the menu bar (or tray) icon: two looks (pixel art with 8-bit
+sounds, or smooth with clean tones), sound or silence, theme, size, opacity,
+and where the window sits: drag it anywhere.
+
+<p align="center">
+  <img alt="From the menu bar: Look set to Smooth, Sound set to Off, then the window dragged to the bottom corner" src="docs/media/settings.gif" width="800">
+</p>
+
+### Out of your way when you're not
+
+After five minutes with nothing running, the window hides until a session
+works again. Or turn on the idle animation: after a minute, the nodes leave the
+graph and form a shape that turns slowly.
+
+<p align="center">
+  <img alt="The window comes back from the menu bar and its nodes form a slowly turning shape" src="docs/media/dream.gif" width="800">
+</p>
 
 ## Install
 
