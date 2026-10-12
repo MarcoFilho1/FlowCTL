@@ -1,9 +1,9 @@
-<p align="center">
+<h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/logo-dark.png">
     <img alt="FlowCTL: a live graph of what Claude Code is doing" src="docs/media/logo-light.png" width="560">
   </picture>
-</p>
+</h1>
 
 <p align="center">
   What Claude Code is doing, what comes next and when it needs you,<br>
@@ -45,6 +45,10 @@ and whether a session needs you, without leaving what you are doing.
 
 ## Features
 
+The clips come from the launch video, which adds captions and a few highlights
+of its own (the rings around the window and the graph, the prompt labels);
+everything else is the app as it runs.
+
 ### The plan as a graph
 
 Steps the agent declares (Claude Code's task tools, or FlowCTL's own FlowPlan
@@ -78,10 +82,11 @@ waiting.
 
 ### Done? You'll know
 
-When the last step goes green, the whole graph pulses.
+The last step turns green and the turn ends: a glance at the window tells you
+the work is done, with no scrolling back through the terminal.
 
 <p align="center">
-  <img alt="The last step turns green and the whole graph pulses" src="docs/media/done.gif" width="800">
+  <img alt="The pull request step turns green, the terminal says the PR is open, and the whole graph is green" src="docs/media/done.gif" width="800">
 </p>
 
 ### Every prompt grows the graph
@@ -92,14 +97,14 @@ them, and when the page on screen is resting, the window turns to the session
 that starts working or needs you.
 
 <p align="center">
-  <img alt="A second prompt is typed and sent; the overlay lights up and the new steps grow onto the same graph, after the first prompt's" src="docs/media/prompt.gif" width="800">
+  <img alt="A second prompt is typed and sent; its steps grow onto the same graph, right after the first prompt's last step" src="docs/media/prompt.gif" width="800">
 </p>
 
 ### Make it yours
 
 Everything is in the menu bar (or tray) icon: two looks (pixel art with 8-bit
 sounds, or smooth with clean tones), sound or silence, theme, size, opacity,
-and where the window sits: drag it anywhere.
+and where the window sits: drag it by its top bar to another spot.
 
 <p align="center">
   <img alt="From the menu bar: Look set to Smooth, Sound set to Off, then the window dragged to the bottom corner" src="docs/media/settings.gif" width="800">
@@ -107,9 +112,10 @@ and where the window sits: drag it anywhere.
 
 ### Out of your way when you're not
 
-After five minutes with nothing running, the window hides until a session
-works again. Or turn on the idle animation: after a minute, the nodes leave the
-graph and form a shape that turns slowly.
+After five minutes with nothing running, the window fades out until a session
+works again (Hide When Idle). Before that, the idle animation kicks in: after a
+minute, the nodes leave the graph and form a shape that turns slowly. Both are
+on by default and can be turned off in the menu.
 
 <p align="center">
   <img alt="The window comes back from the menu bar and its nodes form a slowly turning shape" src="docs/media/dream.gif" width="800">
