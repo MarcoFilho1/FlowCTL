@@ -104,7 +104,7 @@ that starts working or needs you.
 
 Everything is in the menu bar (or tray) icon: two looks (pixel art with 8-bit
 sounds, or smooth with clean tones), sound or silence, theme, size, opacity,
-and where the window sits: drag it by its top bar to another spot.
+and where the window sits: drag it anywhere.
 
 <p align="center">
   <img alt="From the menu bar: Look set to Smooth, Sound set to Off, then the window dragged to the bottom corner" src="docs/media/settings.gif" width="800">
