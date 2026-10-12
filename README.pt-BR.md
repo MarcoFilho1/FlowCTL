@@ -173,9 +173,10 @@ rápida ou uma correção de um comando só mostra um único nó para a vez atua
 Você pode desligar esse pedido nas opções do plugin.
 
 **Atualizando.** Quando sair uma versão nova, atualize o plugin pelo `/plugin`
-(ou `claude plugin update flowctl@flowctl`), rode `/reload-plugins`, e o
-início da próxima sessão avisa se o app está mais antigo que o plugin: rode
-`/flowctl init` de novo para atualizá-lo.
+(ou `claude plugin update flowctl@flowctl`) e rode `/reload-plugins`: o início
+da próxima sessão atualiza o app também, com o mesmo download e as mesmas
+verificações do `/flowctl init`. Dá para desligar isso nas opções do plugin e
+rodar o `/flowctl init` você mesmo.
 
 ## Comandos e opções
 
@@ -198,6 +199,7 @@ As **opções do plugin** (`/plugin`, depois flowctl):
 | Opção | Padrão | |
 | ----- | ------ | - |
 | Open the overlay | ligado | Abre o app quando uma sessão começa, se ele estiver instalado |
+| Update the overlay | ligado | Atualiza o app no início de uma sessão quando ele está mais antigo que o plugin |
 | Ask the agent to declare its plan | ligado | Sem isso, o grafo costuma ter um nó só |
 | Errors before red | 3 | Erros de ferramenta seguidos que deixam a etapa atual vermelha |
 | Record events | desligado | Guarda os eventos da sessão em `~/.flowctl/recordings`, para relatar bugs |

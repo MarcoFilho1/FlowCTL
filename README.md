@@ -170,9 +170,10 @@ a one-command fix shows a single node for the current turn. You can turn that
 request off in the plugin's options.
 
 **Updating.** When a new version is out, update the plugin from `/plugin`
-(or `claude plugin update flowctl@flowctl`), run `/reload-plugins`, and the
-next session start tells you if the app is older than the plugin: run
-`/flowctl init` again to update it.
+(or `claude plugin update flowctl@flowctl`) and run `/reload-plugins`: the
+next session start updates the app too, with the same download and checks as
+`/flowctl init`. You can turn that off in the plugin's options and run
+`/flowctl init` yourself.
 
 ## Commands and options
 
@@ -194,6 +195,7 @@ The **plugin's options** (`/plugin`, then flowctl):
 | Option | Default | |
 | ------ | ------- | - |
 | Open the overlay | on | Open the app when a session starts, if it is installed |
+| Update the overlay | on | Update the app at a session start when it is older than the plugin |
 | Ask the agent to declare its plan | on | Without it, the graph is usually one node |
 | Errors before red | 3 | Consecutive tool errors that turn the current step red |
 | Record events | off | Keep the session's events in `~/.flowctl/recordings`, for bug reports |

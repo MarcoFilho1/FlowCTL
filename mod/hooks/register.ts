@@ -3,7 +3,7 @@ import { apply, FLOWPLAN_TOOL, initialState, type GraphState } from "../graph/re
 import { snapshot } from "../graph/snapshot.ts";
 import type { GraphEvent, Layout, Snapshot, TerminalInfo } from "../graph/types.ts";
 import { alerts, describeRequest, FLOWPLAN_SPEC, nudgeText, statusLine, summarize } from "../live/present.ts";
-import { appNotice, HELP, init, openInBackground, parseArgs, uninstall, type InstallContext } from "../live/install.ts";
+import { appNotice, autoUpdate, HELP, init, openInBackground, parseArgs, uninstall, type InstallContext } from "../live/install.ts";
 import { homeOf, platformOf, type Platform } from "../live/platform.ts";
 import { rebuildEvents } from "../live/rebuild.ts";
 import { overlayClient, type OverlayClient, type OverlayIo } from "../live/transport.ts";
@@ -57,10 +57,11 @@ interface Settings {
   errorThreshold: number;
   nudge: boolean;
   autoOpenOverlay: boolean;
+  autoUpdateApp: boolean;
   recordEvents: boolean;
 }
 
-let settings: Settings = { errorThreshold: 3, nudge: true, autoOpenOverlay: true, recordEvents: false };
+let settings: Settings = { errorThreshold: 3, nudge: true, autoOpenOverlay: true, autoUpdateApp: true, recordEvents: false };
 let graph: GraphState = initialState();
 let flowctlDir: string | undefined;
 let overlay: OverlayClient | undefined;
@@ -87,6 +88,7 @@ function readSettings(options: PluginOptions): Settings {
     // On unless turned off: without it the agent rarely declares a plan.
     nudge: options["nudge"] !== false,
     autoOpenOverlay: options["autoOpenOverlay"] !== false,
+    autoUpdateApp: options["autoUpdateApp"] !== false,
     recordEvents: options["recordEvents"] === true
   };
 }
@@ -217,6 +219,25 @@ async function rebuildFromTranscript($: EngineInterface): Promise<void> {
   schedulePublish($);
 }
 
+/**
+ * At a session start: an app older than this mod is updated (it is opened
+ * again after), whether or not it is running; else the app is opened when it
+ * is installed and not already listening.
+ */
+async function startOverlay($: EngineInterface, client: OverlayClient): Promise<void> {
+  if (settings.autoUpdateApp) {
+    const updated = await autoUpdate(await installContext($)).catch(() => undefined);
+    if (updated !== undefined) {
+      $.ui.toast(updated);
+      $.ui.status(undefined);
+      if (!updated.includes("could not be updated")) return;
+    }
+  }
+  if (settings.autoOpenOverlay) {
+    await openOverlay($, client);
+  }
+}
+
 /** Opens the overlay app when it is installed and not already listening. */
 async function openOverlay($: EngineInterface, client: OverlayClient): Promise<void> {
   const alive = await client.request("GET", "/health");
@@ -328,8 +349,8 @@ export const register: Register = (on, options) => {
       await $.command
         .register({ name: "flowctl", description: "Install, update or remove the FlowCTL overlay app", argumentHint: "init | uninstall" })
         .catch(() => undefined);
-      if (settings.autoOpenOverlay && overlay !== undefined) {
-        void openOverlay($, overlay).catch(() => undefined);
+      if (overlay !== undefined) {
+        void startOverlay($, overlay).catch(() => undefined);
       }
     } catch {
       // Without its home folder the mod still draws the status line.

@@ -54,6 +54,19 @@ export function makeDir(dir: string): string[] {
   return powershell(`New-Item -ItemType Directory -Force -Path ${psQuote(dir)} | Out-Null`);
 }
 
+/**
+ * Takes the update lock: makes `dir`, failing when it is there (another
+ * session is updating). A lock older than ten minutes was left by an update
+ * that never finished; it is taken over.
+ */
+export function takeLock(dir: string): string[] {
+  const d = psQuote(dir);
+  return powershell(
+    `if ((Test-Path -LiteralPath ${d}) -and ((Get-Item -LiteralPath ${d}).LastWriteTime -lt (Get-Date).AddMinutes(-10))) { Remove-Item -LiteralPath ${d} -Recurse -Force }; ` +
+      `New-Item -ItemType Directory -Path ${d} -ErrorAction Stop | Out-Null`
+  );
+}
+
 export function copyFile(from: string, to: string): string[] {
   return powershell(`Copy-Item -LiteralPath ${psQuote(from)} -Destination ${psQuote(to)} -Force`);
 }

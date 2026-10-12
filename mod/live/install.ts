@@ -105,6 +105,35 @@ export async function appNotice(ctx: AppHost & Pick<InstallContext, "version">):
   return undefined;
 }
 
+/**
+ * A session start with an app older than this mod: updates it, the way
+ * `/flowctl init` does, so updating the plugin is all it takes. Returns the
+ * line to show, or nothing when there is nothing to do (no app, an up to date
+ * one, Linux) or another session is already updating it.
+ */
+export async function autoUpdate(ctx: InstallContext): Promise<string | undefined> {
+  if (ctx.platform === "other") return undefined;
+  const want = ctx.version ?? MOD_VERSION;
+  const app = await findApp(ctx);
+  if (!app || compareVersions(app.version, want) >= 0) return undefined;
+  // One update at a time: several sessions may start (or reload the plugin) together.
+  const win = ctx.platform === "win32";
+  const lock = win ? `${ctx.home}\\.flowctl\\updating` : `${ctx.home}/.flowctl/updating`;
+  const taken = await ctx.run(
+    win ? windows.takeLock(lock) : ["sh", "-c", 'find "$1" -maxdepth 0 -mmin +10 -exec rm -rf {} + 2>/dev/null; mkdir "$1"', "sh", lock]
+  );
+  if (taken.exitCode !== 0) return undefined;
+  try {
+    ctx.progress?.(`FlowCTL: updating the overlay app from ${app.version} to ${want}…`);
+    const text = await init(ctx);
+    return text.startsWith("FlowCTL could not be installed")
+      ? `FlowCTL: the overlay app is ${app.version} and could not be updated to ${want} (${text.replace(/^FlowCTL could not be installed: /, "").replace(/\. Try again.*$/, "")}). Run /flowctl init to try again.`
+      : `FlowCTL: the overlay app was updated from ${app.version} to ${want}.`;
+  } finally {
+    await ctx.run(win ? windows.removeTree(lock) : ["rm", "-rf", lock]);
+  }
+}
+
 class Failure extends Error {}
 
 async function must(ctx: InstallContext, argv: readonly string[], what: string, timeoutMs?: number): Promise<RunResult> {
