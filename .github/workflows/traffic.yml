@@ -52,6 +52,10 @@ jobs:
       - name: Commit to the stats branch
         working-directory: stats-branch
         run: |
+          # Vercel deploys every branch from apps/site, and reads its settings there:
+          # this one tells it the stats branch has no site to build.
+          mkdir -p apps/site
+          echo '{ "git": { "deploymentEnabled": false } }' > apps/site/vercel.json
           git add -A
           if git diff --cached --quiet; then exit 0; fi
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Traffic $(date -u +%F)"
