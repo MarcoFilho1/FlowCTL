@@ -10,7 +10,7 @@ pub mod server;
 pub mod system;
 pub mod tray;
 
-use overlay::{lock, log, Overlay, Shared, PANEL};
+use overlay::{lock, log, on_main, Overlay, Shared, PANEL};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -49,6 +49,10 @@ const PAGE_SCRIPT: &str = r#"
 
 #[tauri::command]
 fn native_message(message: Value, state: tauri::State<'_, Shared>) {
+    // The page sends the grip's box at every layout change; the init script uses it, the app does not.
+    if matches!(message["type"].as_str(), Some("grip" | "size")) {
+        return;
+    }
     lock(&state).message(&message);
 }
 
@@ -124,19 +128,21 @@ pub fn run() {
             }
             tray::animate(app.handle().clone());
 
-            let routes = shared.clone();
+            // The endpoint's and the timers' threads never take the lock themselves:
+            // they hand the work to the main thread (see overlay::on_main).
+            let routes = app.handle().clone();
             let endpoint = server::serve(&dir, Arc::new(move |request| Overlay::route(&routes, request)))?;
             app.manage(endpoint);
 
-            let ticking = shared.clone();
+            let ticking = app.handle().clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(5));
-                lock(&ticking).tick();
+                on_main(&ticking, Overlay::tick);
             });
-            let cleaning = shared.clone();
+            let cleaning = app.handle().clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(3600));
-                lock(&cleaning).restore_sessions();
+                on_main(&cleaning, Overlay::restore_sessions);
             });
 
             lock(&shared).show();
