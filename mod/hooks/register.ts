@@ -222,7 +222,8 @@ async function rebuildFromTranscript($: EngineInterface): Promise<void> {
 /** The newer plugin version already announced, and when the folder was last looked at. */
 let announced: string | undefined;
 let lookedAt = 0;
-const LOOK_EVERY_MS = 10 * 60 * 1000;
+/** At a session start, then at most once a day while it stays open. */
+const LOOK_EVERY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * A session that stays open keeps the plugin it started with. When a newer
