@@ -226,7 +226,7 @@ const OVERVIEW_PAD = 14;
 /** Room kept around the followed nodes. */
 const FOLLOW_PAD = 28;
 
-/** The node the work last touched: the latest to finish or start, else the last one. */
+/** The node the work last touched: the latest to finish or start; without times, the last done one; else the last one. */
 export function latestWork(scene: Scene): NodeShape | undefined {
   let latest: NodeShape | undefined;
   let at = -Infinity;
@@ -237,7 +237,7 @@ export function latestWork(scene: Scene): NodeShape | undefined {
       at = when;
     }
   }
-  return latest ?? scene.nodes.at(-1);
+  return latest ?? scene.nodes.findLast((shape) => !shape.isSatellite && shape.node.status === "done") ?? scene.nodes.at(-1);
 }
 
 /**
@@ -270,13 +270,23 @@ export function cameraFor(
     return { x: axis(latest.cx, sized.width, viewport.width), y: axis(latest.cy, sized.height, viewport.height), s };
   }
   const current = currentNodes(scene);
-  // Between steps (one just finished, the next not marked yet) aim at the
-  // steps that are now free to start, rather than at the end of the graph.
+  // Between steps (one just finished, the next not marked yet), or while the
+  // agent works without touching its plan: aim at the step that follows the
+  // latest work, else at the latest work itself. Not at the first step free
+  // to start anywhere: in a long session that is often an old one left
+  // pending in the middle of the graph.
   const status = new Map(scene.nodes.map((shape) => [shape.id, shape.node.status]));
-  const ready = scene.nodes.filter(
-    (shape) => !shape.isSatellite && shape.node.status === "pending" && shape.node.blockedBy.every((id) => status.get(id) === "done")
+  const latest = latestWork(scene);
+  const next = scene.nodes.filter(
+    (shape) =>
+      !shape.isSatellite &&
+      shape.node.skipped !== true &&
+      shape.node.status === "pending" &&
+      latest !== undefined &&
+      shape.node.blockedBy.includes(latest.id) &&
+      shape.node.blockedBy.every((id) => status.get(id) === "done")
   );
-  const target = current.length > 0 ? current : ready.length > 0 ? ready.slice(0, 1) : scene.nodes.slice(-1);
+  const target = current.length > 0 ? current : next.length > 0 ? next.slice(0, 1) : latest !== undefined ? [latest] : [];
   if (target.length === 0) return { x: 0, y: 0, s: 1 };
   // Frame the current nodes: centered on them, zoomed out only as far as
   // needed to fit them all (parallel steps), never in past full size. No

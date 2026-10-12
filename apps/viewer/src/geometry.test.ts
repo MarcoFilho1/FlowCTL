@@ -237,6 +237,31 @@ describe("the camera", () => {
     expect(scene.width * cam.s + cam.x).toBeGreaterThanOrEqual(view.width - 0.001);
   });
 
+  test("working with nothing marked running, it stays on the latest work, not on an old step left pending mid-graph", () => {
+    const nodes = Array.from({ length: 30 }, (_, i) =>
+      task(`t${i}`, { blockedBy: i > 0 ? [`t${i - 1}`] : [], status: "done", startedAt: i * 10, finishedAt: i * 10 + 5 })
+    );
+    // An old step from an earlier plan, free to start but never done, in the middle.
+    nodes.push(task("old", { blockedBy: ["t5"], status: "pending" }));
+    const scene = buildScene(laidOut(nodes));
+    const cam = cameraFor(scene, view, "follow", true);
+    const latest = scene.nodes.find((shape) => shape.id === "t29")!;
+    expect(latest.cx * cam.s + cam.x).toBeCloseTo(view.width / 2, 0);
+  });
+
+  test("between steps it aims at the one that follows the step just finished", () => {
+    const nodes = [
+      task("a", { status: "done", startedAt: 1, finishedAt: 2 }),
+      task("b", { status: "done", blockedBy: ["a"], startedAt: 3, finishedAt: 4 }),
+      task("c", { status: "pending", blockedBy: ["b"] }),
+      task("d", { status: "pending", blockedBy: ["c"] })
+    ];
+    const scene = buildScene(laidOut(nodes));
+    const cam = cameraFor(scene, view, "follow", true);
+    const c = scene.nodes.find((shape) => shape.id === "c")!;
+    expect(c.cx * cam.s + cam.x).toBeCloseTo(view.width / 2, 0);
+  });
+
   test("a small graph at rest stays at full size, centered", () => {
     const scene = chain(2, []);
     const cam = cameraFor(scene, view, "overview", true);
