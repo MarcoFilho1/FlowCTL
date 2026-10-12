@@ -3,10 +3,12 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   appNotice,
+  autoUpdate,
   compareVersions,
   digestOf,
   init,
   MOD_VERSION,
+  newerVersion,
   parseArgs,
   releaseUrl,
   uninstall,
@@ -177,6 +179,46 @@ test("a session start says when the app is missing or older", async () => {
   assert.equal(await appNotice({ run: mac({ apps: { "/Applications/FlowCTL.app": MOD_VERSION } }).run, home: HOME, platform: "darwin" }), undefined);
 });
 
+test("a session start updates an older app where it is, and leaves a current one alone", async () => {
+  const old = mac({ apps: { [`${HOME}/Applications/FlowCTL.app`]: "0.1.0" } });
+  const text = await autoUpdate({ run: old.run, home: HOME, platform: "darwin" });
+  assert.equal(text, `FlowCTL: the overlay app was updated from 0.1.0 to ${MOD_VERSION}.`);
+  assert.equal(old.apps.get(`${HOME}/Applications/FlowCTL.app`), MOD_VERSION);
+  assert.ok(old.calls.some((c) => c[0] === "sh" && c.at(-1) === `${HOME}/.flowctl/updating`), "it takes the update lock");
+  assert.deepEqual(old.calls.at(-1), ["rm", "-rf", `${HOME}/.flowctl/updating`], "and lets it go");
+
+  const current = mac({ apps: { [`${HOME}/Applications/FlowCTL.app`]: MOD_VERSION } });
+  assert.equal(await autoUpdate({ run: current.run, home: HOME, platform: "darwin" }), undefined);
+  assert.ok(!current.ran("curl"), "nothing is downloaded");
+
+  const none = mac();
+  assert.equal(await autoUpdate({ run: none.run, home: HOME, platform: "darwin" }), undefined, "a missing app is left to the notice");
+  assert.ok(!none.ran("curl"));
+});
+
+test("a session start does not update while another session holds the lock", async () => {
+  const m = mac({ apps: { [`${HOME}/Applications/FlowCTL.app`]: "0.1.0" } });
+  const busy = async (argv: readonly string[]) => (argv[0] === "sh" ? fail("mkdir: File exists") : m.run(argv));
+  assert.equal(await autoUpdate({ run: busy, home: HOME, platform: "darwin" }), undefined);
+  assert.ok(!m.ran("curl"));
+  assert.equal(m.apps.get(`${HOME}/Applications/FlowCTL.app`), "0.1.0");
+});
+
+test("a failed update says so and how to retry, and lets the lock go", async () => {
+  const m = mac({ apps: { [`${HOME}/Applications/FlowCTL.app`]: "0.1.0" }, curlFails: true });
+  const text = await autoUpdate({ run: m.run, home: HOME, platform: "darwin" });
+  assert.match(text!, /is 0\.1\.0 and could not be updated to .*404.*Run \/flowctl init to try again\./);
+  assert.deepEqual(m.calls.at(-1), ["rm", "-rf", `${HOME}/.flowctl/updating`]);
+});
+
+test("Windows: a session start updates an older app in place", async () => {
+  const w = win({ apps: { [WIN_EXE]: "0.1.0" } });
+  const text = await autoUpdate(winContext(w.run));
+  assert.equal(text, `FlowCTL: the overlay app was updated from 0.1.0 to ${MOD_VERSION}.`);
+  assert.equal(w.apps.get(WIN_EXE), MOD_VERSION);
+  assert.ok(w.scripts().some((script) => script.includes("New-Item") && script.includes("updating") && script.includes("AddMinutes(-10)")), "the lock");
+});
+
 test("uninstall quits and removes the app", async () => {
   const m = mac({ apps: { "/Applications/FlowCTL.app": MOD_VERSION } });
   assert.match(await uninstall({ run: m.run, home: HOME, platform: "darwin" }), /Removed \/Applications\/FlowCTL.app/);
@@ -260,6 +302,13 @@ test("Windows: uninstall closes the app and removes its folder and shortcut", as
   assert.deepEqual(quoted(removal), [`${LOCAL_APP_DATA}\\Programs\\FlowCTL`, `${APP_DATA}\\Microsoft\\Windows\\Start Menu\\Programs\\FlowCTL.lnk`]);
   assert.ok(m.calls.some((c) => c[0] === "taskkill"));
   assert.match(await uninstall(winContext(m.run)), /not installed/);
+});
+
+test("a newer plugin version is found among the cache's version folders", () => {
+  assert.equal(newerVersion(["0.1.0", "1.0.0", "1.0.1", "notes"], "1.0.0"), "1.0.1");
+  assert.equal(newerVersion(["0.1.0", "1.0.0"], "1.0.0"), undefined);
+  assert.equal(newerVersion(["1.0.10", "1.0.9"], "1.0.2"), "1.0.10", "compared as versions, not text");
+  assert.equal(newerVersion(["mod", "apps"], "1.0.0"), undefined, "a plugin run from a folder, not the cache");
 });
 
 test("arguments, versions and checksums", () => {

@@ -13,6 +13,12 @@
       "description": "Open the FlowCTL overlay app when a session starts, if it is installed",
       "default": true
     },
+    "autoUpdateApp": {
+      "type": "boolean",
+      "title": "Update the overlay",
+      "description": "When the overlay app is older than this plugin, update it at a session start (the same download and checks as /flowctl init)",
+      "default": true
+    },
     "nudge": {
       "type": "boolean",
       "title": "Ask the agent to declare its plan",
