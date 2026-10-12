@@ -279,6 +279,12 @@ test("an ask turns the step yellow only once it outlasts the decider (auto mode 
   apply(auto, { t: 7, event: "ask.wait", input: { tool: "Bash", tool_use_id: "c1" } });
   assert.equal(byId(nodes(auto), "plan:clean").status, "running", "never yellow");
 
+  // Where classic hooks come (macOS), an ask alone never turns yellow: PermissionRequest says when the person is asked.
+  const mac = start();
+  apply(mac, { t: 2, event: "classic.PreToolUse", input: { tool_name: "Bash" } });
+  apply(mac, { t: 7, event: "ask.wait", input: { tool: "Bash", tool_use_id: "c1" } });
+  assert.equal(byId(nodes(mac), "plan:clean").status, "running", "the classifier may still be deciding, or the call running");
+
   // The PermissionRequest hook, where it comes, is yellow at once.
   const hooked = start();
   apply(hooked, { t: 2, event: "classic.PermissionRequest", input: { tool_name: "Bash" } });

@@ -85,6 +85,12 @@ export interface GraphState {
    * when the wait event comes, the person is the one deciding (see "ask.wait").
    */
   asks: Map<string, { loop: string; tool: string; reason?: string; since: number }>;
+  /**
+   * A classic hook event has reached the plugin: where they come (macOS), the
+   * PermissionRequest hook says exactly when the person is asked, and an ask
+   * alone never turns yellow. They don't come everywhere (Windows).
+   */
+  classicHooks: boolean;
   turn: {
     n: number;
     running: boolean;
@@ -112,6 +118,7 @@ export function initialState(options: { errorThreshold?: number } = {}): GraphSt
     loops: new Map(),
     askedBy: new Map(),
     asks: new Map(),
+    classicHooks: false,
     turn: { n: 0, running: false },
     request: 0,
     steps: new Map(),
@@ -128,6 +135,9 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
   const input = record(event.input);
   const result = record(event.result);
 
+  if (event.event.startsWith("classic.")) {
+    state.classicHooks = true;
+  }
   switch (event.event) {
     case "session.start":
       state.cwd = text(input["cwd"]) ?? state.cwd;
@@ -197,7 +207,7 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       // A call asked about a while ago has not run: the person is deciding.
       const id = askId(input, event.agentId ?? MAIN);
       const ask = state.asks.get(id);
-      if (ask !== undefined) {
+      if (ask !== undefined && !state.classicHooks) {
         state.asks.delete(id);
         setAttention(state, ask.loop, { kind: "permission", detail: ask.tool, ...(ask.reason !== undefined ? { reason: ask.reason } : {}), since: ask.since });
       }
