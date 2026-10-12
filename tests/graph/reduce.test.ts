@@ -253,18 +253,36 @@ test("a question turns its step yellow even when no permission prompt comes, unt
   assert.equal(byId(nodes(state), "plan:name").status, "running");
 });
 
-test("without PermissionRequest (Windows), the ask itself turns the step yellow until the call runs", () => {
-  const state = initialState();
-  apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
-  apply(state, { t: 1, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "clean", title: "Clean", status: "in_progress" }] }, result: { result: "ok" } });
-  apply(state, { t: 2, event: "tool.check", input: { tool: "Bash", reason: "Bash: rm -rf tmp" }, result: { decision: "ask" } });
-  const asked = byId(nodes(state), "plan:clean");
+test("an ask turns the step yellow only once it outlasts the decider (auto mode decides in moments)", () => {
+  const start = () => {
+    const state = initialState();
+    apply(state, { t: 0, event: "turn.start", input: { turnId: "a" } });
+    apply(state, { t: 1, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "clean", title: "Clean", status: "in_progress" }] }, result: { result: "ok" } });
+    apply(state, { t: 2, event: "tool.check", input: { tool: "Bash", tool_use_id: "c1", reason: "Bash: rm -rf tmp" }, result: { decision: "ask" } });
+    return state;
+  };
+
+  // The person decides: the call has not run when the wait comes.
+  const person = start();
+  assert.equal(byId(nodes(person), "plan:clean").status, "running", "not yet: it may be the classifier");
+  apply(person, { t: 7, event: "ask.wait", input: { tool: "Bash", tool_use_id: "c1" } });
+  const asked = byId(nodes(person), "plan:clean");
   assert.equal(asked.status, "needs_you");
-  assert.equal(asked.attention?.kind, "permission");
   assert.equal(asked.attention?.reason, "Bash: rm -rf tmp");
-  assert.equal(sessionState(state), "waiting_you");
-  apply(state, { t: 3, event: "tool.call", input: { tool: "Bash" }, result: {} });
-  assert.equal(byId(nodes(state), "plan:clean").status, "running");
+  assert.equal(sessionState(person), "waiting_you");
+  apply(person, { t: 9, event: "tool.call", input: { tool: "Bash", tool_use_id: "c1" }, result: {} });
+  assert.equal(byId(nodes(person), "plan:clean").status, "running");
+
+  // Auto mode: the classifier lets it run within moments; the wait finds nothing.
+  const auto = start();
+  apply(auto, { t: 3, event: "tool.call", input: { tool: "Bash", tool_use_id: "c1" }, result: {} });
+  apply(auto, { t: 7, event: "ask.wait", input: { tool: "Bash", tool_use_id: "c1" } });
+  assert.equal(byId(nodes(auto), "plan:clean").status, "running", "never yellow");
+
+  // The PermissionRequest hook, where it comes, is yellow at once.
+  const hooked = start();
+  apply(hooked, { t: 2, event: "classic.PermissionRequest", input: { tool_name: "Bash" } });
+  assert.equal(byId(nodes(hooked), "plan:clean").status, "needs_you");
 });
 
 test("without PostToolBatch (Windows), failures in successive batches still add up to red; a parallel batch counts once", () => {

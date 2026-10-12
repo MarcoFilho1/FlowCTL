@@ -49,6 +49,11 @@ const CLASSIC_DROPPED = new Set([
 ]);
 
 const PUBLISH_DELAY_MS = 100;
+/**
+ * How long an "ask" waits before it turns the step yellow: longer than the
+ * auto-mode classifier takes to decide, short next to a person deciding.
+ */
+const ASK_WAIT_MS = 5000;
 const RECORD_FLUSH_DELAY_MS = 500;
 
 type Entry = Omit<GraphEvent, "seq">;
@@ -480,6 +485,11 @@ export const register: Register = (on, options) => {
       input: { tool: e.tool, tool_use_id: e.tool_use_id, ceiling: e.ceiling, ...(reason !== undefined ? { reason } : {}) },
       result: { decision: result.decision, reason: result.reason, rule: result.rule }
     });
+    // Still not run in a few seconds: the person is deciding (see "ask.wait" in the graph).
+    if (result.decision === "ask" && e.tool !== "AskUserQuestion") {
+      const call = { ...(e.agentId !== undefined ? { agentId: e.agentId } : {}), input: { tool: e.tool, tool_use_id: e.tool_use_id } };
+      $.clock.after(ASK_WAIT_MS, () => observe($, "ask.wait", call));
+    }
     return result;
   });
 

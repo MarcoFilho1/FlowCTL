@@ -80,6 +80,11 @@ export interface GraphState {
   loops: Map<string, LoopState>;
   /** The loop (and why) of the last permission check that asked, per tool name. */
   askedBy: Map<string, { loop: string; reason?: string }>;
+  /**
+   * Calls put to the mode's decider and not run yet, by call id: still there
+   * when the wait event comes, the person is the one deciding (see "ask.wait").
+   */
+  asks: Map<string, { loop: string; tool: string; reason?: string; since: number }>;
   turn: {
     n: number;
     running: boolean;
@@ -106,6 +111,7 @@ export function initialState(options: { errorThreshold?: number } = {}): GraphSt
     agents: new Map(),
     loops: new Map(),
     askedBy: new Map(),
+    asks: new Map(),
     turn: { n: 0, running: false },
     request: 0,
     steps: new Map(),
@@ -171,17 +177,29 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       }
       if (result["decision"] === "ask") {
         state.askedBy.set(tool, { loop, ...(reason !== undefined ? { reason } : {}) });
-        // The person is asked now: yellow from the check itself, as the
-        // PermissionRequest hook (which does not come everywhere) would do.
-        setAttention(state, loop, {
-          kind: tool === "AskUserQuestion" ? "question" : "permission",
-          detail: tool,
-          ...(reason !== undefined ? { reason } : {}),
-          since: event.t
-        });
+        if (tool === "AskUserQuestion") {
+          setAttention(state, loop, { kind: "question", detail: tool, ...(reason !== undefined ? { reason } : {}), since: event.t });
+        } else {
+          // "ask" puts the call to the mode's decider: the person, or in auto
+          // mode a classifier that decides in moments. Yellow waits for the
+          // plugin's "ask.wait", a few seconds on, if the call has not run by
+          // then; the PermissionRequest hook, where it comes, says at once
+          // that the person was asked.
+          state.asks.set(askId(input, loop), { loop, tool, ...(reason !== undefined ? { reason } : {}), since: event.t });
+        }
       } else if (tool === "AskUserQuestion" && result["decision"] !== "deny") {
         // A question waits on the person even when the permission mode lets it through unasked.
         setAttention(state, loop, { kind: "question", detail: tool, since: event.t });
+      }
+      break;
+    }
+    case "ask.wait": {
+      // A call asked about a while ago has not run: the person is deciding.
+      const id = askId(input, event.agentId ?? MAIN);
+      const ask = state.asks.get(id);
+      if (ask !== undefined) {
+        state.asks.delete(id);
+        setAttention(state, ask.loop, { kind: "permission", detail: ask.tool, ...(ask.reason !== undefined ? { reason: ask.reason } : {}), since: ask.since });
       }
       break;
     }
@@ -394,6 +412,7 @@ function onToolCall(state: GraphState, event: GraphEvent, input: Record<string, 
     }
   }
 
+  state.asks.delete(askId(input, loop));
   loopOf(state, loop).sawResult = true;
   if (isError && !denied && !isStoppedByUser(errorText)) {
     // Calls the model makes in parallel (three Reads of guessed paths) fail
@@ -677,6 +696,10 @@ function onTurnComplete(
     }
   }
   skipUnstarted(state, undefined);
+  // Whatever the main loop had asked about is settled once its turn ends.
+  for (const [id, ask] of state.asks) {
+    if (ask.loop === MAIN) state.asks.delete(id);
+  }
   const reason = input["reason"];
   if (reason === "aborted") {
     // Esc: what was running stops, it did not fail.
@@ -757,6 +780,11 @@ function skipUnstarted(state: GraphState, agentId: string | undefined): void {
       entry.skipped = true;
     }
   }
+}
+
+/** A call's id for `asks`: its tool_use_id, else its loop and tool. */
+function askId(input: Record<string, unknown>, loop: string): string {
+  return text(input["tool_use_id"]) ?? `${loop}:${text(input["tool"]) ?? ""}`;
 }
 
 function setBase(state: GraphState, entry: PlanEntry, base: BaseStatus, t: number): void {
