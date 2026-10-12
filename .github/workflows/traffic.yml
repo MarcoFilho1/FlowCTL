@@ -1,0 +1,58 @@
+name: Traffic
+
+# Once a day, keeps the repository's numbers (views, unique visitors, clones,
+# referrers, release downloads, stars) on the `stats` branch, past GitHub's
+# 14 days: README.md on that branch is the summary. See scripts/traffic.mjs.
+#
+# Needs the secret TRAFFIC_TOKEN: a fine-grained token for this repository
+# with "Administration: Read-only" (the traffic endpoints ask for it).
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: traffic
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Check out the stats branch
+        run: |
+          if git fetch --depth 1 origin stats; then
+            git worktree add stats-branch FETCH_HEAD
+            git -C stats-branch switch -c stats
+          else
+            git worktree add --orphan -b stats stats-branch
+          fi
+
+      - name: Record today's numbers
+        env:
+          GITHUB_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+        run: |
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "::error::Add the TRAFFIC_TOKEN secret (a fine-grained token with Administration: Read-only on this repository)."
+            exit 1
+          fi
+          node scripts/traffic.mjs stats-branch
+
+      - name: Commit to the stats branch
+        working-directory: stats-branch
+        run: |
+          git add -A
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Traffic $(date -u +%F)"
+          git push origin stats
