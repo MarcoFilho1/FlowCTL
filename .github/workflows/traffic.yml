@@ -2,7 +2,7 @@ name: Traffic
 
 # Once a day, keeps the repository's numbers (views, unique visitors, clones,
 # referrers, release downloads, stars) on the `stats` branch, past GitHub's
-# 14 days: stats/README.md there is the summary. See scripts/traffic.mjs.
+# 14 days: README.md on that branch is the summary. See scripts/traffic.mjs.
 #
 # Needs the secret TRAFFIC_TOKEN: a fine-grained token for this repository
 # with "Administration: Read-only" (the traffic endpoints ask for it).
