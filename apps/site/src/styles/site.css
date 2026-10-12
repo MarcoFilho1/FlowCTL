@@ -158,13 +158,11 @@ main,
   flex: none;
 }
 
+/* The logo's node, the same file as the tab's icon: 8 pixels drawn 2 to 1. */
 .wordmark-mark {
-  width: 14px;
-  height: 14px;
-  background:
-    linear-gradient(var(--s-accent), var(--s-accent)) 0 5px / 6px 4px no-repeat,
-    linear-gradient(#2f9e4f, #2f9e4f) 8px 0 / 6px 4px no-repeat,
-    linear-gradient(#e5a400, #e5a400) 8px 10px / 6px 4px no-repeat;
+  width: 16px;
+  height: 16px;
+  background: url("/favicon.svg") center / 16px 16px no-repeat;
   image-rendering: pixelated;
 }
 
