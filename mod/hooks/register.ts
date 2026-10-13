@@ -2,7 +2,7 @@ import type { EngineInterface, PluginOptions, Register, ToolCallResult } from "c
 import { apply, FLOWPLAN_TOOL, initialState, type GraphState } from "../graph/reduce.ts";
 import { snapshot } from "../graph/snapshot.ts";
 import type { GraphEvent, Layout, Snapshot, TerminalInfo } from "../graph/types.ts";
-import { alerts, describeRequest, FLOWPLAN_SPEC, nudgeText, statusLine, summarize } from "../live/present.ts";
+import { alerts, describeRequest, FLOWPLAN_SPEC, nudgeText, promptTitle, statusLine, summarize } from "../live/present.ts";
 import { appNotice, autoUpdate, HELP, init, newerVersion, openInBackground, parseArgs, uninstall, type InstallContext } from "../live/install.ts";
 import { homeOf, platformOf, type Platform } from "../live/platform.ts";
 import { rebuildEvents } from "../live/rebuild.ts";
@@ -416,7 +416,10 @@ export const register: Register = (on, options) => {
   on("prompt.submit", async ($, e, next) => {
     // Where it came from: the person (composer, bridge, sdk) or the engine
     // (a background agent's task notification, an auto-continuation...).
-    observe($, "prompt.submit", { input: { chars: e.text.length, ...(e.origin ? { origin: e.origin.kind } : {}) } });
+    const title = promptTitle(e.text);
+    observe($, "prompt.submit", {
+      input: { chars: e.text.length, ...(title !== undefined ? { title } : {}), ...(e.origin ? { origin: e.origin.kind } : {}) }
+    });
     // Loaded again mid-session (/reload-plugins) without a session start: do the start's app check now.
     if (!started && overlay !== undefined) {
       started = true;

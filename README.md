@@ -164,10 +164,11 @@ session:
 declare a plan reaches it from the next session, so restart those sessions
 with `claude --continue` to keep their conversation and get the plan too.
 
-**When does the graph have more than one node?** When the agent declares a
-plan. FlowCTL asks it to, for work of three or more steps; a quick question or
-a one-command fix shows a single node for the current turn. You can turn that
-request off in the plugin's options.
+**How does the graph grow?** Every prompt adds to it. Work of three or more
+steps shows up as the plan the agent declares (FlowCTL asks it to; you can turn
+that request off in the plugin's options); a quick question or a one-command
+fix adds a single node, named after your prompt. The session reads left to
+right, one prompt after another.
 
 **Updating.** When a new version is out, update the plugin from `/plugin`
 (or `claude plugin update flowctl@flowctl`) and run `/reload-plugins`: the

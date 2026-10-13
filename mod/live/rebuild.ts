@@ -5,6 +5,7 @@
 // permission prompt, an error streak) is not, and need not be.
 
 import type { GraphEvent } from "../graph/types.ts";
+import { promptTitle } from "./present.ts";
 
 /** The part of a transcript message the rebuild reads ($.session.messages()). */
 export interface TranscriptMessage {
@@ -39,9 +40,15 @@ export function rebuildEvents(
 
   for (const message of messages) {
     // Each of the person's prompts starts a request, so the rebuilt graph
-    // keeps its requests apart, in order, as the live one does.
+    // keeps its requests apart, in order, as the live one does; one with no
+    // plan comes back as its own node, already answered.
     if (isPersonPrompt(message)) {
-      events.push({ t, event: "prompt.submit", input: { chars: message.text!.length } });
+      const title = promptTitle(message.text!);
+      events.push({
+        t,
+        event: "prompt.submit",
+        input: { chars: message.text!.length, ...(title !== undefined ? { title } : {}), replayed: true }
+      });
       continue;
     }
     if (message.role !== "assistant") continue;

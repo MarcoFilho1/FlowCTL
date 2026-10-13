@@ -167,10 +167,11 @@ para declarar um plano só chega a partir da próxima sessão, então reinicie
 essas sessões com `claude --continue` para manter a conversa e ter o plano
 também.
 
-**Quando o grafo tem mais de um nó?** Quando o agente declara um plano. O
-FlowCTL pede isso a ele para trabalhos de três etapas ou mais; uma pergunta
-rápida ou uma correção de um comando só mostra um único nó para a vez atual.
-Você pode desligar esse pedido nas opções do plugin.
+**Como o grafo cresce?** Cada prompt acrescenta algo a ele. Um trabalho de
+três etapas ou mais aparece como o plano que o agente declara (o FlowCTL pede
+isso a ele; você pode desligar esse pedido nas opções do plugin); uma pergunta
+rápida ou uma correção de um comando só acrescenta um nó, com o nome do seu
+prompt. A sessão se lê da esquerda para a direita, um prompt depois do outro.
 
 **Atualizando.** Quando sair uma versão nova, atualize o plugin pelo `/plugin`
 (ou `claude plugin update flowctl@flowctl`) e rode `/reload-plugins`: o início

@@ -62,6 +62,22 @@ interface AgentEntry {
   request: number;
 }
 
+/**
+ * One of the person's requests (a prompt). While no plan step or subagent
+ * stands for it, it is a node of its own, so every prompt leaves its mark on
+ * the session's timeline.
+ */
+interface PromptEntry {
+  id: string;
+  request: number;
+  /** The prompt's first line, cut short. */
+  title: string;
+  createdAt: number;
+  startedT?: number;
+  finishedT?: number;
+  summary?: string;
+}
+
 interface LoopState {
   /** Consecutive tool batches that failed. */
   errorStreak: number;
@@ -102,6 +118,8 @@ export interface GraphState {
   };
   /** The person's requests so far (prompt submissions); plan entries remember theirs. */
   request: number;
+  /** Each request's prompt, by request number. */
+  prompts: Map<number, PromptEntry>;
   /** FlowPlan step id → the node it names now (a step re-planned in a later request gets a new node). */
   steps: Map<string, string>;
   ended: boolean;
@@ -121,6 +139,7 @@ export function initialState(options: { errorThreshold?: number } = {}): GraphSt
     classicHooks: false,
     turn: { n: 0, running: false },
     request: 0,
+    prompts: new Map(),
     steps: new Map(),
     ended: false,
     warnings: [],
@@ -159,12 +178,14 @@ export function apply(state: GraphState, event: GraphEvent): GraphState {
       // Only the person's prompts start a new request. A background agent's
       // result arrives as a submission too (origin "task-notification"), and
       // must not split the request it belongs to.
-      if (isPersonPrompt(input["origin"])) state.request += 1;
+      if (isPersonPrompt(input["origin"])) onPersonPrompt(state, event, input);
       clearAttention(state, (attention) => attention.kind !== "error");
       break;
     case "turn.start":
       if (event.agentId === undefined) {
         state.turn = { n: state.turn.n + 1, running: true, startedT: event.t };
+        const prompt = state.prompts.get(state.request);
+        if (prompt !== undefined && prompt.startedT === undefined) prompt.startedT = event.t;
       }
       break;
     case "turn.complete":
@@ -242,12 +263,18 @@ export function replay(events: readonly GraphEvent[], options?: { errorThreshold
 }
 
 /**
- * The nodes the state shows, in creation order: plan entries, then agents.
- * With neither, one node for the current turn, so the graph is never empty.
+ * The nodes the state shows, in creation order: plan entries, agents, then
+ * the prompts no step stands for. With none, one node for the current turn,
+ * so the graph is never empty.
  */
 export function nodes(state: GraphState): GraphNode[] {
   const out: GraphNode[] = [];
-  const known = new Set([...state.entries.keys(), ...[...state.agents.values()].map((agent) => agent.id)]);
+  const prompts = loosePrompts(state);
+  const known = new Set([
+    ...state.entries.keys(),
+    ...[...state.agents.values()].map((agent) => agent.id),
+    ...prompts.map((prompt) => prompt.id)
+  ]);
 
   const after = sequenceLinks(state, known);
   for (const entry of [...state.entries.values()].sort(byCreation)) {
@@ -289,19 +316,39 @@ export function nodes(state: GraphState): GraphNode[] {
       ...(agent.parent !== undefined && known.has(agent.parent) ? { parent: agent.parent } : {})
     });
   }
-  // The turn node stands for the agent's work when no step does: before the
-  // first plan, at the start of each new request (until its plan arrives,
-  // hanging after the previous request's ends), and whenever something needs
-  // the person while no step is in progress.
+  // A prompt no step stands for is a node of its own: done once its request
+  // is over, and the current turn while it is the latest.
+  for (const prompt of prompts) {
+    const follows = after.get(prompt.id);
+    const current = prompt.request === state.request;
+    out.push({
+      ...(current ? turnFields(state) : { status: "done" as const }),
+      id: prompt.id,
+      kind: "turn",
+      title: prompt.title,
+      ...(prompt.summary !== undefined && !(current && state.turn.running) ? { summary: prompt.summary } : {}),
+      ...(prompt.startedT !== undefined ? { startedAt: prompt.startedT } : {}),
+      ...(prompt.finishedT !== undefined && !(current && state.turn.running) ? { finishedAt: prompt.finishedT } : {}),
+      blockedBy: [],
+      ...(follows !== undefined ? { after: follows } : {})
+    });
+  }
+  // The turn node stands for the agent's work when no step does and the
+  // current request has no prompt node: before the first prompt, until a new
+  // request's plan arrives (hanging after the previous request's ends), and
+  // whenever something needs the person while no step is in progress.
   const main = [...state.entries.values()].filter((entry) => entry.agentId === undefined);
   const currentPlanned = main.some((entry) => entry.request === state.request);
   const stepRunning = main.some((entry) => entry.base === "in_progress");
+  const promptShown = prompts.some((prompt) => prompt.request === state.request);
   const showTurn =
     state.turn.n > 0 &&
+    !promptShown &&
     (out.length === 0 || (state.turn.running && !currentPlanned) || (state.turn.attention !== undefined && !stepRunning));
   if (showTurn) {
     const ends = out.length > 0 ? lastEnds(steps(state, known)) : [];
     out.push({
+      ...turnFields(state),
       id: `turn:${state.turn.n}`,
       kind: "turn",
       ...(ends.length > 0 ? { after: ends } : {}),
@@ -309,17 +356,38 @@ export function nodes(state: GraphState): GraphNode[] {
       ...(state.turn.summary !== undefined ? { summary: state.turn.summary } : {}),
       ...(state.turn.startedT !== undefined ? { startedAt: state.turn.startedT } : {}),
       ...(state.turn.finishedT !== undefined ? { finishedAt: state.turn.finishedT } : {}),
-      // A turn that ended on errors stays red until the next turn starts.
-      status:
-        state.turn.attention?.kind === "error"
-          ? "error"
-          : displayStatus(state.turn.running ? "in_progress" : "completed", state.turn.attention),
-      ...(state.turn.attention !== undefined ? { attention: state.turn.attention } : {}),
-      ...(state.turn.lastError !== undefined ? { lastError: state.turn.lastError } : {}),
       blockedBy: []
     });
   }
   return out;
+}
+
+/** What the current turn shows: its status, why it needs the person, its last error. */
+function turnFields(state: GraphState): Pick<GraphNode, "status" | "attention" | "lastError"> {
+  return {
+    // A turn that ended on errors stays red until the next turn starts.
+    status:
+      state.turn.attention?.kind === "error"
+        ? "error"
+        : displayStatus(state.turn.running ? "in_progress" : "completed", state.turn.attention),
+    ...(state.turn.attention !== undefined ? { attention: state.turn.attention } : {}),
+    ...(state.turn.lastError !== undefined ? { lastError: state.turn.lastError } : {})
+  };
+}
+
+/**
+ * The prompts no plan step or subagent stands for, once their turn started
+ * (a replayed one has finished). A request with steps is drawn by its steps.
+ */
+function loosePrompts(state: GraphState): PromptEntry[] {
+  const covered = new Set<number>();
+  for (const entry of state.entries.values()) {
+    if (entry.agentId === undefined) covered.add(entry.request);
+  }
+  for (const agent of state.agents.values()) covered.add(agent.request);
+  return [...state.prompts.values()]
+    .filter((prompt) => prompt.startedT !== undefined && !covered.has(prompt.request))
+    .sort((a, b) => a.request - b.request);
 }
 
 export function sessionState(state: GraphState): SessionState {
@@ -356,16 +424,23 @@ interface Step {
 }
 
 /**
- * The timeline's steps: the main loop's plan entries, and the subagents that
+ * The timeline's steps: the main loop's plan entries, the subagents that
  * hang under no step (spawned without a plan), which stand for their request
- * the way its steps would. A subagent under a step follows that step instead.
+ * the way its steps would, and the prompts nothing else stands for. A
+ * subagent under a step follows that step instead.
  */
 function steps(state: GraphState, known: ReadonlySet<string>): Step[] {
   const main: Step[] = [...state.entries.values()].filter((entry) => entry.agentId === undefined);
   const loose: Step[] = [...state.agents.values()]
     .filter((agent) => agent.parent === undefined || !known.has(agent.parent))
     .map((agent) => ({ id: agent.id, request: agent.request, blockedBy: [], createdAt: agent.createdAt }));
-  return [...main, ...loose];
+  const prompts: Step[] = loosePrompts(state).map((prompt) => ({
+    id: prompt.id,
+    request: prompt.request,
+    blockedBy: [],
+    createdAt: prompt.createdAt
+  }));
+  return [...main, ...loose, ...prompts];
 }
 
 /** The steps that end the latest request with any: nothing in it depends on them. */
@@ -697,6 +772,11 @@ function onTurnComplete(
   if (summary !== undefined) {
     state.turn.summary = summary;
   }
+  const prompt = state.prompts.get(state.request);
+  if (prompt !== undefined) {
+    prompt.finishedT = event.t;
+    prompt.summary = summary ?? prompt.summary;
+  }
   // The main loop stopped: a step it left in_progress is not running any
   // more, whether the turn was aborted with Esc or ended without the agent
   // updating its plan. It runs again with the loop's next tool call.
@@ -719,6 +799,25 @@ function onTurnComplete(
   } else {
     clearAttention(state, (attention) => attention.kind !== "error", MAIN);
   }
+}
+
+function onPersonPrompt(state: GraphState, event: GraphEvent, input: Record<string, unknown>): void {
+  // Typed while a turn runs, it reaches the model inside that turn: the
+  // request before it is over, and this one is already under way.
+  const before = state.prompts.get(state.request);
+  if (state.turn.running && before !== undefined && before.finishedT === undefined) before.finishedT = event.t;
+  state.request += 1;
+  // Recordings from before prompts had titles keep the single turn node.
+  const title = text(input["title"]);
+  if (title === undefined) return;
+  const prompt: PromptEntry = { id: `prompt:${state.request}`, request: state.request, title, createdAt: state.clock };
+  if (state.turn.running) prompt.startedT = event.t;
+  // Replayed from the transcript: that request was over before the mod started.
+  if (input["replayed"] === true) {
+    prompt.startedT = event.t;
+    prompt.finishedT = event.t;
+  }
+  state.prompts.set(state.request, prompt);
 }
 
 function onPermissionRequest(state: GraphState, input: Record<string, unknown>, t: number): void {

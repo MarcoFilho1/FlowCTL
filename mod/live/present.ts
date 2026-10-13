@@ -84,6 +84,16 @@ export function summarize(answer: string | undefined): string | undefined {
   return text.length > 300 ? `${text.slice(0, 299)}…` : text;
 }
 
+/** A prompt's first line, cut short: the title of its node on the timeline. */
+export function promptTitle(prompt: string): string | undefined {
+  const line = prompt.split("\n").map((part) => part.trim()).find((part) => part !== "");
+  if (line === undefined) {
+    return undefined;
+  }
+  const flat = line.replace(/\s+/g, " ");
+  return flat.length > 80 ? `${flat.slice(0, 79)}…` : flat;
+}
+
 /** The name the engine gives the registered tool: mcp__<plugin>__<name>. */
 export const FLOWPLAN_NAME = "FlowPlan";
 
