@@ -55,6 +55,10 @@
     "2026-10-11": {
       "count": 1,
       "uniques": 1
+    },
+    "2026-10-12": {
+      "count": 45,
+      "uniques": 6
     }
   },
   "clones": {
@@ -113,6 +117,10 @@
     "2026-10-11": {
       "count": 0,
       "uniques": 0
+    },
+    "2026-10-12": {
+      "count": 597,
+      "uniques": 125
     }
   },
   "snapshots": {
@@ -159,6 +167,80 @@
       "downloads": {
         "v1.0.0 FlowCTL-1.0.0-macos.zip": 1,
         "v1.0.0 FlowCTL-1.0.0-windows-x64.zip": 1
+      }
+    },
+    "2026-10-13": {
+      "stars": 4,
+      "forks": 0,
+      "watchers": 0,
+      "uniqueVisitors14d": 6,
+      "uniqueCloners14d": 125,
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 13,
+          "uniques": 1
+        }
+      ],
+      "paths": [
+        {
+          "path": "/MarcoFilho1/FlowCTL",
+          "count": 29,
+          "uniques": 6
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/blob/main/README.pt-BR.md",
+          "count": 3,
+          "uniques": 3
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/pulls",
+          "count": 3,
+          "uniques": 3
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/branches",
+          "count": 2,
+          "uniques": 2
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/workflows/traffic.yml",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/workflows/traffic.yml.",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/runs/38070636767",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/runs/38070636767/job/114267141250",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/runs/38276497454",
+          "count": 1,
+          "uniques": 1
+        }
+      ],
+      "downloads": {
+        "v1.0.2 FlowCTL-1.0.2-macos.zip": 1,
+        "v1.0.2 FlowCTL-1.0.2-windows-x64.zip": 2,
+        "v1.0.1 FlowCTL-1.0.1-macos.zip": 1,
+        "v1.0.1 FlowCTL-1.0.1-windows-x64.zip": 2,
+        "v1.0.0 FlowCTL-1.0.0-macos.zip": 1,
+        "v1.0.0 FlowCTL-1.0.0-windows-x64.zip": 5
       }
     }
   }
