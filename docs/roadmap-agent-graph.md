@@ -167,7 +167,7 @@ fixtures.
 | Amarelo: pergunta | `tool.call` `AskUserQuestion` | Gatilho primário; limpa quando o resultado traz `answers`. Notifications `agent_needs_input` / `elicitation_*` reconciliam. |
 | Sessão esperando | Notification `idle_prompt` | Sessão em repouso (`idle`), não "precisa de você": só permissão ou pergunta deixam a sessão `waiting_you`. |
 | Vermelho | `turn.complete` com `reason: "error"` ou `"refusal"` e task `in_progress`; subagente `failed`; `classic.StopFailure`; ≥ N `isError` seguidos na mesma task | N configurável (`userConfig`, padrão 3). `reason: "aborted"` (Esc do usuário) **não** é erro: a task volta a pendente. Volta a azul se a task progredir com sucesso. |
-| Sem tasks | `turn.start` / `turn.complete` | Nó implícito `turn:<n>` ("Current turn") para o grafo nunca ficar vazio. |
+| Sem tasks | `prompt.submit` / `turn.start` / `turn.complete` | Cada prompt sem plano vira um nó `prompt:<n>` com o título do prompt, na linha do tempo da sessão; sem prompt conhecido, nó implícito `turn:<n>` ("Current turn") para o grafo nunca ficar vazio. |
 | Sessão retomada | `session.start` após `--resume` / `/clear` | Reconstrói pelo `TaskList`; caso de teste obrigatório. |
 
 ---

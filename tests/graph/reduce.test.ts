@@ -569,3 +569,67 @@ test("a step left running is closed when a step that waits on it starts or finis
   apply(state, { t: 9, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps: [{ id: "y", status: "completed" }] }, result: { result: [] } });
   assert.equal(nodes(state).find((node) => node.id === "plan:x")?.status, "done");
 });
+
+test("every prompt grows the timeline: one with no plan stays as a node of its own, after the one before", () => {
+  const state = initialState();
+  const ask = (t: number, title: string): void => {
+    apply(state, { t, event: "prompt.submit", input: { chars: title.length, title, origin: "composer" } });
+    apply(state, { t, event: "turn.start", input: { turnId: String(t) } });
+  };
+  ask(0, "Remove the pre-release flag");
+  assert.deepEqual(nodes(state).map((node) => `${node.id}:${node.status}`), ["prompt:1:running"]);
+  apply(state, { t: 1, event: "turn.complete", input: { reason: "answer", summary: "Done." }, result: { agents: [] } });
+  ask(2, "How many people saw the repo?");
+  apply(state, { t: 3, event: "turn.complete", input: { reason: "answer" }, result: { agents: [] } });
+
+  const shown = nodes(state);
+  assert.deepEqual(shown.map((node) => `${node.id}:${node.status}`), ["prompt:1:done", "prompt:2:done"]);
+  assert.equal(byId(shown, "prompt:1").title, "Remove the pre-release flag");
+  assert.equal(byId(shown, "prompt:1").summary, "Done.");
+  assert.deepEqual(byId(shown, "prompt:2").after, ["prompt:1"]);
+  assert.deepEqual([byId(shown, "prompt:2").startedAt, byId(shown, "prompt:2").finishedAt], [2, 3]);
+});
+
+test("a prompt with a plan is drawn by its steps, and the next prompt hangs after them", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 5, title: "Build it", origin: "composer" } });
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "1" } });
+  apply(state, {
+    t: 1,
+    event: "tool.call",
+    input: { tool: FLOWPLAN_TOOL, steps: [{ id: "a", title: "A", status: "completed" }, { id: "b", title: "B", status: "completed", blockedBy: ["a"] }] },
+    result: { result: [] }
+  });
+  apply(state, { t: 2, event: "turn.complete", input: { reason: "answer" }, result: { agents: [] } });
+  apply(state, { t: 3, event: "prompt.submit", input: { chars: 5, title: "Thanks!", origin: "composer" } });
+  apply(state, { t: 3, event: "turn.start", input: { turnId: "2" } });
+  apply(state, { t: 4, event: "turn.complete", input: { reason: "answer" }, result: { agents: [] } });
+
+  const shown = nodes(state);
+  assert.deepEqual(shown.map((node) => node.id), ["plan:a", "plan:b", "prompt:2"]);
+  assert.deepEqual(byId(shown, "prompt:2").after, ["plan:b"]);
+});
+
+test("a prompt typed while a turn runs is under way at once, and ends the request before it", () => {
+  const state = initialState();
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 5, title: "First", origin: "composer" } });
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "1" } });
+  apply(state, { t: 5, event: "prompt.submit", input: { chars: 5, title: "Also this", origin: "composer" } });
+  const shown = nodes(state);
+  assert.deepEqual(shown.map((node) => `${node.id}:${node.status}`), ["prompt:1:done", "prompt:2:running"]);
+  assert.equal(byId(shown, "prompt:1").finishedAt, 5);
+  assert.equal(byId(shown, "prompt:2").startedAt, 5);
+});
+
+test("prompts replayed from the transcript come back answered; a background agent's result adds no node", () => {
+  const state = initialState();
+  apply(state, { t: 9, event: "prompt.submit", input: { chars: 5, title: "Earlier", replayed: true } });
+  apply(state, { t: 10, event: "prompt.submit", input: { chars: 5, title: "Now", origin: "composer" } });
+  apply(state, { t: 10, event: "turn.start", input: { turnId: "1" } });
+  apply(state, { t: 11, event: "turn.complete", input: { reason: "answer" }, result: { agents: [] } });
+  apply(state, { t: 12, event: "prompt.submit", input: { chars: 900, title: "<task-notification>", origin: "task-notification" } });
+  apply(state, { t: 12, event: "turn.start", input: { turnId: "2" } });
+  const shown = nodes(state);
+  assert.deepEqual(shown.map((node) => `${node.id}:${node.status}`), ["prompt:1:done", "prompt:2:running"]);
+  assert.deepEqual(byId(shown, "prompt:2").after, ["prompt:1"]);
+});

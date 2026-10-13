@@ -62,3 +62,10 @@ test("summaries keep the first 300 characters of an answer", () => {
   assert.equal(summarize(undefined), undefined);
   assert.equal(summarize("y".repeat(500))?.length, 300);
 });
+
+test("a prompt's title is its first line, flattened and cut at 80 characters", () => {
+  const { promptTitle } = present;
+  assert.equal(promptTitle("\n  Fix the   login bug\nwith details below"), "Fix the login bug");
+  assert.equal(promptTitle("   \n "), undefined);
+  assert.equal(promptTitle("z".repeat(200))?.length, 80);
+});
