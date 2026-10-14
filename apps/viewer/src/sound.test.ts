@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
-import { createGate, cuesFor, tonesFor, type Cue } from "./sound.ts";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { createGate, cuesFor, play, tonesFor, type Cue } from "./sound.ts";
 import type { Transitions } from "./transitions.ts";
 
 const none: Transitions = { added: [], finished: [], started: [], handoffs: [], flashed: [] };
@@ -68,5 +68,47 @@ describe("the two looks", () => {
         expect(Math.max(...tonesFor(cue, look).map((tone) => tone.gain))).toBeLessThanOrEqual(0.07);
       }
     }
+  });
+});
+
+describe("the audio context", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  test("wakes up from any state but running, and is made again once closed", () => {
+    const made: FakeContext[] = [];
+    class FakeContext {
+      state = "interrupted";
+      currentTime = 0;
+      destination = {};
+      resumes = 0;
+      constructor() {
+        made.push(this);
+      }
+      resume() {
+        this.resumes += 1;
+        return Promise.resolve();
+      }
+      createOscillator() {
+        return { type: "", frequency: param(), connect: (node: unknown) => node, start() {}, stop() {} };
+      }
+      createGain() {
+        return { gain: param(), connect: (node: unknown) => node };
+      }
+    }
+    const param = () => ({ setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
+    vi.stubGlobal("AudioContext", FakeContext);
+
+    play("done", "smooth");
+    expect(made).toHaveLength(1);
+    expect(made[0]!.resumes).toBe(1);
+
+    made[0]!.state = "running";
+    play("done", "smooth");
+    expect(made[0]!.resumes).toBe(1);
+
+    made[0]!.state = "closed";
+    play("done", "smooth");
+    expect(made).toHaveLength(2);
+    expect(made[1]!.resumes).toBe(1);
   });
 });
