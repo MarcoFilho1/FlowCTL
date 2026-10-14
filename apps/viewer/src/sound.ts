@@ -107,8 +107,10 @@ let context: AudioContext | undefined;
 
 function audio(): AudioContext | undefined {
   if (typeof AudioContext !== "function") return undefined;
-  context ??= new AudioContext();
-  if (context.state === "suspended") void context.resume().catch(() => undefined);
+  if (context === undefined || context.state === "closed") context = new AudioContext();
+  // Not only suspended: WebKit leaves it "interrupted" after the computer
+  // sleeps or the output device changes, and it stays silent until resumed.
+  if (context.state !== "running") void context.resume().catch(() => undefined);
   return context;
 }
 
