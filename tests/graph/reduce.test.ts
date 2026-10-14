@@ -633,3 +633,20 @@ test("prompts replayed from the transcript come back answered; a background agen
   assert.deepEqual(shown.map((node) => `${node.id}:${node.status}`), ["prompt:1:done", "prompt:2:running"]);
   assert.deepEqual(byId(shown, "prompt:2").after, ["prompt:1"]);
 });
+
+test("a step an earlier request left in progress is done once the agent works on a later one", () => {
+  const state = initialState();
+  const plan = (t: number, steps: object[]): GraphEvent => ({ t, event: "tool.call", input: { tool: FLOWPLAN_TOOL, steps }, result: { result: [] } });
+  apply(state, { t: 0, event: "prompt.submit", input: { chars: 5, title: "Ship v1", origin: "composer" } });
+  apply(state, { t: 0, event: "turn.start", input: { turnId: "1" } });
+  apply(state, plan(1, [{ id: "v1", title: "PR v1", status: "in_progress" }]));
+  apply(state, { t: 2, event: "turn.complete", input: { reason: "answer" }, result: { agents: [] } });
+  apply(state, { t: 3, event: "prompt.submit", input: { chars: 5, title: "Now v2", origin: "composer" } });
+  apply(state, { t: 3, event: "turn.start", input: { turnId: "2" } });
+  apply(state, plan(4, [{ id: "v2", title: "PR v2", status: "in_progress" }]));
+
+  const shown = nodes(state);
+  assert.equal(byId(shown, "plan:v1").status, "done");
+  assert.equal(byId(shown, "plan:v1").finishedAt, 4);
+  assert.equal(byId(shown, "plan:v2").status, "running");
+});

@@ -911,6 +911,16 @@ function setBase(state: GraphState, entry: PlanEntry, base: BaseStatus, t: numbe
         setBase(state, blocker, "completed", t);
       }
     }
+    // Work on a later request means the main agent moved on: a step of an
+    // earlier one it left "in progress" (never marked) is done by now too,
+    // or it would turn blue again with every call of every later request.
+    if (entry.agentId === undefined) {
+      for (const other of state.entries.values()) {
+        if (other.agentId === undefined && other.base === "in_progress" && other.request < entry.request) {
+          setBase(state, other, "completed", t);
+        }
+      }
+    }
   }
   if (base === "completed" && entry.base !== "completed") {
     entry.finishedT = t;
