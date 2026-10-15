@@ -330,6 +330,18 @@ private let geometry: [Check] = [
         let anchor = PanelGeometry.defaultAnchor(screen: laptop)
         expect.equal(anchor.corner, .topRight)
         expect.equal(anchor.point, CGPoint(x: 1458, y: 911))
+    },
+    Check(group: "geometry", name: "an anchor on an unplugged monitor falls back, and returns with it") { expect in
+        let external = CGRect(x: 1470, y: 0, width: 1920, height: 1080)
+        let saved = (corner: Corner.topRight, point: CGPoint(x: 1741, y: 635))
+        let gone = PanelGeometry.restore(saved, screens: [laptop], fallback: laptop)
+        expect.equal(gone.corner, .topRight)
+        expect.equal(gone.point, CGPoint(x: 1458, y: 911))
+        let back = PanelGeometry.restore(saved, screens: [laptop, external], fallback: laptop)
+        expect.equal(back.point, saved.point)
+        let flush = PanelGeometry.restore((.topRight, CGPoint(x: laptop.maxX, y: laptop.maxY)), screens: [laptop], fallback: laptop)
+        expect.equal(flush.point, CGPoint(x: laptop.maxX, y: laptop.maxY))
+        expect.equal(PanelGeometry.restore(nil, screens: [laptop], fallback: laptop).point, CGPoint(x: 1458, y: 911))
     }
 ]
 
