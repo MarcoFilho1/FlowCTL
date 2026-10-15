@@ -81,4 +81,15 @@ public enum PanelGeometry {
     public static func defaultAnchor(screen: CGRect) -> (corner: Corner, point: CGPoint) {
         (.topRight, CGPoint(x: screen.maxX - margin, y: screen.maxY - margin))
     }
+
+    /// The saved anchor while its point is on one of `screens`, its right and
+    /// top edges included (an anchor dragged flush to the edge sits exactly
+    /// there); otherwise the default corner of `fallback`. A monitor unplugged
+    /// takes its anchor with it, and plugging it back brings the saved one back.
+    public static func restore(_ saved: (corner: Corner, point: CGPoint)?, screens: [CGRect], fallback: CGRect) -> (corner: Corner, point: CGPoint) {
+        if let saved, screens.contains(where: { $0.insetBy(dx: -1, dy: -1).contains(saved.point) }) {
+            return saved
+        }
+        return defaultAnchor(screen: fallback)
+    }
 }

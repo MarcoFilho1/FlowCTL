@@ -54,6 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         self.panel = panel
         anchor = restoredAnchor()
         layOut(animated: false)
+        // A monitor plugged or unplugged: a panel anchored to a screen that is
+        // gone moves to one that is there, and back when the screen returns.
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.screensChanged()
+        }
         applyPreferences()
         statusMenu = StatusMenu(actions: self)
 
@@ -212,10 +217,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
     /// Last session's anchor if its point is still on a screen, else the top-right corner.
     private func restoredAnchor() -> (corner: Corner, point: CGPoint) {
-        if let saved = preferences.anchor, NSScreen.screens.contains(where: { Self.reaches($0, saved.point) }) {
-            return saved
-        }
-        return PanelGeometry.defaultAnchor(screen: screenFrame(containing: nil))
+        PanelGeometry.restore(preferences.anchor, screens: NSScreen.screens.map(\.frame), fallback: screenFrame(containing: nil))
+    }
+
+    private func screensChanged() {
+        let restored = restoredAnchor()
+        guard restored.corner != anchor.corner || restored.point != anchor.point else { return layOut(animated: false) }
+        anchor = restored
+        log("screens changed: anchored to the \(anchor.corner.rawValue) corner at \(Int(anchor.point.x)),\(Int(anchor.point.y))")
+        layOut(animated: false)
     }
 
     private func screenFrame(containing point: CGPoint?) -> CGRect {
