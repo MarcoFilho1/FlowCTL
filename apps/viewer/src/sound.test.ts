@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createGate, cuesFor, play, tonesFor, type Cue } from "./sound.ts";
+import { createGate, cuesFor, play, resetAudio, tonesFor, type Cue } from "./sound.ts";
 import type { Transitions } from "./transitions.ts";
 
 const none: Transitions = { added: [], finished: [], started: [], handoffs: [], flashed: [] };
@@ -166,5 +166,40 @@ describe("the audio context", () => {
     play("done", "smooth");
     expect(made).toHaveLength(first + 2);
     vi.useRealTimers();
+  });
+
+  test("is dropped when the Mac wakes, and the next cue makes a new one", () => {
+    const made: { closed: number }[] = [];
+    const param = () => ({ setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
+    class FakeContext {
+      state = "running";
+      currentTime = 0;
+      destination = {};
+      closed = 0;
+      constructor() {
+        made.push(this);
+      }
+      resume() {
+        return Promise.resolve();
+      }
+      close() {
+        this.closed += 1;
+        return Promise.resolve();
+      }
+      createOscillator() {
+        return { type: "", frequency: param(), connect: (node: unknown) => node, start() {}, stop() {} };
+      }
+      createGain() {
+        return { gain: param(), connect: (node: unknown) => node };
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeContext);
+    resetAudio();
+    play("done", "smooth");
+    expect(made).toHaveLength(1);
+    resetAudio();
+    expect(made[0]!.closed).toBe(1);
+    play("done", "smooth");
+    expect(made).toHaveLength(2);
   });
 });

@@ -150,6 +150,17 @@ function isDead(ctx: AudioContext, wall: number): boolean {
   return elapsed >= STUCK_MS && (ctx.currentTime - lastSeen.audio) * 1000 < elapsed / 2;
 }
 
+/**
+ * Drops the context so the next cue makes a new one. The overlay app calls
+ * it when the Mac wakes, before the first cue can fall on a dead context.
+ */
+export function resetAudio(): void {
+  void context?.close?.().catch(() => undefined);
+  context = undefined;
+  resumeAskedAt = undefined;
+  lastSeen = undefined;
+}
+
 /** Plays a cue now. Silently does nothing where audio is unavailable. */
 export function play(cue: Cue, look: Look): void {
   const ctx = audio();

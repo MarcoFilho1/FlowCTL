@@ -2,6 +2,7 @@
 // plugged in (the overlay's window.flowctl.push, or the fixture player).
 
 import { SNAPSHOT_SCHEMA, type Snapshot } from "../../../mod/graph/types.ts";
+import { resetAudio } from "./sound.ts";
 
 /** How the graph is drawn: pixel art (the default) or smooth vector shapes. */
 export type Look = "pixel" | "smooth";
@@ -173,6 +174,8 @@ declare global {
       setSoundStyle(style: SoundStyle): void;
       setIdleAnimation(on: boolean): void;
       setTheme(theme: Theme): void;
+      /** The Mac woke: the sound starts over with a new audio context. */
+      resetAudio?(): void;
     };
     webkit?: { messageHandlers?: { flowctl?: { postMessage(message: NativeMessage): void } } };
     /** The Windows overlay's (Tauri) way in, set by its page script. */
@@ -211,7 +214,8 @@ export function installBridge(store: SessionStore, target: Window = window): voi
     setSound: (on) => store.setSound(on),
     setSoundStyle: (style) => store.setSoundStyle(style),
     setIdleAnimation: (on) => store.setIdleAnimation(on),
-    setTheme: (theme) => store.setTheme(theme)
+    setTheme: (theme) => store.setTheme(theme),
+    resetAudio: () => resetAudio()
   };
 }
 
