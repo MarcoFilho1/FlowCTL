@@ -59,9 +59,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
         }
-        // The Mac woke: WebKit can leave the page's audio silent after a sleep.
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.bridge?.resetAudio()
+        // The Mac woke, its screen came back or the user came back to it:
+        // WebKit can leave the page's audio silent after any of them. With a
+        // session open the Mac often never sleeps (Claude Code keeps it awake),
+        // so the screen's wake is the one that comes.
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.bridge?.resetAudio()
+            }
         }
         applyPreferences()
         statusMenu = StatusMenu(actions: self)

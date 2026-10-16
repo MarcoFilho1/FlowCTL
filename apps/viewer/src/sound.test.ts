@@ -168,6 +168,52 @@ describe("the audio context", () => {
     vi.useRealTimers();
   });
 
+  test("is made again after a quiet spell, even running with a clock that kept going", () => {
+    vi.useFakeTimers();
+    const made: { closed: number; currentTime: number }[] = [];
+    const param = () => ({ setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
+    class FakeContext {
+      state = "running";
+      currentTime = 0;
+      destination = {};
+      closed = 0;
+      constructor() {
+        made.push(this);
+      }
+      resume() {
+        return Promise.resolve();
+      }
+      close() {
+        this.closed += 1;
+        return Promise.resolve();
+      }
+      createOscillator() {
+        return { type: "", frequency: param(), connect: (node: unknown) => node, start() {}, stop() {} };
+      }
+      createGain() {
+        return { gain: param(), connect: (node: unknown) => node };
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeContext);
+    resetAudio();
+    play("done", "smooth");
+    expect(made).toHaveLength(1);
+
+    // Cues close together share the context.
+    vi.advanceTimersByTime(10_000);
+    made[0]!.currentTime += 10;
+    play("done", "smooth");
+    expect(made).toHaveLength(1);
+
+    // The screen was off for half an hour: the clock ran, the output may be gone.
+    vi.advanceTimersByTime(30 * 60_000);
+    made[0]!.currentTime += 30 * 60;
+    play("done", "smooth");
+    expect(made).toHaveLength(2);
+    expect(made[0]!.closed).toBe(1);
+    vi.useRealTimers();
+  });
+
   test("is dropped when the Mac wakes, and the next cue makes a new one", () => {
     const made: { closed: number }[] = [];
     const param = () => ({ setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
