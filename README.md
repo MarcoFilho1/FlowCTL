@@ -190,8 +190,10 @@ hide the overlay, your sessions (click one to bring its terminal forward), the
 look, theme (auto, dark, light), size (small, medium, large) and sound, and
 toggles for always on top, idle animation, show automatically and hide when
 idle. **Settings…** holds them all, plus opacity and show subagents. On
-Windows, the tray icon: left click shows or hides the panel, right click opens
-the menu with the same settings.
+Windows, in Windows 11's own manner: a left click on the tray icon opens a
+flyout like Quick Settings (toggle buttons, an opacity slider, the look,
+theme, size and sound, your sessions), and Settings opens a page like Windows
+Settings; a right click opens a short menu.
 
 The **plugin's options** (`/plugin`, then flowctl):
 

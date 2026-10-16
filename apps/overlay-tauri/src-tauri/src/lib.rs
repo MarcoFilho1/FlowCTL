@@ -3,6 +3,7 @@
 //! endpoint. The macOS release keeps the Swift app in apps/overlay; this one
 //! follows its behavior, setting for setting.
 
+pub mod controls;
 pub mod core;
 pub mod focus;
 pub mod overlay;
@@ -84,7 +85,15 @@ pub fn run() {
     }
 
     let app = tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![native_message, page_ready, start_drag])
+        .invoke_handler(tauri::generate_handler![
+            native_message,
+            page_ready,
+            start_drag,
+            controls::controls_state,
+            controls::controls_set,
+            controls::controls_action,
+            controls::controls_height
+        ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -153,7 +162,7 @@ pub fn run() {
 
     app.run(|app, event| match event {
         // The panel hides, never closes; the app quits from the tray.
-        RunEvent::WindowEvent { event: WindowEvent::CloseRequested { api, .. }, .. } => {
+        RunEvent::WindowEvent { label, event: WindowEvent::CloseRequested { api, .. }, .. } if label == PANEL => {
             api.prevent_close();
             lock(&app.state::<Shared>()).hide(core::registry::HiddenBy::User);
         }

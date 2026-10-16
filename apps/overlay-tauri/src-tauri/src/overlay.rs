@@ -122,6 +122,17 @@ impl Overlay {
                     Err(_) => Response::bad_request("the main thread did not answer"),
                 }
             }
+            // The tray flyout and Settings, as a click would open them (FLOWCTL_DEBUG=1 only).
+            ("POST", "/debug/flyout") if std::env::var("FLOWCTL_DEBUG").as_deref() == Ok("1") => {
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || crate::controls::toggle_flyout(&handle, None));
+                Response::ok("ok\n")
+            }
+            ("POST", "/debug/settings") if std::env::var("FLOWCTL_DEBUG").as_deref() == Ok("1") => {
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || crate::controls::open_settings(&handle));
+                Response::ok("ok\n")
+            }
             // Opening the app again (the Start menu, a second launch) shows the panel.
             ("POST", "/show") => {
                 on_main(app, |overlay| {
