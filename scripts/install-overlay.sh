@@ -59,6 +59,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/viewer"
 cp "$BIN" "$APP/Contents/MacOS/FlowCTL"
 cp "$OVERLAY/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$OVERLAY/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"   # drawn by apps/overlay/scripts/make-icon.swift
 cp "$ROOT/apps/viewer/dist/index.html" "$APP/Contents/Resources/viewer/index.html"
 codesign --force --sign - --timestamp=none "$APP"
 codesign --verify "$APP"

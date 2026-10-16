@@ -32,9 +32,15 @@ It can always be closed:
 
 - the **×** at the top-left of the window hides it (so does **⌘W** once you
   have clicked the window);
-- the **menu bar item** (the graph icon; a yellow warning while a session waits
-  on you) has **Show/Hide Panel**, **Opacity**, **Size** (Small 280×180,
-  Medium 360×220, Large 480×300), **Look** (Pixel, the default, or Smooth), **Theme** (a submenu, one choice checked: **Auto**, the default, follows
+- the **menu bar item** (FlowCTL's pixel node, as a template glyph; a yellow
+  node that blinks while a session waits on you) opens the **control panel**,
+  a glass panel in the manner of Control Center (`ControlPanel.swift`): the
+  overlay shown or hidden, the live sessions (a click brings the session's
+  terminal forward), round toggles for Sound, On Top, Auto Show and Auto Hide,
+  the Look, then **Settings…** (⌘,), **About FlowCTL** and **Quit FlowCTL**.
+  **Settings…** opens a grouped window, as System Settings
+  (`SettingsWindow.swift`), with every option below: **Opacity**, **Size** (Small 280×180,
+  Medium 360×220, Large 480×300), **Look** (Pixel, the default, or Smooth), **Theme** (one choice: **Auto**, the default, follows
   macOS's appearance; **Dark** or **Light** overrides it, whatever macOS is).
   The overlay cannot see what is behind it, so a light Mac over a dark
   terminal needs **Dark**. Sent as `window.flowctl.setTheme('auto' | 'dark' |
@@ -42,7 +48,7 @@ It can always be closed:
   viewer without it only logs it. The panel paints no background of its own
   in either theme (`drawsBackground` off, under-page colour clear), so the
   viewer's own tokens decide what sits on the screen.
-- **Sound** (a submenu, one choice checked: **Off**, **Same as Look** (the
+- **Sound** (one choice: **Off**, **Same as Look** (the
   default), **Clean** or **8-bit**. Off sends `setSound(false)`; the others send
   `setSound(true)` and `setSoundStyle('look' | 'smooth' | 'pixel')`, on every
   load, after the look and before the sessions. A user who turned sound off
@@ -175,3 +181,8 @@ sessions, file cleanup, window geometry, terminal focus plans);
 `/debug/*` endpoints (state, a capture of its own window, and clicks on its
 controls) for checking it without Screen Recording or Accessibility
 permissions; see `Sources/FlowCTL/DebugHooks.swift`.
+
+The app icon (`Resources/AppIcon.icns`, a graphite squircle on the macOS icon
+grid holding a small graph of pixel nodes) is drawn by
+`swift scripts/make-icon.swift [preview.png]`, run in `apps/overlay`; the
+icns is checked in, so run it only to change the icon.

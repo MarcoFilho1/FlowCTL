@@ -6,7 +6,9 @@ import FlowCTLCore
 /// Accessibility permissions. Served only when FLOWCTL_DEBUG=1.
 ///
 ///   GET  /debug/state            panel, sessions and menu as JSON
-///   GET  /debug/capture          PNG of the panel (own window: no permission needed)
+///   GET  /debug/capture          PNG of the panel (own window: no permission needed);
+///                                ?window=control or ?window=settings for those windows
+///   POST /debug/control?open=1|0 opens (kept open) or closes the menu bar panel
 ///   POST /debug/close            clicks the panel's close button
 ///   POST /debug/menu?item=Title  runs a menu bar item, as a click on it would
 ///   POST /debug/click            presses the grip (the page's grip, as the viewer reported it): the panel becomes key
@@ -36,7 +38,19 @@ enum DebugHooks {
             case ("GET", "/debug/state"):
                 return json(app.debugState())
             case ("GET", "/debug/capture"):
-                return capture(app.debugPanel).map { .ok($0 + "\n") } ?? .badRequest("capture failed")
+                // window=control (the menu bar panel) or window=settings; the overlay otherwise.
+                let window: NSWindow? = switch query["window"] {
+                case "control": app.debugStatusMenu?.panel.debugWindow
+                case "settings": app.debugStatusMenu?.settings.debugWindow
+                default: app.debugPanel
+                }
+                return capture(window).map { .ok($0 + "\n") } ?? .badRequest("capture failed")
+            case ("POST", "/debug/control"):
+                // Opens the menu bar panel below the status item, kept open; open=0 closes it.
+                guard let menu = app.debugStatusMenu else { return .badRequest("no status item") }
+                menu.panel.keepOpen = query["open"] != "0"
+                if menu.panel.keepOpen != menu.panel.isVisible { menu.debugClick() }
+                return .ok()
             case ("POST", "/debug/close"):
                 // The viewer's × sends this message; the bridge hides the panel as it did.
                 app.debugBridge?.postFromPage(["type": "close"])
@@ -144,7 +158,7 @@ enum DebugHooks {
         return .ok(String(decoding: data, as: UTF8.self) + "\n")
     }
 
-    private static func capture(_ panel: NSPanel?) -> String? {
+    private static func capture(_ panel: NSWindow?) -> String? {
         guard let panel, panel.windowNumber > 0,
               let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(panel.windowNumber), [.boundsIgnoreFraming, .bestResolution])
         else { return nil }

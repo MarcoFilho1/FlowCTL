@@ -188,12 +188,14 @@ rodar o `/flowctl init` você mesmo.
 | `/flowctl init --from-source` | Compila a partir do código da tag em vez de baixar (só macOS; precisa de pnpm, Node 22 e Swift) |
 | `/flowctl uninstall` | Fecha e remove o app (o plugin é removido pelo `/plugin`) |
 
-O **ícone da barra de menus** (no Windows, o ícone da bandeja: clique esquerdo
-mostra ou esconde o painel, clique direito abre o menu) guarda as
-configurações do overlay: mostrar ou esconder o painel, opacidade, tamanho
-(pequeno, médio, grande), visual (pixel ou smooth), tema (automático, escuro,
-claro), som, mostrar subagentes, animação de ocioso, sempre por cima, mostrar
-automaticamente, esconder quando ocioso.
+O **ícone da barra de menus** abre um painel no estilo da Central de
+Controle: mostrar ou esconder o overlay, suas sessões (clique numa para trazer
+o terminal dela para frente), som, sempre por cima, mostrar automaticamente,
+esconder quando ocioso e o visual. **Ajustes…** (⌘,) guarda o resto:
+opacidade, tamanho (pequeno, médio, grande), tema (automático, escuro, claro),
+mostrar subagentes e animação de ocioso. No Windows, o ícone da bandeja: clique
+esquerdo mostra ou esconde o painel, clique direito abre o menu com os mesmos
+ajustes.
 
 As **opções do plugin** (`/plugin`, depois flowctl):
 

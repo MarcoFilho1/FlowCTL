@@ -5,6 +5,7 @@
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleDisplayName</key><string>FlowCTL</string>
   <key>CFBundleExecutable</key><string>FlowCTL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIdentifier</key><string>dev.flowctl.overlay</string>
   <key>CFBundleName</key><string>FlowCTL</string>
   <key>CFBundlePackageType</key><string>APPL</string>
