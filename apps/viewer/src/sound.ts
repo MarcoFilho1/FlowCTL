@@ -104,14 +104,61 @@ export function tonesFor(cue: Cue, look: Look): Tone[] {
 }
 
 let context: AudioContext | undefined;
+/** When the context was last asked to resume and was not running yet. */
+let resumeAskedAt: number | undefined;
+/** The context's clock against the wall clock, at the last cue. */
+let lastSeen: { audio: number; wall: number } | undefined;
+
+/** A context that cannot be trusted to sound: made again from scratch. */
+const STUCK_MS = 1000;
 
 function audio(): AudioContext | undefined {
   if (typeof AudioContext !== "function") return undefined;
-  if (context === undefined || context.state === "closed") context = new AudioContext();
+  const wall = Date.now();
+  if (context !== undefined && isDead(context, wall)) {
+    void context.close?.().catch(() => undefined);
+    context = undefined;
+  }
+  if (context === undefined) {
+    context = new AudioContext();
+    resumeAskedAt = undefined;
+    lastSeen = undefined;
+  }
   // Not only suspended: WebKit leaves it "interrupted" after the computer
   // sleeps or the output device changes, and it stays silent until resumed.
-  if (context.state !== "running") void context.resume().catch(() => undefined);
+  if (context.state !== "running") {
+    resumeAskedAt ??= wall;
+    void context.resume().catch(() => undefined);
+  } else {
+    resumeAskedAt = undefined;
+  }
+  lastSeen = { audio: context.currentTime, wall };
   return context;
+}
+
+/**
+ * Closed; or asked to resume a while ago and still not running; or "running"
+ * with a clock that stopped: after the Mac sleeps or the output device goes
+ * away (a monitor's speakers), WebKit can keep a context that says running
+ * and plays nothing. Its clock is what gives it away.
+ */
+function isDead(ctx: AudioContext, wall: number): boolean {
+  if (ctx.state === "closed") return true;
+  if (ctx.state !== "running") return resumeAskedAt !== undefined && wall - resumeAskedAt >= STUCK_MS;
+  if (lastSeen === undefined) return false;
+  const elapsed = wall - lastSeen.wall;
+  return elapsed >= STUCK_MS && (ctx.currentTime - lastSeen.audio) * 1000 < elapsed / 2;
+}
+
+/**
+ * Drops the context so the next cue makes a new one. The overlay app calls
+ * it when the Mac wakes, before the first cue can fall on a dead context.
+ */
+export function resetAudio(): void {
+  void context?.close?.().catch(() => undefined);
+  context = undefined;
+  resumeAskedAt = undefined;
+  lastSeen = undefined;
 }
 
 /** Plays a cue now. Silently does nothing where audio is unavailable. */
