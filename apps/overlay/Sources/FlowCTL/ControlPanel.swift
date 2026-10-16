@@ -76,16 +76,16 @@ struct ControlPanelView: View {
             sessionsTile
             appearanceTile
             HStack(spacing: 10) {
-                ToggleTile(symbol: "pin.fill", on: model.prefs?.alwaysOnTop ?? true,
+                ToggleTile(glyph: .onTop, on: model.prefs?.alwaysOnTop ?? true,
                            title: "On Top", subtitle: onOff(model.prefs?.alwaysOnTop)) { model.toggle(\.alwaysOnTop) }
-                ToggleTile(symbol: "sparkles", on: model.prefs?.idleAnimation ?? true,
+                ToggleTile(glyph: .animation, on: model.prefs?.idleAnimation ?? true,
                            title: "Animation", subtitle: onOff(model.prefs?.idleAnimation)) { model.toggle(\.idleAnimation) }
             }
             HStack(spacing: 10) {
-                ToggleTile(symbol: "rectangle.inset.topright.filled", on: model.prefs?.showAutomatically ?? true,
+                ToggleTile(glyph: .autoShow, on: model.prefs?.showAutomatically ?? true,
                            title: "Auto Show", subtitle: onOff(model.prefs?.showAutomatically)) { model.toggle(\.showAutomatically) }
-                ToggleTile(symbol: "moon.zzz.fill", on: model.prefs?.hideWhenIdle ?? true,
-                           title: "Auto Hide", subtitle: onOff(model.prefs?.hideWhenIdle)) { model.toggle(\.hideWhenIdle) }
+                ToggleTile(glyph: .hideWhenIdle, on: model.prefs?.hideWhenIdle ?? true,
+                           title: "Hide When Idle", subtitle: onOff(model.prefs?.hideWhenIdle)) { model.toggle(\.hideWhenIdle) }
             }
             Divider().padding(.horizontal, 6).padding(.top, 2)
             VStack(spacing: 0) {
@@ -358,7 +358,7 @@ private struct Tile: View {
 
 /// A round button that turns blue when on, as Control Center's.
 private struct ToggleTile: View {
-    let symbol: String
+    let glyph: ToggleGlyph
     let on: Bool
     let title: String
     let subtitle: String
@@ -367,21 +367,20 @@ private struct ToggleTile: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
+            HStack(spacing: 8) {
                 ZStack {
                     Circle().fill(on ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.primary.opacity(0.1)))
-                    Image(systemName: symbol)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    ToggleGlyphView(glyph: glyph, on: on, color: on ? .white : .primary)
                 }
-                .frame(width: 30, height: 30)
+                .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.9)
                     Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
-            .padding(10)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
             .frame(maxWidth: .infinity)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.primary.opacity(hover ? 0.1 : 0.06)))
             .contentShape(Rectangle())
