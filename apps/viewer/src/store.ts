@@ -85,6 +85,12 @@ const isLive = (snapshot: Snapshot | undefined) =>
 
 export function createSessionStore(now: () => number = () => Date.now()): SessionStore {
   let pickedAt = -Infinity;
+  /**
+   * Sessions waiting on the person that have already had the screen for this
+   * wait: one the person then leaves for another tab does not take it back
+   * until it waits again.
+   */
+  const announced = new Set<string>();
   let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true, theme: "auto" };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
@@ -100,14 +106,20 @@ export function createSessionStore(now: () => number = () => Date.now()): Sessio
       const sessions = [...state.sessions];
       if (index >= 0) sessions[index] = snapshot;
       else sessions.push(snapshot);
-      // Follow the activity: when the tab on screen is resting and another
-      // session starts working (or needs the person), switch to it, unless
-      // the person picked the tab on screen a moment ago.
+      if (snapshot.sessionState !== "waiting_you") announced.delete(key);
+      // Follow the activity, unless the person picked the tab on screen a
+      // moment ago: a session that needs the person takes the screen from
+      // any tab not itself waiting (once per wait), and a session that starts
+      // working takes it from a resting one.
       let active = state.active ?? key;
-      if (active !== key && isLive(snapshot) && now() - pickedAt >= MANUAL_HOLD_MS) {
+      if (now() - pickedAt >= MANUAL_HOLD_MS) {
         const shown = sessions.find((s) => sessionKey(s) === active);
-        if (!isLive(shown)) active = key;
+        const waiting = [snapshot, ...sessions].find((s) => s.sessionState === "waiting_you" && !announced.has(sessionKey(s)));
+        if (shown?.sessionState !== "waiting_you" && waiting) active = sessionKey(waiting);
+        else if (active !== key && isLive(snapshot) && !isLive(shown)) active = key;
       }
+      const onScreen = sessions.find((s) => sessionKey(s) === active);
+      if (onScreen?.sessionState === "waiting_you") announced.add(active);
       state = { ...state, sessions, active };
       emit();
       return true;
@@ -115,10 +127,12 @@ export function createSessionStore(now: () => number = () => Date.now()): Sessio
     select(key) {
       if (state.active === key || !state.sessions.some((s) => sessionKey(s) === key)) return;
       pickedAt = now();
+      if (state.sessions.find((s) => sessionKey(s) === key)?.sessionState === "waiting_you") announced.add(key);
       state = { ...state, active: key };
       emit();
     },
     forget(key) {
+      announced.delete(key);
       const sessions = state.sessions.filter((s) => sessionKey(s) !== key);
       if (sessions.length === state.sessions.length) return;
       const active = state.active === key ? (sessions[0] ? sessionKey(sessions[0]) : null) : state.active;

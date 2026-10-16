@@ -233,8 +233,9 @@ test("several sessions get a pager, ‹ 1/2 ›, that steps through their graphs
 });
 
 test("the pager marks another session that needs the person", () => {
+  // The tab on screen waits too, so the other wait does not take the screen: the pager tells.
   mount(
-    snapshotOf([task("a", { status: "running" })], { sessionId: "s1", cwd: "/w/api" }),
+    snapshotOf([task("a", { status: "needs_you" })], { sessionId: "s1", cwd: "/w/api", sessionState: "waiting_you" }),
     snapshotOf([task("b", { status: "needs_you" })], { sessionId: "s2", cwd: "/w/web", sessionState: "waiting_you" })
   );
   expect(screen.getByLabelText("Another session needs you")).toBeTruthy();

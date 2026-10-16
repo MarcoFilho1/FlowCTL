@@ -125,6 +125,52 @@ describe("following the activity", () => {
     store.push(session("a", "working", 3));
     expect(store.getState().active).toBe("a");
   });
+
+  test("a session that needs the person takes over a working tab", () => {
+    const store = createSessionStore();
+    store.push(session("a", "working", 1));
+    store.push(session("b", "working", 1));
+    store.push(session("b", "waiting_you", 2));
+    expect(store.getState().active).toBe("b");
+  });
+
+  test("a wait that came during the hold takes the screen once the hold is over", () => {
+    let clock = 0;
+    const store = createSessionStore(() => clock);
+    store.push(session("a", "working", 1));
+    store.push(session("b", "working", 1));
+    store.select("b");
+    store.select("a");
+    clock = 1_000;
+    store.push(session("b", "waiting_you", 2));
+    expect(store.getState().active).toBe("a");
+    // b stays waiting and sends nothing more; a's next update hands it the screen.
+    clock = 1_000 + MANUAL_HOLD_MS;
+    store.push(session("a", "working", 2));
+    expect(store.getState().active).toBe("b");
+  });
+
+  test("a waiting session the person left does not take the screen back until it waits again", () => {
+    let clock = 0;
+    const store = createSessionStore(() => clock);
+    store.push(session("a", "working", 1));
+    store.push(session("b", "waiting_you", 1));
+    expect(store.getState().active).toBe("b");
+    store.select("a");
+    clock = MANUAL_HOLD_MS * 2;
+    store.push(session("a", "working", 2));
+    expect(store.getState().active).toBe("a");
+    store.push(session("b", "working", 2));
+    store.push(session("b", "waiting_you", 3));
+    expect(store.getState().active).toBe("b");
+  });
+
+  test("a tab waiting on the person is not taken by another wait", () => {
+    const store = createSessionStore();
+    store.push(session("a", "waiting_you", 1));
+    store.push(session("b", "waiting_you", 1));
+    expect(store.getState().active).toBe("a");
+  });
 });
 
 describe("sound style", () => {
