@@ -5,6 +5,7 @@ import type { Replay } from "./DevControls.tsx";
 import { FIXTURES, loadFixture, replaySnapshots } from "./player.ts";
 import { createSessionStore, installBridge } from "./store.ts";
 import "./styles.css";
+import { QuickSettingsPage, SettingsPage } from "./windows/Pages.tsx";
 
 const store = createSessionStore();
 // Installed before the first render, so a push that arrives early still lands.
@@ -50,8 +51,13 @@ if (params.get("subagents") === "hide") store.setShowSubagents(false);
 const at = params.get("at");
 const startAt = at === "end" ? "end" : at !== null && Number.isInteger(Number(at)) ? Number(at) : undefined;
 
+// ?ui=controls|settings: the Windows app's tray flyout and Settings window (src/windows).
+const ui = params.get("ui");
+
 const root = document.getElementById("root");
-if (root) {
+if (root && (ui === "controls" || ui === "settings")) {
+  createRoot(root).render(<StrictMode>{ui === "controls" ? <QuickSettingsPage /> : <SettingsPage />}</StrictMode>);
+} else if (root) {
   createRoot(root).render(
     <StrictMode>
       <App store={store} {...(replays ? { replays } : {})} {...(startAt !== undefined ? { startAt } : {})} {...(dreamAfter !== undefined ? { dreamAfter } : {})} />

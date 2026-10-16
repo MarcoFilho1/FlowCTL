@@ -193,9 +193,11 @@ Controle: mostrar ou esconder o overlay, suas sessões (clique numa para trazer
 o terminal dela para frente), o visual, o tema (automático, escuro, claro), o
 tamanho (pequeno, médio, grande) e o som, e botões para sempre por cima,
 animação de ocioso, mostrar automaticamente e esconder quando ocioso.
-**Ajustes…** guarda tudo isso, mais opacidade e mostrar subagentes. No Windows, o ícone da bandeja: clique
-esquerdo mostra ou esconde o painel, clique direito abre o menu com os mesmos
-ajustes.
+**Ajustes…** guarda tudo isso, mais opacidade e mostrar subagentes. No Windows, no estilo do próprio Windows 11:
+o clique esquerdo no ícone da bandeja abre um painel como as Configurações
+Rápidas (botões, controle de opacidade, visual, tema, tamanho e som, suas
+sessões), e Configurações abre uma página como as Configurações do Windows; o
+clique direito abre um menu curto.
 
 As **opções do plugin** (`/plugin`, depois flowctl):
 

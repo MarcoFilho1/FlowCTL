@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The panel calls only FlowCTL's own commands.",
-  "windows": ["panel"],
+  "description": "The panel, the tray flyout and Settings call only FlowCTL's own commands.",
+  "windows": ["panel", "controls", "settings"],
   "permissions": []
 }

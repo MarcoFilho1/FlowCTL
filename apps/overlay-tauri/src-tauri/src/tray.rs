@@ -1,17 +1,17 @@
-//! The tray icon and its menu: the overlay's settings, as the macOS menu bar
-//! item (apps/overlay/Sources/FlowCTL/StatusMenu.swift). The icon is a white
-//! node, or a yellow one blinking in the panel's look while a session needs
-//! the person.
+//! The tray icon: a left click opens the flyout with the overlay's settings
+//! (controls.rs), a right click a short menu, as Windows' own tray icons. The
+//! icon is a white node, or a yellow one blinking in the panel's look while a
+//! session needs the person.
 
-use crate::core::choices::{Look, Theme, OPACITIES, SOUND_CHOICES};
-use crate::core::geometry::PanelSize;
+use crate::controls;
+use crate::core::choices::Look;
 use crate::core::icon;
 use crate::overlay::{lock, Overlay, Shared};
 use crate::system;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -38,12 +38,15 @@ pub fn create(app: &AppHandle, overlay: &Overlay) -> tauri::Result<TrayIcon> {
         .tooltip("FlowCTL")
         .menu(&menu)
         // The macOS menu bar opens menus on a click; on Windows a left click
-        // shows or hides the panel and a right click opens the menu.
+        // opens the flyout (Quick Settings' manner) and a right click the menu.
         .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } = event {
                 if !cfg!(target_os = "macos") {
-                    lock(&tray.app_handle().state::<Shared>()).toggle();
+                    let scale = 1.0;
+                    let position = rect.position.to_physical::<f64>(scale);
+                    let size = rect.size.to_physical::<f64>(scale);
+                    controls::toggle_flyout(tray.app_handle(), Some((position.x, position.y, size.width, size.height)));
                 }
             }
         })
@@ -81,6 +84,7 @@ pub fn animate(app: AppHandle) {
 
 /// After anything the icon or the menu shows changed.
 pub fn refresh(overlay: &Overlay) {
+    controls::push(overlay);
     let now = system::now();
     let waiting = overlay.registry.is_any_waiting(now);
     let key = format!("{}|{}|{}", String::from_utf8_lossy(&overlay.prefs.to_json()), overlay.visible, overlay.registry.active_count(now));
@@ -99,123 +103,20 @@ pub fn refresh(overlay: &Overlay) {
     }
 }
 
-fn check(app: &AppHandle, id: &str, title: &str, on: bool) -> tauri::Result<CheckMenuItem<Wry>> {
-    CheckMenuItem::with_id(app, id, title, true, on, None::<&str>)
-}
-
-fn submenu(app: &AppHandle, title: &str, items: Vec<CheckMenuItem<Wry>>) -> tauri::Result<Submenu<Wry>> {
-    let refs: Vec<&dyn IsMenuItem<Wry>> = items.iter().map(|item| item as &dyn IsMenuItem<Wry>).collect();
-    Submenu::with_items(app, title, true, &refs)
-}
-
+/// The right-click menu, short as Windows' own tray menus: the panel, Settings, Quit.
+/// Everything else is in the flyout and the Settings window (controls.rs).
 fn build_menu(app: &AppHandle, overlay: &Overlay) -> tauri::Result<Menu<Wry>> {
-    let p = &overlay.prefs;
-    let active = overlay.registry.active_count(system::now());
-    let sessions = match active {
-        0 => "No active sessions".to_string(),
-        1 => "1 active session".to_string(),
-        n => format!("{n} active sessions"),
-    };
-    let toggle = MenuItem::with_id(app, "toggle", if overlay.visible { "Hide Panel" } else { "Show Panel" }, true, None::<&str>)?;
-    let count = MenuItem::with_id(app, "count", sessions, false, None::<&str>)?;
-    let opacity = submenu(
-        app,
-        "Opacity",
-        OPACITIES
-            .iter()
-            .map(|o| check(app, &format!("opacity:{o}"), &format!("{}%", (o * 100.0).round()), (o - p.opacity).abs() < 0.01))
-            .collect::<tauri::Result<_>>()?,
-    )?;
-    let size = submenu(
-        app,
-        "Size",
-        PanelSize::ALL
-            .iter()
-            .map(|s| check(app, &format!("size:{}", s.title()), s.title(), *s == p.panel_size))
-            .collect::<tauri::Result<_>>()?,
-    )?;
-    let look = submenu(
-        app,
-        "Look",
-        Look::ALL.iter().map(|l| check(app, &format!("look:{}", l.as_str()), l.title(), *l == p.look)).collect::<tauri::Result<_>>()?,
-    )?;
-    let sound = submenu(
-        app,
-        "Sound",
-        SOUND_CHOICES
-            .iter()
-            .map(|(choice, title)| {
-                check(app, &format!("sound:{}", choice.map_or("off", |s| s.as_str())), title, *choice == p.sound_choice())
-            })
-            .collect::<tauri::Result<_>>()?,
-    )?;
-    let theme = submenu(
-        app,
-        "Theme",
-        Theme::ALL.iter().map(|t| check(app, &format!("theme:{}", t.as_str()), t.title(), *t == p.theme)).collect::<tauri::Result<_>>()?,
-    )?;
-    let subagents = check(app, "showSubagents", "Show Subagents", p.show_subagents)?;
-    let idle_animation = check(app, "idleAnimation", "Idle Animation", p.idle_animation)?;
-    let on_top = check(app, "alwaysOnTop", "Always on Top", p.always_on_top)?;
-    let auto_show = check(app, "showAutomatically", "Show Automatically", p.show_automatically)?;
-    let auto_hide = check(app, "hideWhenIdle", "Hide When Idle", p.hide_when_idle)?;
+    let toggle = MenuItem::with_id(app, "toggle", if overlay.visible { "Hide panel" } else { "Show panel" }, true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit FlowCTL", true, None::<&str>)?;
-    let separator = || PredefinedMenuItem::separator(app);
-    Menu::with_items(
-        app,
-        &[
-            &toggle,
-            &separator()?,
-            &count,
-            &separator()?,
-            &opacity,
-            &size,
-            &look,
-            &subagents,
-            &sound,
-            &theme,
-            &idle_animation,
-            &on_top,
-            &auto_show,
-            &auto_hide,
-            &separator()?,
-            &quit,
-        ],
-    )
+    Menu::with_items(app, &[&toggle, &settings, &PredefinedMenuItem::separator(app)?, &quit])
 }
 
 fn on_menu(app: &AppHandle, event: MenuEvent) {
-    let id = event.id().as_ref().to_string();
-    if id == "quit" {
-        app.exit(0);
-        return;
+    match event.id().as_ref() {
+        "quit" => app.exit(0),
+        "toggle" => lock(&app.state::<Shared>()).toggle(),
+        "settings" => controls::open_settings(app),
+        _ => {}
     }
-    let shared = app.state::<Shared>();
-    let mut overlay = lock(&shared);
-    if id == "toggle" {
-        overlay.toggle();
-        return;
-    }
-    let p = &mut overlay.prefs;
-    let (key, value) = id.split_once(':').unwrap_or((id.as_str(), ""));
-    match key {
-        "opacity" => p.opacity = value.parse().unwrap_or(1.0),
-        "size" => p.panel_size = PanelSize::ALL.into_iter().find(|s| s.title() == value).unwrap_or_default(),
-        "look" => p.look = Look::ALL.into_iter().find(|l| l.as_str() == value).unwrap_or_default(),
-        "theme" => p.theme = Theme::ALL.into_iter().find(|t| t.as_str() == value).unwrap_or_default(),
-        "sound" => {
-            let choice = SOUND_CHOICES.iter().find(|(c, _)| c.map_or("off", |s| s.as_str()) == value).and_then(|(c, _)| *c);
-            p.set_sound_choice(choice);
-        }
-        "showSubagents" => p.show_subagents = !p.show_subagents,
-        "idleAnimation" => p.idle_animation = !p.idle_animation,
-        "alwaysOnTop" => p.always_on_top = !p.always_on_top,
-        "showAutomatically" => p.show_automatically = !p.show_automatically,
-        "hideWhenIdle" => p.hide_when_idle = !p.hide_when_idle,
-        _ => return,
-    }
-    overlay.preferences_changed();
-    // A check item toggles itself when clicked; the rebuilt menu says what is true.
-    STATE.lock().unwrap_or_else(|p| p.into_inner()).menu_key.clear();
-    refresh(&overlay);
 }

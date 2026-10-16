@@ -25,7 +25,8 @@ returns the panel's state for automated checks.
 ```
 src-tauri/src/core/   pure logic, ported from apps/overlay/Sources/FlowCTLCore (cargo test)
 src-tauri/src/        the window, the endpoint, the tray, bringing a terminal forward
-icons-src/            the app icon's source (node icons-src/draw-icon.mjs icons-src/source.png)
+icons-src/            the app icon's source (node icons-src/draw-icon.mjs icons-src/source.png,
+                      then pnpm tauri icon icons-src/source.png and keep the six files in icons/)
 ```
 
 ## Develop
@@ -49,8 +50,17 @@ workflow zips it as `FlowCTL-<version>-windows-x64.zip`, which
 
 ## Differences from the macOS app
 
-- A left click on the tray icon shows or hides the panel; a right click opens
-  the menu.
+- The settings follow Windows 11's own manner rather than the Mac's
+  (`src-tauri/src/controls.rs`, pages in `apps/viewer/src/windows`, the viewer
+  bundle opened with `?ui=controls` or `?ui=settings`): a left click on the
+  tray icon opens a flyout like Quick Settings, above the icon (toggle
+  buttons whose glyphs act out their option, an opacity slider, look, theme,
+  size and sound, the sessions, Settings and Quit in its footer), which closes
+  when it loses the focus or on Esc; **Settings** opens a window like Windows
+  Settings (cards with switches and drop-downs). Both use Windows' accent
+  color (read from the registry). A right click opens a short menu: Show or
+  Hide panel, Settings, Quit. With `FLOWCTL_DEBUG=1`, `POST /debug/flyout` and
+  `POST /debug/settings` open them.
 - Clicking a node brings the terminal's window forward (Windows Terminal,
   VS Code, a console), not a specific tab.
 - The binary is not signed. `/flowctl init` downloads it with `curl.exe`,

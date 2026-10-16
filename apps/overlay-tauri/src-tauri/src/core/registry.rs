@@ -53,6 +53,11 @@ impl Registry {
         Self { sessions: HashMap::new(), order: Vec::new(), last_active_at: now, idle_after, is_alive }
     }
 
+    /// Session ids in the order they first arrived.
+    pub fn ids(&self) -> &[String] {
+        &self.order
+    }
+
     pub fn session(&self, id: &str) -> Option<&Session> {
         self.sessions.get(id)
     }
