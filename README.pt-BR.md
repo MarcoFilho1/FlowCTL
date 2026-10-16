@@ -190,10 +190,10 @@ rodar o `/flowctl init` você mesmo.
 
 O **ícone da barra de menus** abre um painel no estilo da Central de
 Controle: mostrar ou esconder o overlay, suas sessões (clique numa para trazer
-o terminal dela para frente), som, sempre por cima, mostrar automaticamente,
-esconder quando ocioso e o visual. **Ajustes…** guarda o resto:
-opacidade, tamanho (pequeno, médio, grande), tema (automático, escuro, claro),
-mostrar subagentes e animação de ocioso. No Windows, o ícone da bandeja: clique
+o terminal dela para frente), o visual, o tema (automático, escuro, claro), o
+tamanho (pequeno, médio, grande) e o som, e botões para sempre por cima,
+animação de ocioso, mostrar automaticamente e esconder quando ocioso.
+**Ajustes…** guarda tudo isso, mais opacidade e mostrar subagentes. No Windows, o ícone da bandeja: clique
 esquerdo mostra ou esconde o painel, clique direito abre o menu com os mesmos
 ajustes.
 

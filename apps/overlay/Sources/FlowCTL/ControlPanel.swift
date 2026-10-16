@@ -63,7 +63,7 @@ struct ControlPanelView: View {
     /// Room around the glass for its shadow.
     static let margin: CGFloat = 26
     /// Four session rows, always: a session that comes or goes does not move the buttons below.
-    static let sessionRows = 4
+    static let sessionRows = 3
     static let sessionsHeight: CGFloat = CGFloat(sessionRows) * 24 + CGFloat(sessionRows - 1) * 6
 
     @ObservedObject var model: ControlModel
@@ -74,11 +74,12 @@ struct ControlPanelView: View {
             header
             overlayTile
             sessionsTile
+            appearanceTile
             HStack(spacing: 10) {
-                ToggleTile(symbol: soundOn ? "speaker.wave.2.fill" : "speaker.slash.fill", on: soundOn,
-                           title: "Sound", subtitle: model.prefs?.soundChoice.title ?? "") { toggleSound() }
                 ToggleTile(symbol: "pin.fill", on: model.prefs?.alwaysOnTop ?? true,
                            title: "On Top", subtitle: onOff(model.prefs?.alwaysOnTop)) { model.toggle(\.alwaysOnTop) }
+                ToggleTile(symbol: "sparkles", on: model.prefs?.idleAnimation ?? true,
+                           title: "Animation", subtitle: onOff(model.prefs?.idleAnimation)) { model.toggle(\.idleAnimation) }
             }
             HStack(spacing: 10) {
                 ToggleTile(symbol: "rectangle.inset.topright.filled", on: model.prefs?.showAutomatically ?? true,
@@ -86,7 +87,6 @@ struct ControlPanelView: View {
                 ToggleTile(symbol: "moon.zzz.fill", on: model.prefs?.hideWhenIdle ?? true,
                            title: "Auto Hide", subtitle: onOff(model.prefs?.hideWhenIdle)) { model.toggle(\.hideWhenIdle) }
             }
-            lookTile
             Divider().padding(.horizontal, 6).padding(.top, 2)
             VStack(spacing: 0) {
                 TextRow(title: "Settings…", action: model.openSettings)
@@ -103,16 +103,6 @@ struct ControlPanelView: View {
         .padding(.horizontal, Self.margin)
         .padding(.top, 2)
         .padding(.bottom, Self.margin)
-    }
-
-    private var soundOn: Bool { model.prefs?.sound ?? true }
-
-    /// Off goes back to what the person had before (the look's sounds the first time).
-    private func toggleSound() {
-        guard let prefs = model.prefs else { return }
-        prefs.soundChoice = prefs.sound ? .off : SoundChoice.from(sound: true, style: prefs.soundStyle)
-        model.actions?.preferencesChanged()
-        model.refresh()
     }
 
     private func onOff(_ on: Bool?) -> String { on ?? false ? "On" : "Off" }
@@ -215,21 +205,61 @@ struct ControlPanelView: View {
         .background(Tile())
     }
 
-    private var lookTile: some View {
-        HStack(spacing: 10) {
-            Text("Look")
-                .font(.system(size: 12, weight: .semibold))
-            Spacer(minLength: 8)
-            Picker("Look", selection: model.binding(\.look, fallback: .standard)) {
-                ForEach(PageLook.allCases, id: \.self) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 150)
+    /// The choices people change most, each a row of segments: look, theme, size and sound.
+    private var appearanceTile: some View {
+        VStack(spacing: 8) {
+            ChoiceRow(symbol: "paintbrush.pointed", title: "Look", selection: model.binding(\.look, fallback: .standard),
+                      options: PageLook.allCases.map { ($0, $0.title) })
+            ChoiceRow(symbol: "circle.lefthalf.filled", title: "Theme", selection: model.binding(\.themeChoice, fallback: .standard),
+                      options: ThemeChoice.allCases.map { ($0, $0.title) })
+            ChoiceRow(symbol: "arrow.up.left.and.arrow.down.right", title: "Size", selection: model.binding(\.panelSize, fallback: .standard),
+                      options: PanelSize.allCases.map { ($0, String($0.title.prefix(1))) },
+                      help: PanelSize.allCases.map(\.title).joined(separator: ", "))
+            ChoiceRow(symbol: "speaker.wave.2", title: "Sound", selection: model.binding(\.soundChoice, fallback: .standard),
+                      options: SoundChoice.allCases.map { ($0, $0 == .look ? "Look" : $0.title) },
+                      help: "Look plays the look's own sounds: clean for Smooth, 8-bit for Pixel.")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.vertical, 10)
         .background(Tile())
+    }
+}
+
+/// One choice as a labelled row of segments.
+private struct ChoiceRow<Value: Hashable>: View {
+    let symbol: String
+    let title: String
+    @Binding var selection: Value
+    let options: [(Value, String)]
+    var help: String?
+
+    init(symbol: String, title: String, selection: Binding<Value>, options: [(Value, String)], help: String? = nil) {
+        self.symbol = symbol
+        self.title = title
+        self._selection = selection
+        self.options = options
+        self.help = help
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize()
+                .frame(width: 48, alignment: .leading)
+            Segments(labels: options.map(\.1), selected: Binding(
+                get: { options.firstIndex { $0.0 == selection } ?? -1 },
+                set: { index in if options.indices.contains(index) { selection = options[index].0 } }
+            ))
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel(title)
+        }
+        .help(help ?? "")
     }
 }
 
@@ -287,6 +317,35 @@ private struct SessionLine: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help("Bring this session's terminal forward")
+    }
+}
+
+/// AppKit's segmented control with segments of equal width, filling its row
+/// (SwiftUI's segmented picker sizes each segment to its text).
+private struct Segments: NSViewRepresentable {
+    let labels: [String]
+    @Binding var selected: Int
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(labels: labels, trackingMode: .selectOne, target: context.coordinator, action: #selector(Coordinator.changed(_:)))
+        control.segmentDistribution = .fillEqually
+        control.font = .systemFont(ofSize: 11)
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selected = $selected
+        if control.selectedSegment != selected { control.selectedSegment = selected }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(selected: $selected) }
+
+    final class Coordinator: NSObject {
+        var selected: Binding<Int>
+        init(selected: Binding<Int>) { self.selected = selected }
+        @objc func changed(_ control: NSSegmentedControl) { selected.wrappedValue = control.selectedSegment }
     }
 }
 

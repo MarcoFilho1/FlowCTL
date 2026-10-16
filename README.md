@@ -186,10 +186,10 @@ next session start updates the app too, with the same download and checks as
 | `/flowctl uninstall` | Quits and removes the app (the plugin is removed from `/plugin`) |
 
 The **menu bar icon** opens a panel in the manner of Control Center: show or
-hide the overlay, your sessions (click one to bring its terminal forward),
-sound, always on top, show automatically, hide when idle and the look.
-**Settings…** holds everything else: opacity, size (small, medium,
-large), theme (auto, dark, light), show subagents and idle animation. On
+hide the overlay, your sessions (click one to bring its terminal forward), the
+look, theme (auto, dark, light), size (small, medium, large) and sound, and
+toggles for always on top, idle animation, show automatically and hide when
+idle. **Settings…** holds them all, plus opacity and show subagents. On
 Windows, the tray icon: left click shows or hides the panel, right click opens
 the menu with the same settings.
 
