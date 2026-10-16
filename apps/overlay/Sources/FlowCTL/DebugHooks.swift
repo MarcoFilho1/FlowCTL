@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import WebKit
 import FlowCTLCore
 
@@ -45,6 +46,14 @@ enum DebugHooks {
                 default: app.debugPanel
                 }
                 return capture(window).map { .ok($0 + "\n") } ?? .badRequest("capture failed")
+            case ("GET", "/debug/glyphs"):
+                // The control panel's toggle glyphs, off and on, drawn eight times larger.
+                let renderer = ImageRenderer(content: ToggleGlyphSheet().environment(\.colorScheme, .light))
+                renderer.scale = 8
+                guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,
+                      let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return .badRequest("render failed") }
+                let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("flowctl-glyphs.png")
+                return (try? png.write(to: url)) != nil ? .ok(url.path + "\n") : .badRequest("write failed")
             case ("POST", "/debug/control"):
                 // Opens the menu bar panel below the status item, kept open; open=0 closes it.
                 guard let menu = app.debugStatusMenu else { return .badRequest("no status item") }
