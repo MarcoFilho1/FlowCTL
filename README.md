@@ -185,11 +185,13 @@ next session start updates the app too, with the same download and checks as
 | `/flowctl init --from-source` | Builds it from the tagged source instead of downloading (macOS only; needs pnpm, Node 22 and Swift) |
 | `/flowctl uninstall` | Quits and removes the app (the plugin is removed from `/plugin`) |
 
-The **menu bar icon** (on Windows, the tray icon: left click shows or hides
-the panel, right click opens the menu) holds the overlay's settings: show or hide the panel,
-opacity, size (small, medium, large), look (pixel or smooth), theme (auto,
-dark, light), sound, show subagents, idle animation, always on top, show
-automatically, hide when idle.
+The **menu bar icon** opens a panel in the manner of Control Center: show or
+hide the overlay, your sessions (click one to bring its terminal forward), the
+look, theme (auto, dark, light), size (small, medium, large) and sound, and
+toggles for always on top, idle animation, show automatically and hide when
+idle. **Settings…** holds them all, plus opacity and show subagents. On
+Windows, the tray icon: left click shows or hides the panel, right click opens
+the menu with the same settings.
 
 The **plugin's options** (`/plugin`, then flowctl):
 

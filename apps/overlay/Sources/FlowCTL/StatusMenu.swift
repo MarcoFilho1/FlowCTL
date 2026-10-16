@@ -5,26 +5,99 @@ protocol StatusMenuActions: AnyObject {
     var isPanelVisible: Bool { get }
     var activeSessionCount: Int { get }
     var isAnySessionWaiting: Bool { get }
+    /// The sessions the control panel lists: live ones, most recent first.
+    var sessionRows: [SessionRow] { get }
     var preferences: Preferences { get }
     func togglePanel()
     func preferencesChanged()
+    /// Brings a session's terminal forward.
+    func focusSession(_ id: String)
 }
 
 /// The menu bar item: always there, so the panel can always be found and the
-/// app always quit.
-final class StatusMenu: NSObject, NSMenuDelegate {
+/// app always quit. A click opens the control panel (Control Center's way);
+/// Settings… opens the settings window.
+final class StatusMenu: NSObject {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private weak var actions: StatusMenuActions?
+    let model = ControlModel()
+    private(set) lazy var panel = ControlPanelController(model: model)
+    private(set) lazy var settings = SettingsWindowController(model: model)
 
     init(actions: StatusMenuActions) {
         self.actions = actions
         super.init()
-        let menu = NSMenu()
-        menu.delegate = self
-        item.menu = menu
+        model.actions = actions
+        model.toggleOverlay = { [weak self] in
+            self?.actions?.togglePanel()
+            self?.model.refresh()
+        }
+        model.focusSession = { [weak self] id in
+            self?.panel.hide()
+            self?.actions?.focusSession(id)
+        }
+        model.openSettings = { [weak self] in self?.openSettings() }
+        model.showAbout = { [weak self] in self?.showAbout() }
+        model.quit = { NSApp.terminate(nil) }
+        panel.onVisibleChange = { [weak self] visible in self?.item.button?.highlight(visible) }
+        item.button?.target = self
+        item.button?.action = #selector(clicked)
+        item.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
         item.button?.toolTip = "FlowCTL"
         refreshIcon()
     }
+
+    func debugClick() { clicked() }
+
+    @objc private func clicked() {
+        guard let button = item.button, let window = button.window else { return }
+        panel.toggle(below: window.convertToScreen(button.convert(button.bounds, to: nil)))
+    }
+
+    /// Sessions, preferences or the overlay changed: the panel and the settings show it.
+    func refresh() {
+        model.refresh()
+        refreshIcon()
+    }
+
+    @objc func openSettings() {
+        panel.hide()
+        settings.show()
+    }
+
+    @objc func showAbout() {
+        panel.hide()
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "FlowCTL",
+            .credits: NSAttributedString(
+                string: "A live graph of what Claude Code is doing.\ngithub.com/MarcoFilho1/FlowCTL",
+                attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
+            )
+        ])
+    }
+
+    /// FlowCTL's node as a menu bar glyph: the logo's pixel disc, in the
+    /// menu bar's own color (a template), with its shine left open.
+    static let glyph: NSImage = {
+        let side: CGFloat = 18
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: true) { _ in
+            let disc = AttentionIcon.pixelDisc(size: 8)
+            let cell: CGFloat = 2
+            let origin = (side - cell * 8) / 2
+            NSColor.black.setFill()
+            for (y, row) in disc.enumerated() {
+                for (x, part) in row.enumerated() {
+                    guard let part, part != .light else { continue }
+                    NSRect(x: origin + CGFloat(x) * cell, y: origin + CGFloat(y) * cell, width: cell, height: cell).fill()
+                }
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "FlowCTL"
+        return image
+    }()
 
     /// While a session waits on the person, the icon is a yellow node that
     /// blinks, in the panel's look.
@@ -33,11 +106,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         let look = actions?.preferences.look ?? .standard
         guard waiting else {
             stopBlinking()
-            let image = NSImage(systemSymbolName: "point.3.connected.trianglepath.dotted", accessibilityDescription: "FlowCTL")
-            image?.isTemplate = true
-            item.button?.image = image
+            item.button?.image = Self.glyph
             item.button?.contentTintColor = nil
-            if image == nil { item.button?.title = "FlowCTL" }
             return
         }
         item.button?.title = ""
@@ -108,184 +178,46 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         return image
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        guard let actions else { return }
-        menu.removeAllItems()
-
-        menu.addItem(entry(actions.isPanelVisible ? "Hide Panel" : "Show Panel", #selector(togglePanel)))
-        menu.addItem(.separator())
-
-        let count = actions.activeSessionCount
-        let sessions = NSMenuItem(title: count == 0 ? "No active sessions" : count == 1 ? "1 active session" : "\(count) active sessions", action: nil, keyEquivalent: "")
-        sessions.isEnabled = false
-        menu.addItem(sessions)
-        menu.addItem(.separator())
-
-        let opacity = NSMenuItem(title: "Opacity", action: nil, keyEquivalent: "")
-        let levels = NSMenu()
-        for value in Preferences.opacities {
-            let level = entry("\(Int((value * 100).rounded()))%", #selector(setOpacity(_:)))
-            level.representedObject = value
-            level.state = abs(actions.preferences.opacity - value) < 0.01 ? .on : .off
-            levels.addItem(level)
+    /// The panel's controls by title, for the debug hooks: what a click on each does, and whether it is on.
+    private var entries: [(title: String, on: Bool?, run: () -> Void)] {
+        guard let actions else { return [] }
+        let prefs = actions.preferences
+        let change = { [weak self] (edit: @escaping (Preferences) -> Void) -> () -> Void in
+            { edit(prefs); self?.actions?.preferencesChanged(); self?.refresh() }
         }
-        opacity.submenu = levels
-        menu.addItem(opacity)
-
-        let size = NSMenuItem(title: "Size", action: nil, keyEquivalent: "")
-        let sizes = NSMenu()
-        for option in PanelSize.allCases {
-            let item = entry(option.title, #selector(setSize(_:)))
-            item.representedObject = option.rawValue
-            item.state = actions.preferences.panelSize == option ? .on : .off
-            sizes.addItem(item)
-        }
-        size.submenu = sizes
-        menu.addItem(size)
-
-        let look = NSMenuItem(title: "Look", action: nil, keyEquivalent: "")
-        let looks = NSMenu()
-        for option in PageLook.allCases {
-            let item = entry(option.title, #selector(setLook(_:)))
-            item.representedObject = option.rawValue
-            item.state = actions.preferences.look == option ? .on : .off
-            looks.addItem(item)
-        }
-        look.submenu = looks
-        menu.addItem(look)
-        menu.addItem(toggle("Show Subagents", actions.preferences.showSubagents, #selector(toggleShowSubagents)))
-        let sound = NSMenuItem(title: "Sound", action: nil, keyEquivalent: "")
-        let sounds = NSMenu()
-        for choice in SoundChoice.allCases {
-            let item = entry(choice.title, #selector(setSoundChoice(_:)))
-            item.representedObject = choice.rawValue
-            item.state = actions.preferences.soundChoice == choice ? .on : .off
-            sounds.addItem(item)
-        }
-        sound.submenu = sounds
-        menu.addItem(sound)
-
-        let theme = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
-        let themes = NSMenu()
-        for choice in ThemeChoice.allCases {
-            let item = entry(choice.title, #selector(setThemeChoice(_:)))
-            item.representedObject = choice.rawValue
-            item.state = actions.preferences.themeChoice == choice ? .on : .off
-            themes.addItem(item)
-        }
-        theme.submenu = themes
-        menu.addItem(theme)
-        menu.addItem(toggle("Idle Animation", actions.preferences.idleAnimation, #selector(toggleIdleAnimation)))
-        menu.addItem(toggle("Always on Top", actions.preferences.alwaysOnTop, #selector(toggleAlwaysOnTop)))
-        menu.addItem(toggle("Show Automatically", actions.preferences.showAutomatically, #selector(toggleShowAutomatically)))
-        menu.addItem(toggle("Hide When Idle", actions.preferences.hideWhenIdle, #selector(toggleHideWhenIdle)))
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(title: "Quit FlowCTL", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.addItem(quit)
+        var rows: [(title: String, on: Bool?, run: () -> Void)] = [
+            (actions.isPanelVisible ? "Hide Panel" : "Show Panel", nil, { [weak self] in self?.model.toggleOverlay() }),
+            ("Sound", prefs.sound, change { $0.soundChoice = $0.sound ? .off : SoundChoice.from(sound: true, style: $0.soundStyle) }),
+            ("Always on Top", prefs.alwaysOnTop, change { $0.alwaysOnTop.toggle() }),
+            ("Show Automatically", prefs.showAutomatically, change { $0.showAutomatically.toggle() }),
+            ("Hide When Idle", prefs.hideWhenIdle, change { $0.hideWhenIdle.toggle() }),
+            ("Show Subagents", prefs.showSubagents, change { $0.showSubagents.toggle() }),
+            ("Idle Animation", prefs.idleAnimation, change { $0.idleAnimation.toggle() }),
+            ("Settings…", nil, { [weak self] in self?.openSettings() }),
+            ("About FlowCTL", nil, { [weak self] in self?.showAbout() }),
+            ("Quit FlowCTL", nil, { NSApp.terminate(nil) })
+        ]
+        rows += PageLook.allCases.map { look in (look.title, prefs.look == look, change { $0.look = look }) }
+        rows += PanelSize.allCases.map { size in (size.title, prefs.panelSize == size, change { $0.panelSize = size }) }
+        rows += ThemeChoice.allCases.map { theme in ("Theme \(theme.title)", prefs.themeChoice == theme, change { $0.themeChoice = theme }) }
+        rows += SoundChoice.allCases.map { sound in ("Sound \(sound.title)", prefs.soundChoice == sound, change { $0.soundChoice = sound }) }
+        rows += Preferences.opacities.map { value in ("\(Int((value * 100).rounded()))%", abs(prefs.opacity - value) < 0.01, change { $0.opacity = value }) }
+        return rows
     }
 
-    private func entry(_ title: String, _ action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        return item
-    }
-
-    private func toggle(_ title: String, _ on: Bool, _ action: Selector) -> NSMenuItem {
-        let item = entry(title, action)
-        item.state = on ? .on : .off
-        return item
-    }
-
-    /// Runs the item titled `title` as a click on it would (debug hooks only).
+    /// Runs the control titled `title` as a click on it would (debug hooks only).
     func performItem(titled title: String) -> Bool {
-        guard let menu = item.menu else { return false }
-        menuNeedsUpdate(menu)
-        for (index, entry) in menu.items.enumerated() {
-            if entry.title == title {
-                menu.performActionForItem(at: index)
-                return true
-            }
-            if let submenu = entry.submenu, let sub = submenu.items.firstIndex(where: { $0.title == title }) {
-                submenu.performActionForItem(at: sub)
-                return true
-            }
-        }
-        return false
+        guard let entry = entries.first(where: { $0.title == title }) else { return false }
+        entry.run()
+        return true
     }
 
-    /// Item titles and their check marks, as the menu would show them now.
+    /// The controls' titles and whether each is on, as the panel shows them now.
     func describe() -> [[String: Any]] {
-        guard let menu = item.menu else { return [] }
-        menuNeedsUpdate(menu)
-        return menu.items.filter { !$0.isSeparatorItem }.map { entry in
-            var row: [String: Any] = ["title": entry.title, "on": entry.state == .on, "enabled": entry.isEnabled]
-            if let submenu = entry.submenu {
-                row["items"] = submenu.items.map { ["title": $0.title, "on": $0.state == .on] }
-            }
+        entries.map { entry in
+            var row: [String: Any] = ["title": entry.title, "enabled": true]
+            row["on"] = entry.on ?? false
             return row
         }
-    }
-
-    @objc private func togglePanel() { actions?.togglePanel() }
-
-    @objc private func setOpacity(_ sender: NSMenuItem) {
-        guard let value = sender.representedObject as? Double, let actions else { return }
-        actions.preferences.opacity = value
-        actions.preferencesChanged()
-    }
-
-    @objc private func setLook(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let look = PageLook(rawValue: raw), let actions else { return }
-        actions.preferences.look = look
-        actions.preferencesChanged()
-    }
-
-    @objc private func setSize(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let size = PanelSize(rawValue: raw), let actions else { return }
-        actions.preferences.panelSize = size
-        actions.preferencesChanged()
-    }
-
-    @objc private func setThemeChoice(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let choice = ThemeChoice(rawValue: raw), let actions else { return }
-        actions.preferences.themeChoice = choice
-        actions.preferencesChanged()
-    }
-
-    @objc private func setSoundChoice(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let choice = SoundChoice(rawValue: raw), let actions else { return }
-        actions.preferences.soundChoice = choice
-        actions.preferencesChanged()
-    }
-
-    @objc private func toggleIdleAnimation() {
-        guard let actions else { return }
-        actions.preferences.idleAnimation.toggle()
-        actions.preferencesChanged()
-    }
-
-    @objc private func toggleShowSubagents() {
-        guard let actions else { return }
-        actions.preferences.showSubagents.toggle()
-        actions.preferencesChanged()
-    }
-
-    @objc private func toggleAlwaysOnTop() {
-        guard let actions else { return }
-        actions.preferences.alwaysOnTop.toggle()
-        actions.preferencesChanged()
-    }
-
-    @objc private func toggleShowAutomatically() {
-        guard let actions else { return }
-        actions.preferences.showAutomatically.toggle()
-        actions.preferencesChanged()
-    }
-
-    @objc private func toggleHideWhenIdle() {
-        guard let actions else { return }
-        actions.preferences.hideWhenIdle.toggle()
-        actions.preferencesChanged()
     }
 }

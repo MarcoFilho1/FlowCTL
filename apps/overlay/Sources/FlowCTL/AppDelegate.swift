@@ -154,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         if AutoShow.shouldShow(outcome: outcome, state: info.state, enabled: preferences.showAutomatically, hiddenBy: hiddenBy) {
             showPanel()
         }
-        statusMenu?.refreshIcon()
+        statusMenu?.refresh()
     }
 
     /// Sends the page what changed: new snapshots, and sessions whose effective state moved.
@@ -185,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         if preferences.hideWhenIdle, isPanelShown, registry.isIdle(now: now) {
             hidePanel(.idle)
         }
-        statusMenu?.refreshIcon()
+        statusMenu?.refresh()
     }
 
     // MARK: Size and place
@@ -257,13 +257,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
     // MARK: Panel
 
-    var isPanelVisible: Bool { panel?.isVisible ?? false }
+    /// Up for the person: visible and not on its way out.
+    var isPanelVisible: Bool { isPanelShown }
     var activeSessionCount: Int { registry.activeCount(now: Date()) }
     /// Only a live session waiting on the person lights the icon.
     var isAnySessionWaiting: Bool { registry.isAnyWaiting(now: Date()) }
 
+    /// Live sessions for the control panel, the newest first, each named after its folder.
+    var sessionRows: [SessionRow] {
+        let now = Date()
+        return registry.order.reversed().compactMap { id -> SessionRow? in
+            guard let session = registry.sessions[id] else { return nil }
+            let state = registry.effectiveState(of: session, now: now)
+            guard state != .ended else { return nil }
+            let snapshot = (try? JSONSerialization.jsonObject(with: session.body)) as? [String: Any]
+            let folder = (snapshot?["cwd"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }
+            return SessionRow(id: id, name: folder.flatMap { $0.isEmpty ? nil : $0 } ?? "Session", state: state)
+        }
+    }
+
+    @objc func openSettings() { statusMenu?.openSettings() }
+    @objc func showAbout() { statusMenu?.showAbout() }
+
+    func focusSession(_ id: String) {
+        showPanel()
+        focusTerminal(of: id, node: nil)
+    }
+
     func togglePanel() {
         if isPanelVisible { hidePanel(.user) } else { showPanel() }
+        statusMenu?.refresh()
     }
 
     func preferencesChanged() {
@@ -274,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge?.applySoundStyle(preferences.soundStyle)
         bridge?.applyTheme(preferences.themeChoice.rawValue)
         bridge?.applyIdleAnimation(preferences.idleAnimation)
-        statusMenu?.refreshIcon()
+        statusMenu?.refresh()
         layOut(animated: true)
     }
 
@@ -317,6 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             // Back to the chosen opacity, ready for the next showPanel.
             panel.alphaValue = CGFloat(self.preferences.opacity)
             self.hiding = false
+            self.statusMenu?.refresh()
         })
     }
 
@@ -333,6 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     // MARK: Debug hooks (FLOWCTL_DEBUG=1)
 
     var debugPanel: OverlayPanel? { panel }
+    var debugStatusMenu: StatusMenu? { statusMenu }
     var debugBridge: WebBridge? { bridge }
 
     /// As if the person dragged the panel to `origin`.
@@ -414,7 +439,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         let menu = NSMenu()
         let app = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "Hide Panel", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        appMenu.addItem(NSMenuItem(title: "About FlowCTL", action: #selector(AppDelegate.showAbout), keyEquivalent: ""))
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "Settings…", action: #selector(AppDelegate.openSettings), keyEquivalent: ","))
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit FlowCTL", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         app.submenu = appMenu
