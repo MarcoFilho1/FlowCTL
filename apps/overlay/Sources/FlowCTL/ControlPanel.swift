@@ -89,9 +89,9 @@ struct ControlPanelView: View {
             lookTile
             Divider().padding(.horizontal, 6).padding(.top, 2)
             VStack(spacing: 0) {
-                TextRow(title: "Settings…", shortcut: "⌘,", action: model.openSettings)
+                TextRow(title: "Settings…", action: model.openSettings)
                 TextRow(title: "About FlowCTL", action: model.showAbout)
-                TextRow(title: "Quit FlowCTL", shortcut: "⌘Q", action: model.quit)
+                TextRow(title: "Quit FlowCTL", action: model.quit)
             }
         }
         .padding(12)

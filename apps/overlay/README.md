@@ -37,7 +37,7 @@ It can always be closed:
   a glass panel in the manner of Control Center (`ControlPanel.swift`): the
   overlay shown or hidden, the live sessions (a click brings the session's
   terminal forward), round toggles for Sound, On Top, Auto Show and Auto Hide,
-  the Look, then **Settings…** (⌘,), **About FlowCTL** and **Quit FlowCTL**.
+  the Look, then **Settings…** (also ⌘, while a FlowCTL window is active), **About FlowCTL** and **Quit FlowCTL**.
   **Settings…** opens a grouped window, as System Settings
   (`SettingsWindow.swift`), with every option below: **Opacity**, **Size** (Small 280×180,
   Medium 360×220, Large 480×300), **Look** (Pixel, the default, or Smooth), **Theme** (one choice: **Auto**, the default, follows
