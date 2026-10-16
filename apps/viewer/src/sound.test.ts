@@ -111,4 +111,60 @@ describe("the audio context", () => {
     expect(made).toHaveLength(2);
     expect(made[1]!.resumes).toBe(1);
   });
+
+  test("is made again when resuming does not wake it, or when it says running and its clock stopped", () => {
+    vi.useFakeTimers();
+    const made: FakeContext[] = [];
+    class FakeContext {
+      state = "running";
+      currentTime = 0;
+      destination = {};
+      closed = 0;
+      constructor() {
+        made.push(this);
+      }
+      resume() {
+        return Promise.resolve();
+      }
+      close() {
+        this.closed += 1;
+        return Promise.resolve();
+      }
+      createOscillator() {
+        return { type: "", frequency: param(), connect: (node: unknown) => node, start() {}, stop() {} };
+      }
+      createGain() {
+        return { gain: param(), connect: (node: unknown) => node };
+      }
+    }
+    const param = () => ({ setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
+    vi.stubGlobal("AudioContext", FakeContext);
+
+    // The context left by the test above is interrupted: after a second it is replaced.
+    vi.advanceTimersByTime(2000);
+    play("done", "smooth");
+    const first = made.length;
+    expect(first).toBe(1);
+
+    // A healthy clock keeps the context.
+    vi.advanceTimersByTime(5000);
+    made.at(-1)!.currentTime += 5;
+    play("done", "smooth");
+    expect(made).toHaveLength(first);
+
+    // The Mac slept: still "running", but the clock stood still.
+    vi.advanceTimersByTime(60_000);
+    play("done", "smooth");
+    expect(made).toHaveLength(first + 1);
+    expect(made.at(-2)!.closed).toBe(1);
+
+    // Interrupted, and a resume a second ago did not help.
+    made.at(-1)!.state = "interrupted";
+    play("done", "smooth");
+    expect(made).toHaveLength(first + 1);
+    vi.advanceTimersByTime(1500);
+    play("done", "smooth");
+    expect(made).toHaveLength(first + 2);
+    vi.useRealTimers();
+  });
 });
