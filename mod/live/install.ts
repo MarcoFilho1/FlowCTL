@@ -173,14 +173,18 @@ function openArgs(ctx: InstallContext, path: string): readonly string[] {
   return ctx.platform === "win32" ? windows.startProcess(path) : ["open", path];
 }
 
-/** Opens the installed app in the background, when it is not listening (session start). */
+/**
+ * Opens the installed app in the background, when it is not listening
+ * (session start). By its path, not its name: macOS opens whichever copy it
+ * knows by a name, and a build left in a checkout can be an old one.
+ */
 export async function openInBackground(ctx: InstallContext): Promise<void> {
+  const app = await findApp(ctx);
   if (ctx.platform === "win32") {
-    const app = await findApp(ctx);
     if (app) await ctx.run(windows.startProcess(app.path));
     return;
   }
-  await ctx.run(["open", "-g", "-a", APP_TITLE]);
+  await ctx.run(app ? ["open", "-g", app.path] : ["open", "-g", "-a", APP_TITLE]);
 }
 
 /** Puts the app at `source` in place of any installed copy, registers and opens it. */
