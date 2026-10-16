@@ -9,7 +9,7 @@ import type { Platform } from "./platform.ts";
 import * as windows from "./windows.ts";
 
 /** The mod's version; the release CI refuses a tag that differs from plugin.json's. */
-export const MOD_VERSION = "1.0.6";
+export const MOD_VERSION = "1.0.7";
 export const REPO = "MarcoFilho1/FlowCTL";
 export const APP_NAME = "FlowCTL.app";
 const APP_ID = "dev.flowctl.overlay";

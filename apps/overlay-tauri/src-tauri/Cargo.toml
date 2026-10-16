@@ -1,6 +1,6 @@
 [package]
 name = "flowctl-overlay"
-version = "1.0.6"
+version = "1.0.7"
 description = "FlowCTL: a live graph of what Claude Code is doing"
 edition = "2021"
 publish = false
