@@ -9,6 +9,7 @@ import {
   init,
   MOD_VERSION,
   newerVersion,
+  openInBackground,
   parseArgs,
   releaseUrl,
   uninstall,
@@ -177,6 +178,17 @@ test("a session start says when the app is missing or older", async () => {
     /0\.0\.9; run \/flowctl init to update/
   );
   assert.equal(await appNotice({ run: mac({ apps: { "/Applications/FlowCTL.app": MOD_VERSION } }).run, home: HOME, platform: "darwin" }), undefined);
+});
+
+test("a session start opens the installed app by its path, not by a name another copy also has", async () => {
+  const installed = mac({ apps: { [`${HOME}/Applications/FlowCTL.app`]: MOD_VERSION } });
+  await openInBackground({ run: installed.run, home: HOME, platform: "darwin" });
+  assert.deepEqual(installed.calls.at(-1), ["open", "-g", `${HOME}/Applications/FlowCTL.app`]);
+
+  // Not where the installer puts it: Launch Services finds it by name.
+  const elsewhere = mac();
+  await openInBackground({ run: elsewhere.run, home: HOME, platform: "darwin" });
+  assert.deepEqual(elsewhere.calls.at(-1), ["open", "-g", "-a", "FlowCTL"]);
 });
 
 test("a session start updates an older app where it is, and leaves a current one alone", async () => {
