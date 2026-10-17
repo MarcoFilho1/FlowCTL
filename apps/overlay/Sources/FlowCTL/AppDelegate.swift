@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import FlowCTLCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
@@ -67,6 +68,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.bridge?.resetAudio()
             }
+        }
+        // The sound output changed (earbuds connected, a monitor's speakers):
+        // the page's audio stays on the old one until it is made again.
+        var output = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &output, .main) { [weak self] _, _ in
+            log("sound output changed")
+            self?.bridge?.resetAudio()
         }
         applyPreferences()
         statusMenu = StatusMenu(actions: self)
