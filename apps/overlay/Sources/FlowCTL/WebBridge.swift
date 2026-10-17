@@ -144,14 +144,15 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         setPageOption("setTheme", value: theme, what: "theme \(theme)", missing: "the viewer has no setTheme yet")
     }
 
-    /// `window.flowctl.resetAudio()`, after the Mac wakes: the page drops its
-    /// audio context, which WebKit can leave silent after a sleep, and the
-    /// next cue makes a new one. A viewer without it heals on its next cue.
+    /// `window.flowctl.resetAudio()`, after the Mac or its screen wakes, or the
+    /// sound output changes: the page drops its audio context, which WebKit
+    /// can leave silent or on the old output, and the next cue makes a new
+    /// one. A viewer without it heals on its next cue.
     func resetAudio() {
         guard isReady else { return }
         let script = "if (window.flowctl && typeof window.flowctl.resetAudio === 'function') { window.flowctl.resetAudio(); return true } return false"
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-            if case .success(let done) = result, (done as? Bool) == true { return log("audio reset after wake") }
+            if case .success(let done) = result, (done as? Bool) == true { return log("audio reset") }
             log("the viewer has no resetAudio yet")
         }
     }

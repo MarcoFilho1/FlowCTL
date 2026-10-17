@@ -111,6 +111,13 @@ let lastSeen: { audio: number; wall: number } | undefined;
 
 /** A context that cannot be trusted to sound: made again from scratch. */
 const STUCK_MS = 1000;
+/**
+ * A context not used for this long is made again at the next cue. While the
+ * screen is off WebKit can lose the audio output with a context that still
+ * says running and keeps its clock going: nothing gives it away, so a quiet
+ * spell is reason enough. A cue right after another keeps the context.
+ */
+const IDLE_MS = 30_000;
 
 function audio(): AudioContext | undefined {
   if (typeof AudioContext !== "function") return undefined;
@@ -137,13 +144,14 @@ function audio(): AudioContext | undefined {
 }
 
 /**
- * Closed; or asked to resume a while ago and still not running; or "running"
- * with a clock that stopped: after the Mac sleeps or the output device goes
+ * Closed; or unused for a while; or asked to resume a while ago and still not
+ * running; or "running" with a clock that stopped: after the Mac sleeps or the output device goes
  * away (a monitor's speakers), WebKit can keep a context that says running
  * and plays nothing. Its clock is what gives it away.
  */
 function isDead(ctx: AudioContext, wall: number): boolean {
   if (ctx.state === "closed") return true;
+  if (lastSeen !== undefined && wall - lastSeen.wall >= IDLE_MS) return true;
   if (ctx.state !== "running") return resumeAskedAt !== undefined && wall - resumeAskedAt >= STUCK_MS;
   if (lastSeen === undefined) return false;
   const elapsed = wall - lastSeen.wall;
@@ -152,7 +160,8 @@ function isDead(ctx: AudioContext, wall: number): boolean {
 
 /**
  * Drops the context so the next cue makes a new one. The overlay app calls
- * it when the Mac wakes, before the first cue can fall on a dead context.
+ * it when the Mac wakes or its screen comes back, before the first cue can
+ * fall on a dead context.
  */
 export function resetAudio(): void {
   void context?.close?.().catch(() => undefined);
