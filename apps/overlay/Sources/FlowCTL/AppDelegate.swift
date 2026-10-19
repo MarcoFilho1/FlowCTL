@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import FlowCTLCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
@@ -59,8 +60,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.screensChanged()
         }
-        // The Mac woke: WebKit can leave the page's audio silent after a sleep.
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+        // The Mac woke, its screen came back or the user came back to it:
+        // WebKit can leave the page's audio silent after any of them. With a
+        // session open the Mac often never sleeps (Claude Code keeps it awake),
+        // so the screen's wake is the one that comes.
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.bridge?.resetAudio()
+            }
+        }
+        // The sound output changed (earbuds connected, a monitor's speakers):
+        // the page's audio stays on the old one until it is made again.
+        var output = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &output, .main) { [weak self] _, _ in
+            log("sound output changed")
             self?.bridge?.resetAudio()
         }
         applyPreferences()
