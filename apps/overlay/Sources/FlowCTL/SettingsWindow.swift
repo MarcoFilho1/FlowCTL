@@ -46,6 +46,14 @@ struct SettingsView: View {
                     Text("Idle animation")
                     Text("The graph moves gently after a minute with nothing working.")
                 }
+                Picker(selection: model.binding(\.idleStyle, fallback: .standard)) {
+                    ForEach(IdleStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+                } label: {
+                    Text("Idle style")
+                    Text("Shapes in the overlay, or a snail that walks along the bottom of the screen.")
+                }
+                .pickerStyle(.segmented)
+                .disabled(!(model.prefs?.idleAnimation ?? true))
             } header: {
                 Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
             }

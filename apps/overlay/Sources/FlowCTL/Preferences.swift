@@ -64,6 +64,12 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Key.idleAnimation) }
     }
 
+    /// Shapes or the snail, when the idle animation is on (sent as setIdleStyle).
+    var idleStyle: IdleStyle {
+        get { defaults.string(forKey: Key.idleStyle).flatMap(IdleStyle.init(rawValue:)) ?? .standard }
+        set { defaults.set(newValue.rawValue, forKey: Key.idleStyle) }
+    }
+
     /// The palette: auto (follow macOS), dark or light (sent as setTheme).
     var themeChoice: ThemeChoice {
         get { ThemeChoice.from(defaults.string(forKey: Key.theme) ?? ThemeChoice.standard.rawValue) }
@@ -126,5 +132,6 @@ final class Preferences {
         static let soundStyle = "soundStyle"
         static let theme = "theme"
         static let idleAnimation = "idleAnimation"
+        static let idleStyle = "idleStyle"
     }
 }

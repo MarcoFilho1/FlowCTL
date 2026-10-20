@@ -412,3 +412,9 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .app svg.dreaming .link, .app svg.dreaming .flow { opacity: 0; }
 .dream-outline { fill: none; stroke: var(--edge); stroke-width: 1; stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .app.look-pixel .dream-outline { stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: square; }
+
+/* The snail's window (?ui=pet): nothing but the snail, on a transparent page. */
+html.pet-window, html.pet-window body { overflow: hidden; background: transparent; }
+canvas.pet { display: block; width: 100%; height: 100%; cursor: pointer; }
+/* The snail forming out of the nodes, over the graph. */
+.snail-form { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

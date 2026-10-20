@@ -215,6 +215,9 @@ struct ControlPanelView: View {
             ChoiceRow(symbol: "arrow.up.left.and.arrow.down.right", title: "Size", selection: model.binding(\.panelSize, fallback: .standard),
                       options: PanelSize.allCases.map { ($0, String($0.title.prefix(1))) },
                       help: PanelSize.allCases.map(\.title).joined(separator: ", "))
+            ChoiceRow(symbol: "sparkles", title: "Idle", selection: model.binding(\.idleStyle, fallback: .standard),
+                      options: IdleStyle.allCases.map { ($0, $0.title) },
+                      help: "After a minute with nothing working: the nodes form shapes, or gather into a snail that walks along the bottom of the screen.")
             ChoiceRow(symbol: "speaker.wave.2", title: "Sound", selection: model.binding(\.soundChoice, fallback: .standard),
                       options: SoundChoice.allCases.map { ($0, $0 == .look ? "Look" : $0.title) },
                       help: "Look plays the look's own sounds: clean for Smooth, 8-bit for Pixel.")
