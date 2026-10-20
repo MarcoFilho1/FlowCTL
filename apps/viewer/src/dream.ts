@@ -77,6 +77,22 @@ const CURVES: Record<Exclude<DreamShape, "bob" | "galaxy">, Curve> = {
   )
 };
 
+/**
+ * One arm of the galaxy, from near the middle out, walked by arc length so
+ * its nodes sit evenly apart. Open: the arm does not loop back.
+ */
+const GALAXY_ARM: Curve = (() => {
+  const points = Array.from({ length: 80 }, (_, i) => {
+    const r = 0.2 + (0.8 * i) / 79;
+    return { x: Math.cos(r * 3.2) * r, y: Math.sin(r * 3.2) * r };
+  });
+  const at = [0];
+  for (let i = 1; i < points.length; i += 1) {
+    at.push(at[i - 1]! + Math.hypot(points[i]!.x - points[i - 1]!.x, points[i]!.y - points[i - 1]!.y));
+  }
+  return { points, at };
+})();
+
 function along(c: Curve, u: number): Point {
   const length = c.at[c.at.length - 1]!;
   const s = (((u % 1) + 1) % 1) * length;
@@ -92,7 +108,8 @@ function along(c: Curve, u: number): Point {
 /** How long a shape's outline is, per unit of radius: spacing the nodes needs room. */
 export function outline(shape: DreamShape): number {
   if (shape === "bob") return 1;
-  if (shape === "galaxy") return 4;
+  // Two arms, the nodes shared between them.
+  if (shape === "galaxy") return 2 * GALAXY_ARM.at[GALAXY_ARM.at.length - 1]!;
   const c = CURVES[shape];
   return c.at[c.at.length - 1]!;
 }
@@ -107,11 +124,11 @@ export function dreamPoint(shape: DreamShape, i: number, n: number, phase: numbe
     return { x: 0, y: Math.sin(angle) * 0.12 };
   }
   if (shape === "galaxy") {
-    // Two arms; inner nodes turn faster, as in a real one.
-    const r = 0.15 + 0.85 * Math.sqrt((i + 1) / n);
-    const arm = i % 2 === 0 ? 0 : Math.PI;
-    const angle = arm + r * 3.2 + 2 * Math.PI * phase * (1.6 - r);
-    return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+    // Two arms, the nodes taking turns, evenly apart along each; the whole galaxy turns.
+    const perArm = Math.ceil(n / 2);
+    const p = along(GALAXY_ARM, (Math.floor(i / 2) + 0.5) / perArm);
+    const angle = (i % 2 === 0 ? 0 : Math.PI) + 2 * Math.PI * phase;
+    return { x: p.x * Math.cos(angle) - p.y * Math.sin(angle), y: p.x * Math.sin(angle) + p.y * Math.cos(angle) };
   }
   return along(CURVES[shape], i / n + phase);
 }
@@ -157,25 +174,30 @@ export function dreamPoints(n: number, frame: DreamFrame): Point[] {
 }
 
 /**
- * The dream's scale and radius for a window: as large as fits, zoomed out
- * only when the nodes would touch along an outline. `nodeR` is the largest
- * node's radius; pixel art zooms in quarter steps.
+ * The dream's scale and radius for a window, and how many nodes it shows: as
+ * large as fits, zoomed out only when the nodes would touch along an outline,
+ * and past the furthest zoom out, only as many nodes as fit apart (the rest
+ * rest out of sight). `nodeR` is the largest node's radius; pixel art zooms in
+ * quarter steps.
  */
 export function dreamFit(
   n: number,
   nodeR: number,
   viewport: { width: number; height: number },
   pixel: boolean
-): { s: number; radius: number } {
+): { s: number; radius: number; count: number } {
   // The outline sits a node and a margin inside the window.
   const room = Math.max(24, Math.min(viewport.width, viewport.height - BAR_H) / 2 - 12 - nodeR);
   // The tightest of the graph's shapes sets the size, so it holds between shapes.
-  const tightest = Math.min(...shapesFor(n).map(outline));
-  const needed = (n * (2 * nodeR + 6)) / tightest;
-  let s = Math.min(1, room / Math.max(needed, 1));
-  if (pixel) s = Math.max(0.5, Math.floor(s * 4) / 4);
-  else s = Math.max(0.4, s);
-  return { s, radius: room / s };
+  const needed = (count: number) => (count * (2 * nodeR + 6)) / Math.min(...shapesFor(count).map(outline));
+  const least = pixel ? 0.5 : 0.4;
+  // Crowded nodes overlap, each one's rim cutting into the next: fewer, apart, read better.
+  let count = Math.max(1, n);
+  while (count > 1 && room / needed(count) < least) count -= 1;
+  let s = Math.min(1, room / Math.max(needed(count), 1));
+  if (pixel) s = Math.max(least, Math.floor(s * 4) / 4);
+  else s = Math.max(least, s);
+  return { s, radius: room / s, count: Math.min(count, n) };
 }
 
 /**

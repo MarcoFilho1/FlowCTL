@@ -59,3 +59,29 @@ describe("idle animation shapes", () => {
     expect(crowded.radius * crowded.s).toBeCloseTo(67);
   });
 });
+
+describe("a crowded dream", () => {
+  test("shows only the nodes that fit apart, and they do not overlap", () => {
+    const nodeR = 9;
+    const fit = dreamFit(200, nodeR, { width: 330, height: 260 }, true);
+    expect(fit.count).toBeLessThan(200);
+    expect(fit.count).toBeGreaterThan(10);
+    expect(dreamFit(8, nodeR, { width: 330, height: 260 }, true).count).toBe(8);
+    for (const shape of shapesFor(fit.count)) {
+      for (const phase of [0, 0.13, 0.5, 0.77]) {
+        const points = Array.from({ length: fit.count }, (_, i) => dreamPoint(shape, i, fit.count, phase));
+        let closest = Infinity;
+        for (let a = 0; a < points.length; a += 1) {
+          for (let b = a + 1; b < points.length; b += 1) {
+            // The infinity crosses itself: two nodes may pass through its middle at once.
+            if (shape === "infinity" && Math.hypot(points[a]!.x, points[a]!.y) < 0.15) continue;
+            closest = Math.min(closest, Math.hypot(points[a]!.x - points[b]!.x, points[a]!.y - points[b]!.y) * fit.radius * fit.s);
+          }
+        }
+        // The heart folds at its dent: the nodes either side of it may graze, never stack.
+        const apart = shape === "heart" ? 1.2 : 2;
+        expect(closest, `${shape} at ${phase}`).toBeGreaterThanOrEqual(nodeR * apart * fit.s);
+      }
+    }
+  });
+});
