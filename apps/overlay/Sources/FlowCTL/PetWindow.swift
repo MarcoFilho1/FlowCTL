@@ -7,19 +7,21 @@ import WebKit
 /// draws the snail and decides where it goes (`?ui=pet`); this window moves by
 /// the steps the page asks for, tells it the room it has, where the mouse is
 /// and whether a session waits, and lets clicks through everywhere but on the
-/// snail itself.
+/// snail itself. On the snail: hovering shows the current session's summary
+/// (the page gets the sessions as the overlay does), a click brings the
+/// overlay back, and pressing and moving carries it, dropped where released.
 final class PetWindow: NSObject, WKNavigationDelegate {
     /// The window's size; the snail stands in its bottom middle.
-    static let size = CGSize(width: 240, height: 112)
+    static let size = CGSize(width: 260, height: 230)
     /// The page draws the snail's feet this far above the window's bottom.
     private static let feetUp: CGFloat = 2
     /// Where the snail itself is, in the window (bottom middle): only there does it take clicks.
-    private static let body = CGRect(x: 75, y: 0, width: 90, height: 62)
+    private static let body = CGRect(x: 85, y: 0, width: 90, height: 62)
     /// The mouse counts as near within this distance of the snail.
     private static let near: CGFloat = 140
 
     private let panel: NSPanel
-    private let webView: WKWebView
+    private let webView: PetView
     private var isReady = false
     /// Calls waiting for the page to load.
     private var waiting: [() -> Void] = []
@@ -30,6 +32,8 @@ final class PetWindow: NSObject, WKNavigationDelegate {
 
     /// The snail was clicked.
     var onClick: (() -> Void)?
+    /// Every session as the overlay draws it now, for a page that starts over.
+    var currentBodies: () -> [Data] = { [] }
     var isOut: Bool { panel.isVisible }
 
     init(page: URL) {
@@ -38,10 +42,11 @@ final class PetWindow: NSObject, WKNavigationDelegate {
         configuration.userContentController.add(messages, name: "flowctl")
         // The page is the viewer's, told to be the snail's (as ?ui=pet would; a file URL takes no query).
         configuration.userContentController.addUserScript(WKUserScript(source: "window.__flowctlUI = 'pet'", injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        webView = WKWebView(frame: CGRect(origin: .zero, size: Self.size), configuration: configuration)
+        webView = PetView(frame: CGRect(origin: .zero, size: Self.size), configuration: configuration)
         panel = NSPanel(contentRect: CGRect(origin: .zero, size: Self.size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
         messages.pet = self
+        webView.pet = self
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) || webView.responds(to: NSSelectorFromString("setDrawsBackground:")) {
             webView.setValue(false, forKey: "drawsBackground")
         }
@@ -72,6 +77,7 @@ final class PetWindow: NSObject, WKNavigationDelegate {
             guard let self else { return }
             if case .success(let value) = result, (value as? Bool) == true {} else { log("pet: window.flowctlPet never appeared") }
             self.isReady = true
+            self.currentBodies().forEach(self.push)
             let calls = self.waiting
             self.waiting.removeAll()
             calls.forEach { $0() }
@@ -153,6 +159,19 @@ final class PetWindow: NSObject, WKNavigationDelegate {
         panel.orderOut(nil)
     }
 
+    /// A session snapshot, as the overlay gets it: the hover summary reads them.
+    func push(_ body: Data) {
+        guard isReady else { return }
+        let script = "return window.flowctl ? window.flowctl.push(JSON.parse(snapshot)) : false"
+        webView.callAsyncJavaScript(script, arguments: ["snapshot": String(decoding: body, as: UTF8.self)], in: nil, in: .page) { _ in }
+    }
+
+    /// A session's tab closed in the overlay.
+    func remove(_ sessionId: String) {
+        guard isReady else { return }
+        webView.callAsyncJavaScript("window.flowctl && window.flowctl.remove(sessionId)", arguments: ["sessionId": sessionId], in: nil, in: .page) { _ in }
+    }
+
     func setAlert(_ alert: Bool) {
         call("setMood", alert ? "alert" : "calm")
     }
@@ -231,15 +250,21 @@ final class PetWindow: NSObject, WKNavigationDelegate {
     }
 
     private var lastMouse: CGFloat?? = .none
+    private var lastHover = false
 
     private func watch() {
-        guard panel.isVisible, !flying else { return }
+        guard panel.isVisible, !flying, !carrying else { return }
         let line = walkingLine() - Self.feetUp
         if abs(panel.frame.minY - line) > 0.5 { panel.setFrameOrigin(CGPoint(x: panel.frame.minX, y: line)) }
         let mouse = NSEvent.mouseLocation
         let frame = panel.frame
         let body = Self.body.offsetBy(dx: frame.minX, dy: frame.minY)
-        panel.ignoresMouseEvents = !body.contains(mouse)
+        let onBody = body.contains(mouse)
+        panel.ignoresMouseEvents = !onBody
+        if onBody != lastHover {
+            lastHover = onBody
+            call("setHover", onBody)
+        }
         let isNear = abs(mouse.x - frame.midX) < Self.near && mouse.y < frame.maxY + 40 && mouse.y > frame.minY - 20
         let pageX: CGFloat? = isNear ? mouse.x - frame.minX : nil
         if case .some(let last) = lastMouse, last == pageX { return }
@@ -261,11 +286,82 @@ final class PetWindow: NSObject, WKNavigationDelegate {
         }
     }
 
+    // MARK: Carried
+
+    /// Pressing on the snail and moving carries it, hanging by its shell.
+    private var press: (mouse: CGPoint, origin: CGPoint)?
+    private var carrying = false
+
+    fileprivate func pressed() {
+        guard !flying else { return }
+        press = (NSEvent.mouseLocation, panel.frame.origin)
+    }
+
+    fileprivate func dragged() {
+        guard let press, !flying else { return }
+        let mouse = NSEvent.mouseLocation
+        let dx = mouse.x - press.mouse.x
+        let dy = mouse.y - press.mouse.y
+        if !carrying {
+            // A press that moves a little is still a click.
+            guard hypot(dx, dy) > 4 else { return }
+            carrying = true
+            call("setHeld", true)
+            call("setMouse", NSNull())
+        }
+        // Lifted by its shell: it hangs a little under the mouse.
+        panel.setFrameOrigin(CGPoint(x: press.origin.x + dx, y: max(press.origin.y + dy, walkingLine() - Self.feetUp)))
+    }
+
+    fileprivate func released() {
+        defer { press = nil }
+        guard carrying else {
+            if press != nil { onClick?() }
+            return
+        }
+        carrying = false
+        // Dropped: it falls straight down onto the walking line, on its screen.
+        let landing = frame(feet: CGPoint(x: clampX(panel.frame.midX), y: walkingLine()))
+        let height = panel.frame.minY - landing.minY
+        flying = true
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = min(0.6, 0.12 + Double(height) / 900)
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().setFrame(landing, display: true)
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.flying = false
+            self.call("setHeld", false)
+            self.reportRoom()
+        })
+    }
+
     // MARK: Debug hooks
 
     var debugWebView: WKWebView { webView }
+
+    /// As if the person pressed on the snail, moved by (dx, dy) and let go (debug hooks).
+    func debugCarry(dx: CGFloat, dy: CGFloat) {
+        press = (CGPoint(x: panel.frame.midX, y: panel.frame.minY + 20), panel.frame.origin)
+        carrying = true
+        call("setHeld", true)
+        panel.setFrameOrigin(CGPoint(x: panel.frame.minX + dx, y: panel.frame.minY + dy))
+    }
+
+    func debugDrop() { released() }
     var debugFrame: CGRect { panel.frame }
     var debugPanel: NSWindow { panel }
+}
+
+/// The snail's web view: presses on it are the window's (click or carry),
+/// not the page's; the page only draws.
+private final class PetView: WKWebView {
+    weak var pet: PetWindow?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { pet?.pressed() }
+    override func mouseDragged(with event: NSEvent) { pet?.dragged() }
+    override func mouseUp(with event: NSEvent) { pet?.released() }
 }
 
 /// The page's messages, held weakly as WebBridge's are.

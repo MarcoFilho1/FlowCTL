@@ -17,8 +17,13 @@ const OY = 2;
 const MID = 9;
 const GROUND = 15;
 
-/** What the snail is doing, as drawn. */
-export type Pose = "walk" | "look" | "sleep" | "alert" | "tucked";
+/**
+ * What the snail is doing, as drawn: walking, looking around, asleep in its
+ * shell, rattling its shell (a session needs the person), curled in its shell
+ * flying home (tucked), antennas up at the mouse (curious), hiding from a
+ * mouse that stays on it (shy), and carried by its shell (held).
+ */
+export type Pose = "walk" | "look" | "sleep" | "alert" | "tucked" | "curious" | "shy" | "held";
 
 const INK = "#0d1117";
 const INK_A = "rgba(13,17,23,0.82)";
@@ -121,8 +126,8 @@ const SPIRAL_PIXELS: [number, number][] = [[7, 7], [8, 7], [8, 8], [7, 9], [6, 8
  */
 export function snailPainter(pose: Pose, step: number, gaze: number): (p: Painter) => void {
   return (P) => {
-    if (pose === "sleep" || pose === "tucked") {
-      if (pose === "sleep") P.rect(3, 14, 9, 1, "b");
+    if (pose === "sleep" || pose === "tucked" || pose === "shy" || pose === "held") {
+      if (pose === "sleep" || pose === "shy") P.rect(3, 14, 9, 1, "b");
       P.disc(7.5, 9.6, 4.4, "a");
       P.pts(SPIRAL_PIXELS.map(([x, y]) => [x, y + 2]), "r");
       return;
@@ -130,8 +135,10 @@ export function snailPainter(pose: Pose, step: number, gaze: number): (p: Painte
     const st = pose === "walk" ? step : 0;
     P.rect(2, 12, 12 + st, 2, "b");
     P.disc(14.5 + st, 11, 1.8, "b");
-    if (pose === "alert") {
+    if (pose === "alert" || (pose === "curious" && gaze === 0)) {
       P.line(14, 9, 13, 3, "b"); P.line(15, 9, 16, 3, "b"); P.px(13, 2, "k"); P.px(16, 2, "k");
+    } else if (pose === "curious") {
+      P.line(14, 9, 12, 4, "b"); P.line(15, 9, 17, 4, "b"); P.px(12, 3, "k"); P.px(17, 3, "k");
     } else if (gaze === 1) {
       P.line(14 + st, 9, 14 + st, 7, "b"); P.line(15 + st, 9, 17 + st, 8, "b"); P.px(14 + st, 6, "k"); P.px(17 + st, 7, "k");
     } else if (gaze === 2) {
@@ -257,10 +264,20 @@ export function drawSnail(c: CanvasRenderingContext2D, f: SnailFrame): void {
 function drawPixel(c: CanvasRenderingContext2D, f: SnailFrame, shown: number) {
   const mirror = f.dir < 0;
   const step = f.pose === "walk" && f.stride > 0.5 ? Math.floor(f.walked / 7) % 2 : 0;
-  const gaze = f.pose === "look" ? Math.floor(f.t / 1100) % 3 : 0;
+  const gaze = f.pose === "look" ? Math.floor(f.t / 1100) % 3 : f.pose === "curious" ? Math.floor(f.t / 260) % 2 : 0;
   const show = shown >= 1 ? undefined : (x: number, y: number) => hash(x, y) < shown;
   if (f.pose === "tucked") {
     drawSprite(c, shellSprite(Math.floor(f.t / 90) % 3 - 1), f.x, f.ground - 2 * ART, mirror, 0, 0, show);
+    return;
+  }
+  if (f.pose === "held") {
+    // Hanging by its shell: a slow swing.
+    drawSprite(c, shellSprite(0), f.x, f.ground - 2 * ART, mirror, Math.round(Math.sin(f.t / 220) * 3), 0, show);
+    return;
+  }
+  if (f.pose === "shy") {
+    // Hiding in its shell, trembling now and then.
+    drawSprite(c, snailSprite("shy", 0, 0), f.x, f.ground, mirror, Math.floor(f.t / 90) % 5 === 0 ? 1 : 0, 0, show);
     return;
   }
   drawSprite(c, snailSprite(f.pose, step, gaze), f.x, f.ground, mirror, 0, 0, show);
@@ -279,12 +296,14 @@ function drawSmooth(c: CanvasRenderingContext2D, f: SnailFrame, shown: number) {
   c.scale(f.dir * ART * scale, ART * scale);
   c.translate(-MID, -GROUND);
   const sw = Math.sin(f.phase) * f.stride;
-  if (f.pose === "sleep" || f.pose === "tucked") {
-    if (f.pose === "sleep") shape(c, SLUG, [3, 13, 11.4, 14.8], () => roundRect(c, 3, 13.3, 8.4, 1.4, 0.7));
+  if (f.pose === "sleep" || f.pose === "tucked" || f.pose === "shy" || f.pose === "held") {
+    if (f.pose === "sleep" || f.pose === "shy") shape(c, SLUG, [3, 13, 11.4, 14.8], () => roundRect(c, 3, 13.3, 8.4, 1.4, 0.7));
     const breath = f.pose === "sleep" ? Math.sin(f.t / 800) * 0.12 : 0;
-    if (f.pose === "tucked") {
+    // Tucked spins as it flies; held swings from the hand; shy trembles.
+    const turn = f.pose === "tucked" ? f.t / 120 : f.pose === "held" ? Math.sin(f.t / 260) * 0.3 : f.pose === "shy" ? Math.sin(f.t / 25) * 0.03 : 0;
+    if (turn) {
       c.translate(7.5, 9.9);
-      c.rotate(f.t / 120);
+      c.rotate(turn);
       c.translate(-7.5, -9.9);
     }
     smoothShell(c, 7.5, 9.9 - breath);
@@ -298,6 +317,11 @@ function drawSmooth(c: CanvasRenderingContext2D, f: SnailFrame, shown: number) {
   shape(c, SLUG, [2.4, 11.5, 14 + st, 14.4], () => roundRect(c, 2.4, 11.8, 11.6 + st, 2.5, 1.2));
   let tips: [number, number][];
   if (alert) tips = [[12.8 - wave * 0.6, 3.4], [16.4 + wave * 0.6, 3.6]];
+  else if (f.pose === "curious") {
+    // Antennas up and waving at the mouse, one then the other.
+    const w = Math.sin(f.t / 110);
+    tips = [[12.8 - w * 0.8, 3.6 + Math.abs(w) * 0.3], [16.4 + w * 0.8, 3.8 + Math.abs(w) * 0.3]];
+  }
   else {
     const sway = f.pose === "look" ? Math.sin(f.t / 700) * 0.9 : Math.sin(f.t / 900) * 0.3;
     tips = [[13.2 + st + sway, 6.7 + Math.cos(f.t / 650) * 0.3], [16.2 + st + sway * 0.7, 6.9 - Math.cos(f.t / 650) * 0.3]];

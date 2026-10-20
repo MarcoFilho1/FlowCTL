@@ -83,6 +83,13 @@ enum DebugHooks {
                 guard let webView = app.debugBridge?.webView else { return .badRequest("no page") }
                 let source = String(decoding: request.body, as: UTF8.self)
                 return .ok(evaluate(source, in: webView) + "\n")
+            case ("POST", "/debug/pet-carry"):
+                // As if the person pressed on the snail and moved it by dx, dy (points, y up); pet-drop lets go.
+                app.debugPet?.debugCarry(dx: CGFloat(Double(query["dx"] ?? "0") ?? 0), dy: CGFloat(Double(query["dy"] ?? "0") ?? 0))
+                return .ok()
+            case ("POST", "/debug/pet-drop"):
+                app.debugPet?.debugDrop()
+                return .ok()
             case ("POST", "/debug/pet-click"):
                 app.debugPet?.onClick?()
                 return .ok()

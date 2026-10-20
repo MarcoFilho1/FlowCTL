@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         self.panel = panel
         let pet = PetWindow(page: paths.viewerPage)
         pet.onClick = { [weak self] in self?.showPanel() }
+        pet.currentBodies = { [weak self] in self?.replayBodies() ?? [] }
         self.pet = pet
         anchor = restoredAnchor()
         layOut(animated: false)
@@ -194,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     private func flushToViewer() {
         for body in registry.pendingPushes(now: Date()) {
             bridge?.push(body)
+            pet?.push(body)
         }
     }
 
@@ -212,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         for id in expired {
             log("closing the ended session tab \(id)")
             bridge?.remove(id) { [weak self] in self?.replayBodies() ?? [] }
+            pet?.remove(id)
         }
         // A session whose process went away, or that went quiet, changes state here.
         flushToViewer()

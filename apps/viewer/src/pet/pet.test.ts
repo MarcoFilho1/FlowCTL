@@ -1,8 +1,11 @@
 import { describe, expect, test } from "vitest";
+import { snapshotOf, task } from "../goldens.ts";
 import { createSessionStore } from "../store.ts";
 import { EDGE, start, think, type Brain } from "./brain.ts";
 import { formProgress, FORMED_MS, FORM_START_MS, gatherProgress } from "./gather.ts";
+import { poseFor, SHY_AFTER_MS } from "./PetPage.tsx";
 import { snailSprite, shellSprite, vibration } from "./snail.ts";
+import { summarize } from "./summary.ts";
 
 const room = { left: 500, right: 500 };
 const fixed = (value: number) => () => value;
@@ -94,5 +97,47 @@ describe("the idle style in the store", () => {
     store.wake();
     expect(store.getState().wakes).toBe(1);
     expect(store.getState().petAway).toBe(false);
+  });
+});
+
+describe("what the snail tells on hover", () => {
+  test("the current session's progress and what it did last", () => {
+    const snapshot = snapshotOf(
+      [
+        task("a", { status: "done", title: "Write the tests", finishedAt: 60_000 }),
+        task("b", { status: "done", title: "Fix the sound", finishedAt: 120_000 }),
+        task("c", { status: "pending" })
+      ],
+      { sessionState: "idle", updatedAt: 120_000, cwd: "/work/FlowCTL" }
+    );
+    const summary = summarize([snapshot], "s1", 120_000 + 4 * 60_000);
+    expect(summary).toMatchObject({ name: "FlowCTL", stateLabel: "Idle", done: 2, total: 3, since: "4 min ago", others: 0 });
+    expect(summary?.focus).toEqual({ label: "Last done, 4 min ago", title: "Fix the sound" });
+  });
+
+  test("a step that needs the person comes first, then the one running; other sessions are counted", () => {
+    const running = snapshotOf([task("a", { status: "running", title: "Build", activeForm: "Building the app" })]);
+    expect(summarize([running], "s1", 0)?.focus).toEqual({ label: "Now", title: "Building the app" });
+    const asking = snapshotOf(
+      [task("a", { status: "needs_you", title: "Run rm", attention: { kind: "permission", reason: "Allow rm -rf build?", detail: "rm -rf build", since: 0 } })],
+      { sessionState: "waiting_you" }
+    );
+    const other = snapshotOf([task("x")], { sessionId: "s2", sessionState: "waiting_you" });
+    const summary = summarize([asking, other], "s1", 0);
+    expect(summary?.focus).toEqual({ label: "Needs you", title: "Allow rm -rf build?" });
+    expect(summary).toMatchObject({ others: 1, othersWaiting: 1 });
+    expect(summarize([], null, 0)).toBeNull();
+  });
+});
+
+describe("how the snail reacts to the person", () => {
+  const calm = { alert: false, held: false, mouse: null, hoverSince: null };
+  test("antennas up when the mouse is near, hiding when it stays on it, hanging when carried", () => {
+    expect(poseFor("walk", calm, 0)).toBe("walk");
+    expect(poseFor("look", { ...calm, mouse: 20 }, 0)).toBe("curious");
+    expect(poseFor("look", { ...calm, mouse: 0, hoverSince: 0 }, SHY_AFTER_MS - 1)).toBe("curious");
+    expect(poseFor("look", { ...calm, mouse: 0, hoverSince: 0 }, SHY_AFTER_MS)).toBe("shy");
+    expect(poseFor("alert", { ...calm, alert: true, mouse: 0 }, 0)).toBe("alert");
+    expect(poseFor("walk", { ...calm, held: true, alert: true }, 0)).toBe("held");
   });
 });
