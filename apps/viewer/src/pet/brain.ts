@@ -22,12 +22,16 @@ export interface Senses {
   room: { left: number; right: number };
   /** A session waits for the person. */
   alert: boolean;
+  /** A session works: the snail pushes its step along, no pausing or sleeping meanwhile. */
+  working?: boolean;
   /** 0..1, Math.random by default. */
   random?: () => number;
 }
 
 /** Snail speed, px per second: slow and steady. */
 export const SPEED = 9;
+/** Working, it pushes its step along a little faster. */
+export const WORK_SPEED = 14;
 /** It turns back this far from an edge. */
 export const EDGE = 12;
 
@@ -70,6 +74,14 @@ export function think(brain: Brain, senses: Senses): { brain: Brain; pose: Pose;
     // Someone is near: it wakes, stops and looks their way, and rests a while after.
     dir = senses.mouse < 0 ? -1 : 1;
     return { brain: { activity: "rest", until: senses.now + span("rest", random), dir }, pose: "look", moving: false };
+  }
+  if (senses.working) {
+    // The ball it pushes runs ahead of it: it turns back sooner.
+    const edge = EDGE + 40;
+    if ((dir === 1 ? senses.room.right : senses.room.left) < edge) dir = dir === 1 ? -1 : 1;
+    const moving = (dir === 1 ? senses.room.right : senses.room.left) >= edge;
+    // When the work ends it carries on walking a while before it rests.
+    return { brain: { activity: "walk", until: senses.now + span("walk", random), dir }, pose: "work", moving };
   }
   if (senses.now >= until) {
     activity = next(activity, random);

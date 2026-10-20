@@ -4,7 +4,8 @@ import { createSessionStore } from "../store.ts";
 import { EDGE, start, think, type Brain } from "./brain.ts";
 import { formProgress, FORMED_MS, FORM_START_MS, gatherProgress } from "./gather.ts";
 import { poseFor, SHY_AFTER_MS } from "./PetPage.tsx";
-import { snailSprite, shellSprite, vibration } from "./snail.ts";
+import { progress } from "./events.ts";
+import { CELEBRATION_MS, snailSprite, shellSprite, vibration } from "./snail.ts";
 import { summarize } from "./summary.ts";
 
 const room = { left: 500, right: 500 };
@@ -139,5 +140,33 @@ describe("how the snail reacts to the person", () => {
     expect(poseFor("look", { ...calm, mouse: 0, hoverSince: 0 }, SHY_AFTER_MS)).toBe("shy");
     expect(poseFor("alert", { ...calm, alert: true, mouse: 0 }, 0)).toBe("alert");
     expect(poseFor("walk", { ...calm, held: true, alert: true }, 0)).toBe("held");
+  });
+});
+
+describe("while sessions work", () => {
+  test("steps done and sessions finished are noticed once, against what was seen", () => {
+    const working = snapshotOf([task("a", { status: "done" }), task("b", { status: "running" })], { sessionState: "working" });
+    let look = progress(new Map(), [working]);
+    expect(look).toMatchObject({ steps: 0, finished: 0, working: true });
+    const stepDone = snapshotOf([task("a", { status: "done" }), task("b", { status: "done" })], { sessionState: "working", seq: 2 });
+    look = progress(look.seen, [stepDone]);
+    expect(look).toMatchObject({ steps: 1, finished: 0 });
+    const finished = { ...stepDone, sessionState: "idle" as const, seq: 3 };
+    look = progress(look.seen, [finished]);
+    expect(look).toMatchObject({ steps: 0, finished: 1, working: false });
+    // Waiting for the person is not finishing.
+    const waiting = { ...stepDone, sessionState: "waiting_you" as const };
+    expect(progress(new Map([["s1", { done: 2, state: "working" as const }]]), [waiting]).finished).toBe(0);
+  });
+
+  test("it pushes on without pausing, and celebrates when told", () => {
+    const resting: Brain = { activity: "sleep", until: 60_000, dir: 1 };
+    const step = think(resting, { now: 5, mouse: null, room, alert: false, working: true });
+    expect(step.pose).toBe("work");
+    expect(step.moving).toBe(true);
+    const calm = { alert: false, held: false, mouse: null, hoverSince: null };
+    expect(poseFor("work", { ...calm, celebrateAt: 0 }, 100)).toBe("done");
+    expect(poseFor("work", { ...calm, celebrateAt: 0 }, CELEBRATION_MS)).toBe("work");
+    expect(poseFor("work", { ...calm, alert: true, celebrateAt: 0 }, 100)).toBe("alert");
   });
 });

@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge.currentSoundStyle = { [weak self] in self?.preferences.soundStyle ?? SoundChoice.standard.rawValue }
         bridge.currentTheme = { [weak self] in self?.preferences.themeChoice.rawValue ?? ThemeChoice.standard.rawValue }
         bridge.currentIdleAnimation = { [weak self] in self?.preferences.idleAnimation ?? true }
-        bridge.currentIdleStyle = { [weak self] in self?.preferences.idleStyle ?? .standard }
+        bridge.currentIdleStyle = { [weak self] in self?.preferences.effectiveIdleStyle ?? .standard }
         self.bridge = bridge
         let panel = OverlayPanel(content: bridge.webView)
         panel.onHide = { [weak self] in self?.hidePanel(.user) }
@@ -95,7 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
 
         restoreSessions()
         startServer()
-        showPanel()
+        lastView = preferences.view
+        if isSnailView { putSnailOut() } else { showPanel() }
 
         timers = [
             Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.tick() },
@@ -180,6 +181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         guard outcome != .stale else { return }
         flushToViewer()
         if petOut { pet?.setAlert(isAnySessionWaiting) }
+        // Only the snail: it shows what happens itself (works, celebrates, rattles); the panel stays away.
+        if isSnailView { return statusMenu?.refresh() ?? () }
         if AutoShow.shouldShow(outcome: outcome, state: info.state, enabled: preferences.showAutomatically, hiddenBy: hiddenBy) {
             // The snail rattles its shell a moment first, so the person sees why it goes.
             if petOut, info.state == .waitingYou {
@@ -334,10 +337,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge?.applySoundStyle(preferences.soundStyle)
         bridge?.applyTheme(preferences.themeChoice.rawValue)
         bridge?.applyIdleAnimation(preferences.idleAnimation)
-        bridge?.applyIdleStyle(preferences.idleStyle)
+        bridge?.applyIdleStyle(preferences.effectiveIdleStyle)
         pet?.apply(look: preferences.look, theme: preferences.themeChoice)
-        // The snail turned off while it is out: it goes home.
-        if petOut, !(preferences.idleAnimation && preferences.idleStyle == .pet) { showPanel() }
+        if preferences.view != lastView {
+            lastView = preferences.view
+            // Only the snail now: it comes out. The graph again: it goes home.
+            if isSnailView { putSnailOut() } else if petOut { showPanel() }
+        } else if petOut, !isSnailView, !(preferences.idleAnimation && preferences.idleStyle == .pet) {
+            // The snail turned off while it is out: it goes home.
+            showPanel()
+        }
         statusMenu?.refresh()
         layOut(animated: true)
     }
@@ -376,7 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
     /// it from that very spot, and the panel goes. Only from a panel on screen,
     /// with the snail chosen.
     private func petFormed(at page: CGPoint) {
-        guard preferences.idleAnimation, preferences.idleStyle == .pet, isPanelShown, !petOut, let panel, let pet else { return }
+        guard isSnailView || (preferences.idleAnimation && preferences.idleStyle == .pet), isPanelShown, !petOut, let panel, let pet else { return }
         let feet = CGPoint(x: panel.frame.minX + page.x, y: panel.frame.maxY - page.y)
         petOut = true
         bridge?.petAway()
@@ -406,10 +415,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             self.showPanel()
             self.bridge?.petBack()
             log("the snail is back")
+            // Only the snail: this is a look at the graph, and the snail comes back out after a while.
+            if self.isSnailView { self.armPeek() }
+        }
+    }
+
+    // MARK: Only the snail
+
+    private var isSnailView: Bool { preferences.view == .snail }
+    /// The view when the preferences were last applied: a change to it moves the snail.
+    private var lastView: OverlayView = .standard
+    private var peekTimer: Timer?
+    /// A look at the graph, with only the snail chosen, lasts this long (the mouse on the panel holds it).
+    private static let peekSeconds: TimeInterval = 60
+
+    /// Out comes the snail, to stay: from the panel's nodes when the panel
+    /// is up (they gather into it), else dropped in from above its spot.
+    private func putSnailOut() {
+        peekTimer?.invalidate()
+        guard !petOut, let panel, let pet else { return }
+        if isPanelShown {
+            // The page gathers the nodes into the snail; petFormed takes it from there.
+            bridge?.petAway()
+            return
+        }
+        petOut = true
+        bridge?.petAway()
+        let screen = panel.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? .zero
+        pet.emerge(at: CGPoint(x: visible.maxX - 220, y: visible.minY + 260), look: preferences.look, theme: preferences.themeChoice, screen: screen)
+        pet.setAlert(isAnySessionWaiting)
+        hiddenBy = .idle
+        statusMenu?.refresh()
+        log("the snail is out (snail view)")
+    }
+
+    /// After a minute's look at the graph, the snail comes back out, unless the mouse is on the panel.
+    private func armPeek() {
+        peekTimer?.invalidate()
+        peekTimer = Timer.scheduledTimer(withTimeInterval: Self.peekSeconds, repeats: false) { [weak self] _ in
+            guard let self, self.isSnailView, !self.petOut else { return }
+            if let panel = self.panel, panel.frame.contains(NSEvent.mouseLocation) { return self.armPeek() }
+            self.putSnailOut()
         }
     }
 
     private func hidePanel(_ by: HiddenBy) {
+        // Only the snail: the graph going away (closed, or idle) puts the snail back out, dropped in.
+        if isSnailView, !petOut, let panel, panel.isVisible {
+            panel.orderOut(nil)
+            panel.alphaValue = CGFloat(preferences.opacity)
+            return putSnailOut()
+        }
         hiddenBy = by
         guard let panel, panel.isVisible, !hiding else { return }
         visibilityChange += 1
@@ -480,6 +537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
                 "out": petOut,
                 "returning": petReturning,
                 "style": preferences.idleStyle.rawValue,
+                "view": preferences.view.rawValue,
                 "frame": pet.map { [$0.debugFrame.minX, $0.debugFrame.minY, $0.debugFrame.width, $0.debugFrame.height] } ?? []
             ],
             "sessions": registry.order.map { id -> [String: Any] in

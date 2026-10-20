@@ -208,6 +208,9 @@ struct ControlPanelView: View {
     /// The choices people change most, each a row of segments: look, theme, size and sound.
     private var appearanceTile: some View {
         VStack(spacing: 8) {
+            ChoiceRow(symbol: "eye", title: "View", selection: model.binding(\.view, fallback: .standard),
+                      options: OverlayView.allCases.map { ($0, $0.title) },
+                      help: "Graph shows the overlay. Snail shows only the snail, which works while your sessions work; click it to see the graph.")
             ChoiceRow(symbol: "paintbrush.pointed", title: "Look", selection: model.binding(\.look, fallback: .standard),
                       options: PageLook.allCases.map { ($0, $0.title) })
             ChoiceRow(symbol: "circle.lefthalf.filled", title: "Theme", selection: model.binding(\.themeChoice, fallback: .standard),

@@ -11,6 +11,13 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
+                Picker(selection: model.binding(\.view, fallback: .standard)) {
+                    ForEach(OverlayView.allCases, id: \.self) { Text($0.title).tag($0) }
+                } label: {
+                    Text("View")
+                    Text("Only the snail: it works while your sessions work, celebrates when they finish and rattles when one needs you. Click it to see the graph.")
+                }
+                .pickerStyle(.segmented)
                 Picker("Size", selection: model.binding(\.panelSize, fallback: .standard)) {
                     ForEach(PanelSize.allCases, id: \.self) { Text($0.title).tag($0) }
                 }

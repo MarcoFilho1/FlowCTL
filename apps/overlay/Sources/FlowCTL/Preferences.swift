@@ -70,6 +70,15 @@ final class Preferences {
         set { defaults.set(newValue.rawValue, forKey: Key.idleStyle) }
     }
 
+    /// The graph in its overlay, or only the snail.
+    var view: OverlayView {
+        get { defaults.string(forKey: Key.view).flatMap(OverlayView.init(rawValue:)) ?? .standard }
+        set { defaults.set(newValue.rawValue, forKey: Key.view) }
+    }
+
+    /// The idle style the overlay page uses: the snail whenever the view is the snail's.
+    var effectiveIdleStyle: IdleStyle { view == .snail ? .pet : idleStyle }
+
     /// The palette: auto (follow macOS), dark or light (sent as setTheme).
     var themeChoice: ThemeChoice {
         get { ThemeChoice.from(defaults.string(forKey: Key.theme) ?? ThemeChoice.standard.rawValue) }
@@ -133,5 +142,6 @@ final class Preferences {
         static let theme = "theme"
         static let idleAnimation = "idleAnimation"
         static let idleStyle = "idleStyle"
+        static let view = "view"
     }
 }

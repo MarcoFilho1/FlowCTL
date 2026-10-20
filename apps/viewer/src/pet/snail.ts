@@ -21,9 +21,10 @@ const GROUND = 15;
  * What the snail is doing, as drawn: walking, looking around, asleep in its
  * shell, rattling its shell (a session needs the person), curled in its shell
  * flying home (tucked), antennas up at the mouse (curious), hiding from a
- * mouse that stays on it (shy), and carried by its shell (held).
+ * mouse that stays on it (shy), carried by its shell (held), pushing the
+ * step under way (work) and celebrating a finished session (done).
  */
-export type Pose = "walk" | "look" | "sleep" | "alert" | "tucked" | "curious" | "shy" | "held";
+export type Pose = "walk" | "look" | "sleep" | "alert" | "tucked" | "curious" | "shy" | "held" | "work" | "done";
 
 const INK = "#0d1117";
 const INK_A = "rgba(13,17,23,0.82)";
@@ -31,6 +32,9 @@ const SHELL = "#d29922";
 const SPIRAL = "#8a5a00";
 const SLUG = "#7ee787";
 const YELLOW = "#e3b341";
+const GREEN = "#3fb950";
+const BLUE = "#58a6ff";
+const WHITE = "#e6edf3";
 const PALETTE: Record<string, string> = { b: SLUG, a: SHELL, r: SPIRAL };
 
 /** Lighter (amt > 0) or darker (amt < 0) by a fraction of the way to white or black. */
@@ -132,10 +136,10 @@ export function snailPainter(pose: Pose, step: number, gaze: number): (p: Painte
       P.pts(SPIRAL_PIXELS.map(([x, y]) => [x, y + 2]), "r");
       return;
     }
-    const st = pose === "walk" ? step : 0;
+    const st = pose === "walk" || pose === "work" ? step : 0;
     P.rect(2, 12, 12 + st, 2, "b");
     P.disc(14.5 + st, 11, 1.8, "b");
-    if (pose === "alert" || (pose === "curious" && gaze === 0)) {
+    if (pose === "alert" || pose === "done" || (pose === "curious" && gaze === 0)) {
       P.line(14, 9, 13, 3, "b"); P.line(15, 9, 16, 3, "b"); P.px(13, 2, "k"); P.px(16, 2, "k");
     } else if (pose === "curious") {
       P.line(14, 9, 12, 4, "b"); P.line(15, 9, 17, 4, "b"); P.px(12, 3, "k"); P.px(17, 3, "k");
@@ -146,7 +150,7 @@ export function snailPainter(pose: Pose, step: number, gaze: number): (p: Painte
     } else {
       P.line(14 + st, 9, 13 + st, 7, "b"); P.line(15 + st, 9, 16 + st, 7, "b"); P.px(13 + st, 6, "k"); P.px(16 + st, 6, "k");
     }
-    if (pose !== "alert") {
+    if (pose !== "alert" && pose !== "done") {
       P.disc(7, 7.5, 4.4, "a");
       P.pts(SPIRAL_PIXELS, "r");
     }
@@ -263,7 +267,7 @@ export function drawSnail(c: CanvasRenderingContext2D, f: SnailFrame): void {
 
 function drawPixel(c: CanvasRenderingContext2D, f: SnailFrame, shown: number) {
   const mirror = f.dir < 0;
-  const step = f.pose === "walk" && f.stride > 0.5 ? Math.floor(f.walked / 7) % 2 : 0;
+  const step = (f.pose === "walk" || f.pose === "work") && f.stride > 0.5 ? Math.floor(f.walked / 7) % 2 : 0;
   const gaze = f.pose === "look" ? Math.floor(f.t / 1100) % 3 : f.pose === "curious" ? Math.floor(f.t / 260) % 2 : 0;
   const show = shown >= 1 ? undefined : (x: number, y: number) => hash(x, y) < shown;
   if (f.pose === "tucked") {
@@ -281,6 +285,7 @@ function drawPixel(c: CanvasRenderingContext2D, f: SnailFrame, shown: number) {
     return;
   }
   drawSprite(c, snailSprite(f.pose, step, gaze), f.x, f.ground, mirror, 0, 0, show);
+  if (f.pose === "done") drawSprite(c, shellSprite(0), f.x, f.ground, mirror, 0, 0, show);
   if (f.pose === "alert") {
     const buzz = vibration(f.t);
     const turn = buzz ? (Math.floor(f.t / 50) % 3) - 1 : 0;
@@ -310,10 +315,11 @@ function drawSmooth(c: CanvasRenderingContext2D, f: SnailFrame, shown: number) {
     c.restore();
     return;
   }
-  const alert = f.pose === "alert";
-  const wave = alert ? Math.sin(f.t / 160) : 0;
-  const buzz = alert ? vibration(f.t) : 0;
-  const st = f.pose === "walk" ? sw * 0.5 : 0;
+  // Needs you (alert) and done both raise the antennas; only alert rattles the shell.
+  const alert = f.pose === "alert" || f.pose === "done";
+  const wave = alert ? Math.sin(f.t / (f.pose === "done" ? 110 : 160)) : 0;
+  const buzz = f.pose === "alert" ? vibration(f.t) : 0;
+  const st = f.pose === "walk" || f.pose === "work" ? sw * 0.5 : 0;
   shape(c, SLUG, [2.4, 11.5, 14 + st, 14.4], () => roundRect(c, 2.4, 11.8, 11.6 + st, 2.5, 1.2));
   let tips: [number, number][];
   if (alert) tips = [[12.8 - wave * 0.6, 3.4], [16.4 + wave * 0.6, 3.6]];
@@ -482,4 +488,114 @@ export function drawRattle(c: CanvasRenderingContext2D, look: Look, f: Pick<Snai
     }
   }
   c.globalAlpha = 1;
+}
+
+// ---------- working and done ----------
+
+/** The step under way, as a ball the snail pushes: how much of it there is, and how far its burst got. */
+export interface Ball {
+  /** 0..1 as a new ball pops up. */
+  shown: number;
+  /** 0 until its step is done, then 0..1 as it turns green and bursts. */
+  burst: number;
+}
+
+/** The ball sits in front of the snail's head, on the ground. */
+export function drawBall(c: CanvasRenderingContext2D, look: Look, f: Pick<SnailFrame, "x" | "ground" | "dir" | "walked">, ball: Ball): void {
+  const x = f.x + f.dir * 9.6 * ART;
+  const y = f.ground - 6.4;
+  const color = ball.burst > 0 ? GREEN : BLUE;
+  const roll = f.walked / 6.4;
+  if (ball.burst < 0.55 && ball.shown > 0) {
+    const size = ball.shown * (1 + ball.burst * 0.6);
+    if (look === "pixel") {
+      const sprite = cached(`ball:${size < 0.5 ? 1 : 1.6}`, () => (P) => P.disc(9, 7, size < 0.5 ? 1 : 1.6, "b"));
+      const left = Math.round(x - (9 + OX + 0.5) * ART);
+      const top = Math.round(y - (7 + OY + 0.5) * ART);
+      for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+        const m = sprite[gy]![gx];
+        if (!m) continue;
+        c.fillStyle = m === "o" ? INK : m[1] === "+" ? mix(color, 0.3) : m[1] === "-" ? mix(color, -0.25) : color;
+        c.fillRect(left + gx * ART, top + gy * ART, ART, ART);
+      }
+      // A light spot that turns as it rolls.
+      c.fillStyle = "rgba(255,255,255,0.85)";
+      c.fillRect(Math.round(x - ART / 2) + Math.round(Math.cos(roll)) * ART, Math.round(y - ART / 2) + Math.round(Math.sin(roll)) * ART, ART, ART);
+    } else {
+      const r = 6.5 * size;
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.fillStyle = gradient(c, color, x - r, y - r, x + r, y + r);
+      c.fill();
+      c.lineWidth = 1.3; c.strokeStyle = INK_A; c.stroke();
+      c.beginPath();
+      c.arc(x + Math.cos(roll) * r * 0.45, y + Math.sin(roll) * r * 0.45, r * 0.22, 0, Math.PI * 2);
+      c.fillStyle = "rgba(255,255,255,0.8)"; c.fill();
+    }
+  }
+  if (ball.burst > 0) {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.3;
+      const d = 6 + ball.burst * 18;
+      c.globalAlpha = 1 - ball.burst;
+      c.fillStyle = i % 2 ? GREEN : "#ffffff";
+      const px = x + Math.cos(a) * d;
+      const py = y - 4 + Math.sin(a) * d * 0.8;
+      if (look === "pixel") c.fillRect(Math.round(px / 2) * 2, Math.round(py / 2) * 2, ART - 1, ART - 1);
+      else { c.beginPath(); c.arc(px, py, 1.6, 0, Math.PI * 2); c.fill(); }
+    }
+    c.globalAlpha = 1;
+  }
+}
+
+/** How long the celebration lasts. */
+export const CELEBRATION_MS = 2600;
+
+/** Two happy hops in the celebration's first 700 ms, 0..1 of their height. */
+export function celebrationHop(k: number): number {
+  return k >= 0 && k < 700 ? Math.abs(Math.sin((k / 350) * Math.PI)) : 0;
+}
+
+/** Done: confetti from the shell and a green check over its head, `k` ms into the celebration. */
+export function drawDone(c: CanvasRenderingContext2D, look: Look, f: Pick<SnailFrame, "x" | "ground" | "dir">, k: number): void {
+  const pixel = look === "pixel";
+  const cx = f.x - f.dir * 2 * ART;
+  const cy = f.ground - 9 * ART;
+  const colors = [GREEN, BLUE, WHITE, YELLOW, "#e8804a"];
+  if (k < 1600) {
+    for (let i = 0; i < 16; i++) {
+      const t = Math.max(0, k - (i % 4) * 60) / 1000;
+      const a = -Math.PI / 2 + (hash(i, 7) - 0.5) * 2.2;
+      const v = 90 + hash(7, i) * 70;
+      const x = cx + Math.cos(a) * v * t;
+      const y = cy + Math.sin(a) * v * t + 0.5 * 320 * t * t;
+      c.globalAlpha = Math.max(0, Math.min(1, 1 - t / 1.5));
+      c.fillStyle = colors[i % colors.length]!;
+      if (pixel) c.fillRect(Math.round(x / 2) * 2, Math.round(y / 2) * 2, ART, ART);
+      else { c.save(); c.translate(x, y); c.rotate(t * 8 + i); c.fillRect(-2, -1.2, 4, 2.4); c.restore(); }
+    }
+    c.globalAlpha = 1;
+  }
+  if (k <= 250) return;
+  // Above and ahead of the raised antennas, clear of them.
+  const x = f.x + f.dir * 9 * ART;
+  const bob = Math.round(Math.sin(k / 160) * 2);
+  if (pixel) {
+    const cells = [[0, 2], [1, 3], [2, 2], [3, 1], [4, 0]] as const;
+    const left = Math.round(x - 2 * ART);
+    const top = Math.round(f.ground - 25 * ART + bob);
+    c.fillStyle = INK;
+    for (const [a, b] of cells) c.fillRect(left + (a - 1) * ART, top + (b - 1) * ART, 3 * ART, 3 * ART);
+    c.fillStyle = GREEN;
+    for (const [a, b] of cells) c.fillRect(left + a * ART, top + b * ART, ART, ART);
+  } else {
+    const top = f.ground - 21 * ART + bob;
+    c.beginPath();
+    roundRect(c, x - 9, top - 10, 18, 20, 7);
+    c.fillStyle = GREEN; c.fill();
+    c.lineWidth = 1.5; c.strokeStyle = INK_A; c.stroke();
+    c.beginPath();
+    c.moveTo(x - 4.5, top + 0.5); c.lineTo(x - 1, top + 4); c.lineTo(x + 5, top - 3.5);
+    c.lineWidth = 2.4; c.lineCap = "round"; c.lineJoin = "round"; c.strokeStyle = "#ffffff"; c.stroke();
+  }
 }

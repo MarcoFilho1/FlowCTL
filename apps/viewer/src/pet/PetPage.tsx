@@ -13,8 +13,9 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createSessionStore, installBridge, tellNative, type Look, type SessionStore, type Theme } from "../store.ts";
-import { SPEED, start, think, type Brain } from "./brain.ts";
-import { drawBang, drawRattle, drawSnail, drawTrail, drawZzz, TRAIL_MS, type Pose } from "./snail.ts";
+import { SPEED, start, think, WORK_SPEED, type Brain } from "./brain.ts";
+import { progress, type Seen } from "./events.ts";
+import { ART, CELEBRATION_MS, celebrationHop, drawBall, drawBang, drawDone, drawRattle, drawSnail, drawTrail, drawZzz, TRAIL_MS, type Pose } from "./snail.ts";
 import { summarize, type SessionSummary } from "./summary.ts";
 
 declare global {
@@ -66,6 +67,13 @@ interface PetState {
   stride: number;
   blinkUntil: number;
   nextBlink: number;
+  /** A session works: it pushes a ball, the step under way. */
+  working: boolean;
+  /** When the current ball popped up, and when its step was done (it bursts), if it was. */
+  ballAt: number;
+  burstAt: number | null;
+  /** When it began celebrating a session that finished, if it is. */
+  celebrateAt: number | null;
 }
 
 const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -106,8 +114,25 @@ export function PetPage({ store: given }: { store?: SessionStore } = {}) {
       walk: 0,
       stride: 0,
       blinkUntil: 0,
-      nextBlink: now + 2000
+      nextBlink: now + 2000,
+      working: false,
+      ballAt: now,
+      burstAt: null,
+      celebrateAt: null
     };
+    // Steps done and sessions finished, from the snapshots as they come.
+    let seen: Seen = new Map();
+    const look = () => {
+      const result = progress(seen, store.getState().sessions);
+      seen = result.seen;
+      const at = performance.now();
+      if (result.working && !pet.working) pet.ballAt = at;
+      pet.working = result.working;
+      if (result.steps > 0 && pet.burstAt === null) pet.burstAt = at;
+      if (result.finished > 0 && !result.working) pet.celebrateAt = at;
+    };
+    look();
+    const unsubscribe = store.subscribe(look);
     window.flowctlPet = {
       setLook: (look) => { pet.look = look; },
       setTheme: (next) => { pet.theme = next; setTheme(next); },
@@ -144,6 +169,7 @@ export function PetPage({ store: given }: { store?: SessionStore } = {}) {
     frame = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(frame);
+      unsubscribe();
       delete window.flowctlPet;
     };
   }, [store]);
@@ -208,9 +234,14 @@ function SummaryBody({ summary }: { summary: SessionSummary }) {
 }
 
 /** The pose this frame, from the brain's and what the person is doing with the snail. */
-export function poseFor(thought: Pose, pet: { alert: boolean; held: boolean; mouse: number | null; hoverSince: number | null }, now: number): Pose {
+export function poseFor(
+  thought: Pose,
+  pet: { alert: boolean; held: boolean; mouse: number | null; hoverSince: number | null; celebrateAt?: number | null },
+  now: number
+): Pose {
   if (pet.held) return "held";
   if (pet.alert) return "alert";
+  if (pet.celebrateAt != null && now - pet.celebrateAt < CELEBRATION_MS) return "done";
   if (pet.hoverSince !== null && now - pet.hoverSince >= SHY_AFTER_MS) return "shy";
   if (pet.mouse !== null) return "curious";
   return thought;
@@ -235,14 +266,14 @@ function draw(el: HTMLCanvasElement, pet: PetState, t: number, dt: number) {
   let moving = false;
   if (pet.phase === "living") {
     const mouse = pet.mouse === null ? null : pet.mouse - x;
-    const thought = think(pet.brain, { now: t, mouse, room: pet.room, alert: pet.alert });
+    const thought = think(pet.brain, { now: t, mouse, room: pet.room, alert: pet.alert, working: pet.working });
     pet.brain = thought.brain;
     pose = poseFor(thought.pose, pet, t);
-    moving = thought.moving && pose === "walk" && !reducedMotion();
+    moving = thought.moving && (pose === "walk" || pose === "work") && !reducedMotion();
     if (!moving && pose === "walk") pose = "look";
   }
   if (moving) {
-    const dx = (pet.brain.dir * SPEED * dt) / 1000;
+    const dx = (pet.brain.dir * (pose === "work" ? WORK_SPEED : SPEED) * dt) / 1000;
     pet.world += dx;
     pet.walk += Math.abs(dx);
     pet.owed += dx;
@@ -264,11 +295,13 @@ function draw(el: HTMLCanvasElement, pet: PetState, t: number, dt: number) {
 
   const muted = dark(pet.theme) ? "#c9d1d9" : "#5b6573";
   if (!pet.held) drawTrail(c, pet.look, ground, pet.trail.map((p) => ({ x: x + (p.x - pet.world), t: p.t })), t);
+  // Celebrating, it hops.
+  const hop = pose === "done" && pet.celebrateAt !== null ? celebrationHop(t - pet.celebrateAt) * 3 * ART : 0;
   const frame = {
     look: pet.look,
     pose,
     x,
-    ground,
+    ground: ground - hop,
     dir: pet.brain.dir,
     t,
     phase: pet.walk / 6,
@@ -277,6 +310,16 @@ function draw(el: HTMLCanvasElement, pet: PetState, t: number, dt: number) {
     blink: t < pet.blinkUntil
   };
   drawSnail(c, frame);
+  if (pose === "work") {
+    // The ball: it pops up, and bursts when its step is done; then the next one.
+    if (pet.burstAt !== null && t - pet.burstAt >= 420) {
+      pet.burstAt = null;
+      pet.ballAt = t;
+    }
+    const burst = pet.burstAt === null ? 0 : (t - pet.burstAt) / 420;
+    drawBall(c, pet.look, { ...frame, ground }, { shown: Math.min(1, (t - pet.ballAt) / 220), burst });
+  } else if (pet.burstAt !== null && t - pet.burstAt >= 420) pet.burstAt = null;
+  if (pose === "done" && pet.celebrateAt !== null) drawDone(c, pet.look, { ...frame, ground }, t - pet.celebrateAt);
   if (pose === "sleep") drawZzz(c, pet.look, frame, muted);
   if (pose === "alert") {
     drawRattle(c, pet.look, frame, "#8b949e");
