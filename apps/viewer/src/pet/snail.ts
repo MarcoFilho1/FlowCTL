@@ -122,46 +122,200 @@ function colorOf(m: string): string {
 
 const SPIRAL_PIXELS: [number, number][] = [[7, 7], [8, 7], [8, 8], [7, 9], [6, 8], [6, 7], [6, 6], [7, 5], [8, 5], [9, 6], [10, 7], [10, 8], [9, 10]];
 
+// ---------- the rig: the snail as parts that move ----------
+
 /**
- * The snail's sprite for a pose. `step` (0 or 1) is the walk's stretch,
- * `gaze` (0, 1, 2) where its antennas point while it looks around. While it
- * rattles (alert) and while it flies (tucked) the shell is drawn on its own:
- * see `shellSprite`.
+ * The snail's parts, each a number that eases from one state to the next, so
+ * it never jumps between poses: how far out of its shell it is, how high its
+ * antennas stand, which way it faces (a turn passes through 0), and so on.
+ * Design units: one art pixel; the snail faces right at turn 1.
  */
-export function snailPainter(pose: Pose, step: number, gaze: number): (p: Painter) => void {
-  return (P) => {
-    if (pose === "sleep" || pose === "tucked" || pose === "shy" || pose === "held") {
-      if (pose === "sleep" || pose === "shy") P.rect(3, 14, 9, 1, "b");
-      P.disc(7.5, 9.6, 4.4, "a");
-      P.pts(SPIRAL_PIXELS.map(([x, y]) => [x, y + 2]), "r");
-      return;
+export interface Rig {
+  /** 0 hidden in its shell .. 1 all the way out. */
+  out: number;
+  /** Whether its foot shows under the shell while it is in (asleep, shy), 0..1; not when carried or flying. */
+  foot: number;
+  /** 0 relaxed .. 1 raised (curious, alert, happy). */
+  stalk: number;
+  /** Where the antenna tips point, added to their place. */
+  gazeX: number;
+  gazeY: number;
+  /** The walk's stretch, -0.5..0.5. */
+  stretch: number;
+  /** Facing: 1 right, -1 left; in between while it turns. */
+  turn: number;
+  /** The shell's own offsets (a rattle, a breath) and how high it is lifted off the body (eggs). */
+  shellX: number;
+  shellY: number;
+  lid: number;
+  /** The shell's tilt and spin, radians (the smooth look; the pixel look shifts its spiral instead). */
+  tilt: number;
+  spiral: number;
+  /** Its little hands, 0..1 (eggs). */
+  hands: number;
+  /** The whole snail lifted off the ground, px (a hop). */
+  lift: number;
+}
+
+const REST: Rig = { out: 1, foot: 1, stalk: 0, gazeX: 0, gazeY: 0, stretch: 0, turn: 1, shellX: 0, shellY: 0, lid: 0, tilt: 0, spiral: 0, hands: 0, lift: 0 };
+
+/** The rig a pose asks for at time `t`, facing `dir`; the page eases toward it. */
+export function rigFor(pose: Pose, t: number, dir: 1 | -1, step = 0): Rig {
+  const rig: Rig = { ...REST, turn: dir };
+  switch (pose) {
+    case "walk":
+    case "work":
+      rig.stretch = step * 0.5;
+      rig.gazeX = Math.sin(t / 900) * 0.3;
+      rig.gazeY = Math.cos(t / 650) * 0.3;
+      break;
+    case "look":
+      rig.gazeX = Math.sin(t / 700) * 0.9;
+      rig.gazeY = Math.cos(t / 650) * 0.3;
+      break;
+    case "sleep":
+      rig.out = 0;
+      rig.shellY = -Math.sin(t / 800) * 0.12;
+      break;
+    case "shy":
+      rig.out = 0;
+      rig.shellX = Math.floor(t / 90) % 5 === 0 ? 0.25 : 0;
+      break;
+    case "held":
+      rig.out = 0;
+      rig.foot = 0;
+      rig.tilt = Math.sin(t / 260) * 0.3;
+      rig.shellX = Math.sin(t / 220) * 0.6;
+      break;
+    case "tucked":
+      rig.out = 0;
+      rig.foot = 0;
+      rig.tilt = t / 120;
+      rig.spiral = (Math.floor(t / 90) % 3) - 1;
+      break;
+    case "curious":
+      rig.stalk = 1;
+      rig.gazeX = Math.sin(t / 110) * 0.8;
+      rig.gazeY = Math.abs(Math.sin(t / 110)) * 0.3;
+      break;
+    case "done":
+      rig.stalk = 1;
+      rig.gazeX = Math.sin(t / 110) * 0.6;
+      break;
+    case "alert": {
+      rig.stalk = 1;
+      rig.gazeX = Math.sin(t / 160) * 0.6;
+      const buzz = vibration(t);
+      rig.shellX = buzz * 0.5;
+      rig.shellY = buzz && Math.floor(t / 40) % 2 ? -0.25 : 0;
+      rig.tilt = buzz * 0.08;
+      rig.spiral = buzz ? (Math.floor(t / 50) % 3) - 1 : 0;
+      break;
     }
-    const st = pose === "walk" || pose === "work" ? step : 0;
-    P.rect(2, 12, 12 + st, 2, "b");
-    P.disc(14.5 + st, 11, 1.8, "b");
-    if (pose === "alert" || pose === "done" || (pose === "curious" && gaze === 0)) {
-      P.line(14, 9, 13, 3, "b"); P.line(15, 9, 16, 3, "b"); P.px(13, 2, "k"); P.px(16, 2, "k");
-    } else if (pose === "curious") {
-      P.line(14, 9, 12, 4, "b"); P.line(15, 9, 17, 4, "b"); P.px(12, 3, "k"); P.px(17, 3, "k");
-    } else if (gaze === 1) {
-      P.line(14 + st, 9, 14 + st, 7, "b"); P.line(15 + st, 9, 17 + st, 8, "b"); P.px(14 + st, 6, "k"); P.px(17 + st, 7, "k");
-    } else if (gaze === 2) {
-      P.line(14 + st, 9, 12 + st, 8, "b"); P.line(15 + st, 9, 15 + st, 7, "b"); P.px(12 + st, 7, "k"); P.px(15 + st, 6, "k");
-    } else {
-      P.line(14 + st, 9, 13 + st, 7, "b"); P.line(15 + st, 9, 16 + st, 7, "b"); P.px(13 + st, 6, "k"); P.px(16 + st, 6, "k");
-    }
-    if (pose !== "alert" && pose !== "done") {
-      P.disc(7, 7.5, 4.4, "a");
-      P.pts(SPIRAL_PIXELS, "r");
-    }
+  }
+  return rig;
+}
+
+/** How fast each part follows its target (ms to cover about two thirds of the way). */
+const FOLLOW: Partial<Record<keyof Rig, number>> = { foot: 120, stalk: 140, gazeX: 120, gazeY: 120, stretch: 60, turn: 110, lid: 140, hands: 120, lift: 50 };
+
+/**
+ * One frame of easing from `now` toward `target`, `dt` ms later. Going into
+ * the shell is quick (a flinch), coming out slow; the shell's own jitter and
+ * spin follow at once.
+ */
+export function follow(now: Rig, target: Rig, dt: number): Rig {
+  const next = { ...target };
+  for (const key of Object.keys(FOLLOW) as (keyof Rig)[]) {
+    const tau = FOLLOW[key]!;
+    next[key] = now[key] + (target[key] - now[key]) * (1 - Math.exp(-dt / tau));
+  }
+  const tau = target.out < now.out ? 70 : 260;
+  next.out = now.out + (target.out - now.out) * (1 - Math.exp(-dt / tau));
+  return next;
+}
+
+/** Where the head is, in design units, for a rig. */
+export function headAt(rig: Rig): { x: number; y: number; r: number } {
+  const k = Math.max(0, Math.min(1, (rig.out - 0.3) / 0.7));
+  return { x: 10.5 + 3.9 * k + rig.stretch, y: 10.9 + (1 - k) * 1.2, r: 1 + 0.9 * k };
+}
+
+/** The antenna bases and tips, in design units. */
+function stalksAt(rig: Rig): { grow: number; bases: [number, number][]; tips: [number, number][] } {
+  const head = headAt(rig);
+  const grow = Math.max(0, Math.min(1, (rig.out - 0.55) / 0.45));
+  const bases: [number, number][] = [[head.x - 0.5, head.y - 1.2], [head.x + 0.6, head.y - 1.2]];
+  const relaxed: [number, number][] = [[head.x - 1.2, 6.7], [head.x + 1.8, 6.9]];
+  const raised: [number, number][] = [[head.x - 1.6, 3.4], [head.x + 2, 3.6]];
+  const tips = bases.map(([bx, by], i): [number, number] => {
+    const tx = relaxed[i]![0] + (raised[i]![0] - relaxed[i]![0]) * rig.stalk + rig.gazeX * (i ? 0.7 : 1);
+    const ty = relaxed[i]![1] + (raised[i]![1] - relaxed[i]![1]) * rig.stalk + rig.gazeY * (i ? -1 : 1);
+    return [bx + (tx - bx) * grow, by + (ty - by) * grow];
+  });
+  return { grow, bases, tips };
+}
+
+/** Where the shell sits, in design units: lower when the snail is in it. */
+export function shellAt(rig: Rig): { x: number; y: number } {
+  return { x: 7 + 0.5 * (1 - rig.out) + rig.shellX, y: 7.5 + 2.1 * (1 - rig.out) + rig.shellY - rig.lid };
+}
+
+// ---------- pixel sprites from the rig ----------
+
+/** The rig rounded to what art pixels can show, so its sprites are few and cached. */
+function quantize(rig: Rig): Rig {
+  return {
+    ...rig,
+    out: Math.round(rig.out * 10) / 10,
+    foot: Math.round(rig.foot),
+    stalk: Math.round(rig.stalk * 4) / 4,
+    gazeX: Math.round(rig.gazeX),
+    gazeY: Math.round(rig.gazeY),
+    stretch: rig.stretch > 0.15 ? 1 : 0,
+    shellX: Math.round(rig.shellX),
+    shellY: Math.round(rig.shellY),
+    lid: Math.round(rig.lid),
+    spiral: Math.round(rig.spiral),
+    hands: Math.round(rig.hands),
+    tilt: 0,
+    turn: 1,
+    lift: 0
   };
 }
 
-/** The shell alone; `turn` shifts its spiral a pixel, so a rattling shell seems to twist. */
-export function shellPainter(turn: number): (p: Painter) => void {
+export function rigPainter(rig: Rig): (p: Painter) => void {
   return (P) => {
-    P.disc(7, 7.5, 4.4, "a");
-    P.pts(SPIRAL_PIXELS.map(([x, y]): [number, number] => [x + turn, y]).filter(([x, y]) => (x - 7) ** 2 + (y - 7.5) ** 2 <= 3.6 ** 2), "r");
+    const q = rig;
+    // The foot: a strip under the shell while it is in, the body once it is out.
+    if (q.out < 0.45) {
+      if (q.foot > 0.5) P.rect(3, 14, 9, 1, "b");
+    } else {
+      const k = (q.out - 0.45) / 0.55;
+      P.rect(Math.round(3 - k), 12, Math.round(9 + 3 * k) + q.stretch, 2, "b");
+    }
+    const head = headAt(q);
+    if (q.out > 0.3) P.disc(head.x, head.y, head.r, "b");
+    const shell = shellAt(q);
+    P.disc(shell.x, shell.y, 4.4, "a");
+    const sx = Math.round(shell.x - 7);
+    const sy = Math.round(shell.y - 7.5);
+    P.pts(
+      SPIRAL_PIXELS.map(([x, y]): [number, number] => [x + q.spiral + sx, y + sy]).filter(([x, y]) => (x - shell.x) ** 2 + (y - shell.y) ** 2 <= 3.6 ** 2),
+      "r"
+    );
+    const stalks = stalksAt(q);
+    if (stalks.grow > 0) {
+      stalks.bases.forEach(([bx, by], i) => {
+        const [tx, ty] = stalks.tips[i]!;
+        P.line(Math.round(bx), Math.round(by), Math.round(tx), Math.round(ty), "b");
+        if (stalks.grow > 0.6) P.px(Math.round(tx), Math.round(ty) - 1, "k");
+      });
+    }
+    if (q.hands) {
+      P.disc(head.x + 2.8, 11, 1.1, "b");
+      P.disc(head.x - 3.6, 11.4, 1.1, "b");
+    }
   };
 }
 
@@ -169,23 +323,38 @@ const sprites = new Map<string, Sprite>();
 function cached(key: string, paint: () => (p: Painter) => void): Sprite {
   let sprite = sprites.get(key);
   if (!sprite) {
+    if (sprites.size > 600) sprites.clear();
     sprite = build(paint());
     sprites.set(key, sprite);
   }
   return sprite;
 }
-export const snailSprite = (pose: Pose, step: number, gaze: number) => cached(`${pose}:${step}:${gaze}`, () => snailPainter(pose, step, gaze));
-export const shellSprite = (turn: number) => cached(`shell:${turn}`, () => shellPainter(turn));
 
-/** Draws a sprite with its feet at (x, ground); `show` keeps a cell or leaves it out (a dissolve). */
-function drawSprite(c: CanvasRenderingContext2D, sprite: Sprite, x: number, ground: number, mirror: boolean, dx = 0, dy = 0, show?: (x: number, y: number) => boolean) {
-  const left = Math.round(x - (MID + OX + 0.5) * ART) + dx;
-  const top = Math.round(ground - (GROUND + OY + 1) * ART) + dy;
+export function rigSprite(rig: Rig): Sprite {
+  const q = quantize(rig);
+  const key = `rig:${q.out}:${q.foot}:${q.stalk}:${q.gazeX}:${q.gazeY}:${q.stretch}:${q.shellX}:${q.shellY}:${q.lid}:${q.spiral}:${q.hands}`;
+  return cached(key, () => rigPainter(q));
+}
+
+/** The sprite for a pose at rest (tests, and callers without a rig). */
+export const snailSprite = (pose: Pose, step = 0, _gaze = 0) => rigSprite(rigFor(pose, 500, 1, step));
+/** The shell alone, its spiral shifted by `turn`. */
+export const shellSprite = (turn: number) => rigSprite({ ...REST, out: 0, foot: 0, spiral: turn, shellY: -2.1, shellX: -0.5 });
+
+/**
+ * Draws a sprite with its feet at (x, ground), squeezed by `turn` (1 right,
+ * -1 left, narrower as it turns); `show` keeps a cell or leaves it out.
+ */
+function drawSprite(c: CanvasRenderingContext2D, sprite: Sprite, x: number, ground: number, turn: number, show?: (x: number, y: number) => boolean) {
+  const top = Math.round(ground - (GROUND + OY + 1) * ART);
+  const width = Math.max(1, Math.abs(turn) * ART);
   for (let y = 0; y < H; y++) for (let gx = 0; gx < W; gx++) {
     const m = sprite[y]![gx];
     if (!m || (show && !show(gx, y))) continue;
     c.fillStyle = colorOf(m);
-    c.fillRect(left + (mirror ? W - 1 - gx : gx) * ART, top + y * ART, ART, ART);
+    const center = x + (gx - (MID + OX)) * ART * turn;
+    const left = Math.round(center - width / 2);
+    c.fillRect(left, top + y * ART, Math.max(1, Math.round(center + width / 2) - left), ART);
   }
 }
 
@@ -242,16 +411,18 @@ export interface SnailFrame {
   /** CSS px: the middle of the body, on the ground line. */
   x: number;
   ground: number;
-  /** Which way it faces. */
+  /** Which way it faces, for what is drawn around it. */
   dir: 1 | -1;
   /** ms, any steadily increasing clock. */
   t: number;
   /** Walk cycle, radians, and how much of a step there is (0 still, 1 walking). */
   phase: number;
   stride: number;
-  /** Distance walked so far, px: the pixel look's step. */
+  /** Distance walked so far, px. */
   walked: number;
   blink: boolean;
+  /** Its parts as they are now (the page eases them); from `pose` when absent. */
+  rig?: Rig;
   /** 0..1: how much of the snail there is (it forms out of the graph's nodes). */
   shown?: number;
   /** Cells come in (true) or go out (false) as `shown` moves; the smooth look scales. */
@@ -261,105 +432,71 @@ export interface SnailFrame {
 export function drawSnail(c: CanvasRenderingContext2D, f: SnailFrame): void {
   const shown = f.shown ?? 1;
   if (shown <= 0) return;
-  if (f.look === "pixel") drawPixel(c, f, shown);
-  else drawSmooth(c, f, shown);
-}
-
-function drawPixel(c: CanvasRenderingContext2D, f: SnailFrame, shown: number) {
-  const mirror = f.dir < 0;
-  const step = (f.pose === "walk" || f.pose === "work") && f.stride > 0.5 ? Math.floor(f.walked / 7) % 2 : 0;
-  const gaze = f.pose === "look" ? Math.floor(f.t / 1100) % 3 : f.pose === "curious" ? Math.floor(f.t / 260) % 2 : 0;
-  const show = shown >= 1 ? undefined : (x: number, y: number) => hash(x, y) < shown;
-  if (f.pose === "tucked") {
-    drawSprite(c, shellSprite(Math.floor(f.t / 90) % 3 - 1), f.x, f.ground - 2 * ART, mirror, 0, 0, show);
-    return;
-  }
-  if (f.pose === "held") {
-    // Hanging by its shell: a slow swing.
-    drawSprite(c, shellSprite(0), f.x, f.ground - 2 * ART, mirror, Math.round(Math.sin(f.t / 220) * 3), 0, show);
-    return;
-  }
-  if (f.pose === "shy") {
-    // Hiding in its shell, trembling now and then.
-    drawSprite(c, snailSprite("shy", 0, 0), f.x, f.ground, mirror, Math.floor(f.t / 90) % 5 === 0 ? 1 : 0, 0, show);
-    return;
-  }
-  drawSprite(c, snailSprite(f.pose, step, gaze), f.x, f.ground, mirror, 0, 0, show);
-  if (f.pose === "done") drawSprite(c, shellSprite(0), f.x, f.ground, mirror, 0, 0, show);
-  if (f.pose === "alert") {
-    const buzz = vibration(f.t);
-    const turn = buzz ? (Math.floor(f.t / 50) % 3) - 1 : 0;
-    drawSprite(c, shellSprite(turn), f.x, f.ground, mirror, Math.round(buzz * 2), buzz && Math.floor(f.t / 40) % 2 ? -1 : 0, show);
+  const rig = f.rig ?? rigFor(f.pose, f.t, f.dir, Math.sin(f.phase) * f.stride);
+  if (f.look === "pixel") {
+    drawSprite(c, rigSprite(rig), f.x, f.ground - rig.lift, rig.turn, shown >= 1 ? undefined : (x, y) => hash(x, y) < shown);
+  } else {
+    drawSmooth(c, f, rig, f.growing ? backOut(shown) : shown);
   }
 }
 
-function drawSmooth(c: CanvasRenderingContext2D, f: SnailFrame, shown: number) {
-  const scale = f.growing ? backOut(shown) : shown;
+function drawSmooth(c: CanvasRenderingContext2D, f: SnailFrame, rig: Rig, scale: number) {
   if (scale <= 0.01) return;
   c.save();
-  c.translate(f.x, f.ground);
-  c.scale(f.dir * ART * scale, ART * scale);
+  c.translate(f.x, f.ground - rig.lift);
+  c.scale(rig.turn * ART * scale, ART * scale);
   c.translate(-MID, -GROUND);
-  const sw = Math.sin(f.phase) * f.stride;
-  if (f.pose === "sleep" || f.pose === "tucked" || f.pose === "shy" || f.pose === "held") {
-    if (f.pose === "sleep" || f.pose === "shy") shape(c, SLUG, [3, 13, 11.4, 14.8], () => roundRect(c, 3, 13.3, 8.4, 1.4, 0.7));
-    const breath = f.pose === "sleep" ? Math.sin(f.t / 800) * 0.12 : 0;
-    // Tucked spins as it flies; held swings from the hand; shy trembles.
-    const turn = f.pose === "tucked" ? f.t / 120 : f.pose === "held" ? Math.sin(f.t / 260) * 0.3 : f.pose === "shy" ? Math.sin(f.t / 25) * 0.03 : 0;
-    if (turn) {
-      c.translate(7.5, 9.9);
-      c.rotate(turn);
-      c.translate(-7.5, -9.9);
-    }
-    smoothShell(c, 7.5, 9.9 - breath);
-    c.restore();
-    return;
+  const o = rig.out;
+  // The body: a strip under the shell while it is in, longer and taller as it comes out.
+  if (o > 0.05 || rig.foot > 0.05) {
+    c.globalAlpha = o > 0.05 ? 1 : rig.foot;
+    const y = 13.3 - 1.5 * o;
+    const h = 1.4 + 1.1 * o;
+    shape(c, SLUG, [2.4, y, 14, y + h], () => roundRect(c, 3 - 0.6 * o, y, 8.4 + 3.2 * o + rig.stretch, h, h / 2));
+    c.globalAlpha = 1;
   }
-  // Needs you (alert) and done both raise the antennas; only alert rattles the shell.
-  const alert = f.pose === "alert" || f.pose === "done";
-  const wave = alert ? Math.sin(f.t / (f.pose === "done" ? 110 : 160)) : 0;
-  const buzz = f.pose === "alert" ? vibration(f.t) : 0;
-  const st = f.pose === "walk" || f.pose === "work" ? sw * 0.5 : 0;
-  shape(c, SLUG, [2.4, 11.5, 14 + st, 14.4], () => roundRect(c, 2.4, 11.8, 11.6 + st, 2.5, 1.2));
-  let tips: [number, number][];
-  if (alert) tips = [[12.8 - wave * 0.6, 3.4], [16.4 + wave * 0.6, 3.6]];
-  else if (f.pose === "curious") {
-    // Antennas up and waving at the mouse, one then the other.
-    const w = Math.sin(f.t / 110);
-    tips = [[12.8 - w * 0.8, 3.6 + Math.abs(w) * 0.3], [16.4 + w * 0.8, 3.8 + Math.abs(w) * 0.3]];
-  }
-  else {
-    const sway = f.pose === "look" ? Math.sin(f.t / 700) * 0.9 : Math.sin(f.t / 900) * 0.3;
-    tips = [[13.2 + st + sway, 6.7 + Math.cos(f.t / 650) * 0.3], [16.2 + st + sway * 0.7, 6.9 - Math.cos(f.t / 650) * 0.3]];
-  }
-  const stalks = () => { c.moveTo(13.9 + st, 9.7); c.lineTo(...tips[0]!); c.moveTo(15 + st, 9.7); c.lineTo(...tips[1]!); };
-  c.lineCap = "round";
-  c.beginPath(); stalks(); c.strokeStyle = INK_A; c.lineWidth = 1.35; c.stroke();
-  c.beginPath(); stalks(); c.strokeStyle = SLUG; c.lineWidth = 0.45; c.stroke();
-  shape(c, SLUG, [12.5 + st, 9, 16.3 + st, 12.8], () => c.arc(14.4 + st, 10.9, 1.9, 0, Math.PI * 2));
-  c.fillStyle = INK;
-  c.beginPath();
-  for (const [x, y] of tips) { c.moveTo(x + 0.62, y); c.arc(x, y, 0.62, 0, Math.PI * 2); }
-  c.fill();
-  if (!f.blink || alert) {
-    c.fillStyle = "#ffffff";
+  const head = headAt(rig);
+  if (o > 0.3) shape(c, SLUG, [head.x - head.r, head.y - head.r, head.x + head.r, head.y + head.r], () => c.arc(head.x, head.y, head.r, 0, Math.PI * 2));
+  const shell = shellAt(rig);
+  c.save();
+  c.translate(shell.x, shell.y + 4.5);
+  c.rotate(rig.tilt);
+  c.translate(-shell.x, -shell.y - 4.5);
+  smoothShell(c, shell.x, shell.y);
+  c.restore();
+  const stalks = stalksAt(rig);
+  if (stalks.grow > 0) {
+    const path = () => stalks.bases.forEach(([bx, by], i) => { c.moveTo(bx, by); c.lineTo(...stalks.tips[i]!); });
+    c.lineCap = "round";
+    c.beginPath(); path(); c.strokeStyle = INK_A; c.lineWidth = 1.35; c.stroke();
+    c.beginPath(); path(); c.strokeStyle = SLUG; c.lineWidth = 0.45; c.stroke();
+    const eye = 0.62 * stalks.grow;
+    c.fillStyle = INK;
     c.beginPath();
-    for (const [x, y] of tips) { c.moveTo(x + 0.4, y - 0.2); c.arc(x + 0.2, y - 0.2, 0.18, 0, Math.PI * 2); }
+    for (const [x, y] of stalks.tips) { c.moveTo(x + eye, y); c.arc(x, y, eye, 0, Math.PI * 2); }
     c.fill();
+    if (!f.blink && stalks.grow > 0.6) {
+      c.fillStyle = "#ffffff";
+      c.beginPath();
+      for (const [x, y] of stalks.tips) { c.moveTo(x + 0.4, y - 0.2); c.arc(x + 0.2, y - 0.2, 0.18, 0, Math.PI * 2); }
+      c.fill();
+    }
   }
-  if (buzz) {
-    const lift = Math.floor(f.t / 40) % 2 ? -0.2 : 0;
-    c.save();
-    c.translate(7.2, 12.4); c.rotate(buzz * 0.08); c.translate(-7.2, -12.4);
-    smoothShell(c, 7.2 + buzz * 0.15, 7.9 + lift);
-    c.restore();
-  } else smoothShell(c, 7.2, 7.9);
+  if (rig.hands > 0.02) {
+    const r = 0.85 * rig.hands;
+    for (const [hx, hy] of [[head.x + 2.8, 11], [head.x - 3.6, 11.4]] as const) shape(c, SLUG, [hx - r, hy - r, hx + r, hy + r], () => c.arc(hx, hy, r, 0, Math.PI * 2));
+  }
   c.restore();
 }
 
 function backOut(t: number): number {
   const k = 1.70158;
   return 1 + (k + 1) * (t - 1) ** 3 + k * (t - 1) ** 2;
+}
+
+/** Design units to CSS px, for what is drawn with the snail (eggs). */
+export function toScreen(f: Pick<SnailFrame, "x" | "ground">, rig: Rig, p: { x: number; y: number }): { x: number; y: number } {
+  return { x: f.x + (p.x - MID) * ART * rig.turn, y: f.ground - rig.lift + (p.y - GROUND) * ART };
 }
 
 // ---------- what goes around the snail ----------

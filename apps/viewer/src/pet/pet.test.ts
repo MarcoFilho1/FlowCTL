@@ -5,7 +5,7 @@ import { EDGE, start, think, type Brain } from "./brain.ts";
 import { formProgress, FORMED_MS, FORM_START_MS, gatherProgress } from "./gather.ts";
 import { poseFor, SHY_AFTER_MS } from "./PetPage.tsx";
 import { progress } from "./events.ts";
-import { CELEBRATION_MS, snailSprite, shellSprite, vibration } from "./snail.ts";
+import { CELEBRATION_MS, follow, rigFor, snailSprite, shellSprite, vibration, type Rig } from "./snail.ts";
 import { summarize } from "./summary.ts";
 
 const room = { left: 500, right: 500 };
@@ -73,10 +73,31 @@ describe("the snail's sprites", () => {
     expect(cells(walking, "o")).toBeGreaterThan(20);
   });
 
-  test("while it rattles the shell is its own sprite; asleep, it is all shell", () => {
-    expect(cells(snailSprite("alert", 0, 0), "a")).toBe(0);
+  test("asleep it is all shell; carried, not even its foot shows", () => {
     expect(cells(shellSprite(1), "a")).toBeGreaterThan(40);
     expect(cells(snailSprite("sleep", 0, 0), "a")).toBeGreaterThan(cells(snailSprite("sleep", 0, 0), "b"));
+    expect(cells(snailSprite("held", 0, 0), "b")).toBe(0);
+  });
+
+  test("its parts ease between states: out of the shell slowly, back in quickly, turning through the middle", () => {
+    const inShell = { ...rigFor("sleep", 0, 1), out: 0 };
+    const target = rigFor("walk", 0, -1);
+    const after = (rig: Rig, ms: number) => {
+      let r = rig;
+      for (let t = 0; t < ms; t += 16) r = follow(r, target, 16);
+      return r;
+    };
+    const quarter = after(inShell, 100);
+    expect(quarter.out).toBeGreaterThan(0);
+    expect(quarter.out).toBeLessThan(0.5);
+    expect(after(inShell, 1500).out).toBeGreaterThan(0.95);
+    // Turning from right to left passes through 0 rather than flipping.
+    expect(Math.abs(after(inShell, 110).turn)).toBeLessThan(0.6);
+    // A flinch back into the shell is quick.
+    const out = { ...target, out: 1 };
+    let flinch = out;
+    for (let t = 0; t < 160; t += 16) flinch = follow(flinch, { ...target, out: 0 }, 16);
+    expect(flinch.out).toBeLessThan(0.15);
   });
 
   test("the shell buzzes in bursts, still between them", () => {

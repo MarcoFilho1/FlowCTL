@@ -15,7 +15,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createSessionStore, installBridge, tellNative, type Look, type SessionStore, type Theme } from "../store.ts";
 import { SPEED, start, think, WORK_SPEED, type Brain } from "./brain.ts";
 import { progress, type Seen } from "./events.ts";
-import { ART, CELEBRATION_MS, celebrationHop, drawBall, drawBang, drawDone, drawRattle, drawSnail, drawTrail, drawZzz, TRAIL_MS, type Pose } from "./snail.ts";
+import { drawEgg, EGG_MS, EGGS, eggRig, type Egg } from "./eggs.ts";
+import { ART, CELEBRATION_MS, celebrationHop, drawBall, drawBang, drawDone, drawRattle, drawSnail, drawTrail, drawZzz, follow, rigFor, TRAIL_MS, type Pose, type Rig } from "./snail.ts";
 import { summarize, type SessionSummary } from "./summary.ts";
 
 declare global {
@@ -37,6 +38,8 @@ declare global {
       land(): void;
       /** Going back to the overlay: into the shell; petTucked follows. */
       leave(): void;
+      /** Plays a little scene now: flag, coffee or book (demos, checks). */
+      playEgg?(kind: string): void;
     };
   }
 }
@@ -74,6 +77,13 @@ interface PetState {
   burstAt: number | null;
   /** When it began celebrating a session that finished, if it is. */
   celebrateAt: number | null;
+  /** Its parts as drawn now, easing toward each pose. */
+  rig: Rig;
+  /** Until when it stays in its shell after being put down or landing. */
+  emergeAt: number;
+  /** The little scene it is playing, and when the next may come. */
+  egg: { kind: Egg; at: number } | null;
+  nextEggAt: number;
 }
 
 const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -118,7 +128,11 @@ export function PetPage({ store: given }: { store?: SessionStore } = {}) {
       working: false,
       ballAt: now,
       burstAt: null,
-      celebrateAt: null
+      celebrateAt: null,
+      rig: rigFor("tucked", now, 1),
+      emergeAt: 0,
+      egg: null,
+      nextEggAt: now + 25_000
     };
     // Steps done and sessions finished, from the snapshots as they come.
     let seen: Seen = new Map();
@@ -146,10 +160,22 @@ export function PetPage({ store: given }: { store?: SessionStore } = {}) {
         pet.held = held;
         // Carried elsewhere: the trail behind it no longer leads anywhere.
         if (held) pet.trail = [];
+        // Put down: it stays in its shell a moment, then peeks out and sets off.
+        else {
+          pet.emergeAt = performance.now() + 700;
+          pet.brain = start(pet.emergeAt);
+        }
       },
       setRoom: (left, right) => { pet.room = { left, right }; },
       // Out of the shell, it sets off walking (its day starts now, not when the page loaded).
-      land: () => { pet.phase = "living"; pet.brain = start(performance.now()); },
+      land: () => {
+        pet.phase = "living";
+        pet.brain = start(performance.now());
+        pet.emergeAt = performance.now() + 700;
+      },
+      playEgg: (kind) => {
+        pet.egg = { kind: EGGS.includes(kind as Egg) ? (kind as Egg) : "flag", at: performance.now() };
+      },
       leave: () => {
         pet.phase = "leaving";
         // A moment to pull into the shell, then the app flies it home.
@@ -263,15 +289,38 @@ function draw(el: HTMLCanvasElement, pet: PetState, t: number, dt: number) {
   const ground = height - 2;
 
   let pose: Pose = "tucked";
-  let moving = false;
+  let wants = false;
   if (pet.phase === "living") {
     const mouse = pet.mouse === null ? null : pet.mouse - x;
     const thought = think(pet.brain, { now: t, mouse, room: pet.room, alert: pet.alert, working: pet.working });
     pet.brain = thought.brain;
     pose = poseFor(thought.pose, pet, t);
-    moving = thought.moving && (pose === "walk" || pose === "work") && !reducedMotion();
-    if (!moving && pose === "walk") pose = "look";
+    wants = thought.moving && (pose === "walk" || pose === "work") && !reducedMotion();
+    // Resting with nothing going on, now and then it plays a little scene.
+    const quiet = pose === "look" && thought.pose === "look" && pet.mouse === null && !pet.working && !reducedMotion();
+    if (pet.egg === null && quiet && t > pet.nextEggAt) pet.egg = { kind: EGGS[Math.floor(Math.random() * EGGS.length)]!, at: t };
   }
+  if (pet.egg && (t - pet.egg.at > EGG_MS || pose === "alert" || pose === "held" || pose === "work")) {
+    pet.egg = null;
+    pet.nextEggAt = t + 60_000 + Math.random() * 90_000;
+  }
+  if (pet.egg) {
+    pose = "look";
+    wants = false;
+  }
+
+  // Its parts ease toward what it is doing: it never jumps from one pose to the next.
+  const step = Math.sin(pet.walk / 6) * pet.stride;
+  let target = rigFor(pose, t, pet.brain.dir, step);
+  // Just put down or landed: a moment in its shell before it peeks out.
+  if (t < pet.emergeAt) target = { ...target, out: 0, foot: 1, stalk: 0 };
+  if (pet.egg) target = eggRig(target, t - pet.egg.at);
+  if (pose === "done" && pet.celebrateAt !== null) target = { ...target, lift: celebrationHop(t - pet.celebrateAt) * 3 * ART };
+  pet.rig = follow(pet.rig, target, dt);
+  // It walks only once it faces the way it goes and is out of its shell.
+  const moving = wants && pet.rig.turn * pet.brain.dir > 0.85 && pet.rig.out > 0.9;
+  if (!moving && pose === "walk") pose = "look";
+
   if (moving) {
     const dx = (pet.brain.dir * (pose === "work" ? WORK_SPEED : SPEED) * dt) / 1000;
     pet.world += dx;
@@ -295,21 +344,22 @@ function draw(el: HTMLCanvasElement, pet: PetState, t: number, dt: number) {
 
   const muted = dark(pet.theme) ? "#c9d1d9" : "#5b6573";
   if (!pet.held) drawTrail(c, pet.look, ground, pet.trail.map((p) => ({ x: x + (p.x - pet.world), t: p.t })), t);
-  // Celebrating, it hops.
-  const hop = pose === "done" && pet.celebrateAt !== null ? celebrationHop(t - pet.celebrateAt) * 3 * ART : 0;
+  const facing: 1 | -1 = pet.rig.turn >= 0 ? 1 : -1;
   const frame = {
     look: pet.look,
     pose,
     x,
-    ground: ground - hop,
-    dir: pet.brain.dir,
+    ground,
+    dir: facing,
     t,
     phase: pet.walk / 6,
     stride: pet.stride,
     walked: pet.walk,
-    blink: t < pet.blinkUntil
+    blink: t < pet.blinkUntil,
+    rig: pet.rig
   };
   drawSnail(c, frame);
+  if (pet.egg) drawEgg(c, pet.look, frame, pet.rig, pet.egg.kind, t - pet.egg.at);
   if (pose === "work") {
     // The ball: it pops up, and bursts when its step is done; then the next one.
     if (pet.burstAt !== null && t - pet.burstAt >= 420) {
@@ -317,10 +367,10 @@ function draw(el: HTMLCanvasElement, pet: PetState, t: number, dt: number) {
       pet.ballAt = t;
     }
     const burst = pet.burstAt === null ? 0 : (t - pet.burstAt) / 420;
-    drawBall(c, pet.look, { ...frame, ground }, { shown: Math.min(1, (t - pet.ballAt) / 220), burst });
+    drawBall(c, pet.look, frame, { shown: Math.min(1, (t - pet.ballAt) / 220) * pet.rig.out, burst });
   } else if (pet.burstAt !== null && t - pet.burstAt >= 420) pet.burstAt = null;
-  if (pose === "done" && pet.celebrateAt !== null) drawDone(c, pet.look, { ...frame, ground }, t - pet.celebrateAt);
-  if (pose === "sleep") drawZzz(c, pet.look, frame, muted);
+  if (pose === "done" && pet.celebrateAt !== null) drawDone(c, pet.look, { ...frame, ground: ground - pet.rig.lift }, t - pet.celebrateAt);
+  if (pose === "sleep" && pet.rig.out < 0.3) drawZzz(c, pet.look, frame, muted);
   if (pose === "alert") {
     drawRattle(c, pet.look, frame, "#8b949e");
     drawBang(c, pet.look, frame);
