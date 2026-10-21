@@ -153,11 +153,15 @@ export interface Rig {
   spiral: number;
   /** Its little hands, 0..1 (eggs). */
   hands: number;
+  /** The shell is off its back (a scene draws it elsewhere), 0 or 1. */
+  shellOff: number;
+  /** How far its head reaches forward, design units (poking into its shell). */
+  reach: number;
   /** The whole snail lifted off the ground, px (a hop). */
   lift: number;
 }
 
-const REST: Rig = { out: 1, foot: 1, stalk: 0, gazeX: 0, gazeY: 0, stretch: 0, turn: 1, shellX: 0, shellY: 0, lid: 0, tilt: 0, spiral: 0, hands: 0, lift: 0 };
+const REST: Rig = { out: 1, foot: 1, stalk: 0, gazeX: 0, gazeY: 0, stretch: 0, turn: 1, shellX: 0, shellY: 0, lid: 0, tilt: 0, spiral: 0, hands: 0, shellOff: 0, reach: 0, lift: 0 };
 
 /** The rig a pose asks for at time `t`, facing `dir`; the page eases toward it. */
 export function rigFor(pose: Pose, t: number, dir: 1 | -1, step = 0): Rig {
@@ -238,7 +242,7 @@ export function follow(now: Rig, target: Rig, dt: number): Rig {
 /** Where the head is, in design units, for a rig. */
 export function headAt(rig: Rig): { x: number; y: number; r: number } {
   const k = Math.max(0, Math.min(1, (rig.out - 0.3) / 0.7));
-  return { x: 10.5 + 3.9 * k + rig.stretch, y: 10.9 + (1 - k) * 1.2, r: 1 + 0.9 * k };
+  return { x: 10.5 + 3.9 * k + rig.stretch + rig.reach, y: 10.9 + (1 - k) * 1.2 + rig.reach * 0.3, r: 1 + 0.9 * k };
 }
 
 /** The antenna bases and tips, in design units. */
@@ -278,6 +282,8 @@ function quantize(rig: Rig): Rig {
     lid: Math.round(rig.lid),
     spiral: Math.round(rig.spiral),
     hands: Math.round(rig.hands),
+    shellOff: Math.round(rig.shellOff),
+    reach: Math.round(rig.reach),
     tilt: 0,
     turn: 1,
     lift: 0
@@ -297,13 +303,15 @@ export function rigPainter(rig: Rig): (p: Painter) => void {
     const head = headAt(q);
     if (q.out > 0.3) P.disc(head.x, head.y, head.r, "b");
     const shell = shellAt(q);
-    P.disc(shell.x, shell.y, 4.4, "a");
-    const sx = Math.round(shell.x - 7);
-    const sy = Math.round(shell.y - 7.5);
-    P.pts(
-      SPIRAL_PIXELS.map(([x, y]): [number, number] => [x + q.spiral + sx, y + sy]).filter(([x, y]) => (x - shell.x) ** 2 + (y - shell.y) ** 2 <= 3.6 ** 2),
-      "r"
-    );
+    if (!q.shellOff) {
+      P.disc(shell.x, shell.y, 4.4, "a");
+      const sx = Math.round(shell.x - 7);
+      const sy = Math.round(shell.y - 7.5);
+      P.pts(
+        SPIRAL_PIXELS.map(([x, y]): [number, number] => [x + q.spiral + sx, y + sy]).filter(([x, y]) => (x - shell.x) ** 2 + (y - shell.y) ** 2 <= 3.6 ** 2),
+        "r"
+      );
+    }
     const stalks = stalksAt(q);
     if (stalks.grow > 0) {
       stalks.bases.forEach(([bx, by], i) => {
@@ -332,7 +340,7 @@ function cached(key: string, paint: () => (p: Painter) => void): Sprite {
 
 export function rigSprite(rig: Rig): Sprite {
   const q = quantize(rig);
-  const key = `rig:${q.out}:${q.foot}:${q.stalk}:${q.gazeX}:${q.gazeY}:${q.stretch}:${q.shellX}:${q.shellY}:${q.lid}:${q.spiral}:${q.hands}`;
+  const key = `rig:${q.out}:${q.foot}:${q.stalk}:${q.gazeX}:${q.gazeY}:${q.stretch}:${q.shellX}:${q.shellY}:${q.lid}:${q.spiral}:${q.hands}:${q.shellOff}:${q.reach}`;
   return cached(key, () => rigPainter(q));
 }
 
@@ -458,12 +466,14 @@ function drawSmooth(c: CanvasRenderingContext2D, f: SnailFrame, rig: Rig, scale:
   const head = headAt(rig);
   if (o > 0.3) shape(c, SLUG, [head.x - head.r, head.y - head.r, head.x + head.r, head.y + head.r], () => c.arc(head.x, head.y, head.r, 0, Math.PI * 2));
   const shell = shellAt(rig);
-  c.save();
-  c.translate(shell.x, shell.y + 4.5);
-  c.rotate(rig.tilt);
-  c.translate(-shell.x, -shell.y - 4.5);
-  smoothShell(c, shell.x, shell.y);
-  c.restore();
+  if (rig.shellOff < 0.5) {
+    c.save();
+    c.translate(shell.x, shell.y + 4.5);
+    c.rotate(rig.tilt);
+    c.translate(-shell.x, -shell.y - 4.5);
+    smoothShell(c, shell.x, shell.y);
+    c.restore();
+  }
   const stalks = stalksAt(rig);
   if (stalks.grow > 0) {
     const path = () => stalks.bases.forEach(([bx, by], i) => { c.moveTo(bx, by); c.lineTo(...stalks.tips[i]!); });
@@ -494,6 +504,40 @@ function backOut(t: number): number {
   return 1 + (k + 1) * (t - 1) ** 3 + k * (t - 1) ** 2;
 }
 
+/** The shell, off its back, as one piece: centered on `at` (design units), turned by `angle`. */
+const looseShell = () => cached("loose", () => (P) => {
+  P.disc(9, 7, 4.4, "a");
+  P.pts(SPIRAL_PIXELS.map(([x, y]): [number, number] => [x + 2, y - 0.5]).filter(([x, y]) => (x - 9) ** 2 + (y - 7) ** 2 <= 3.6 ** 2), "r");
+});
+
+export function drawLooseShell(c: CanvasRenderingContext2D, look: Look, f: Pick<SnailFrame, "x" | "ground">, rig: Rig, at: { x: number; y: number }, angle: number): void {
+  const center = toScreen(f, rig, at);
+  const side = rig.turn >= 0 ? 1 : -1;
+  if (look === "pixel") {
+    // Art pixels turn in quarter turns: the shell tumbles like a sprite.
+    const quarter = (((Math.round((angle * side) / (Math.PI / 2)) % 4) + 4) % 4) as 0 | 1 | 2 | 3;
+    const sprite = looseShell();
+    const cx = 9 + OX;
+    const cy = 7 + OY;
+    for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+      const m = sprite[gy]![gx];
+      if (!m) continue;
+      let dx = gx - cx;
+      let dy = gy - cy;
+      for (let i = 0; i < quarter; i++) [dx, dy] = [-dy, dx];
+      c.fillStyle = colorOf(m);
+      c.fillRect(Math.round(center.x + (dx - 0.5) * ART), Math.round(center.y + (dy - 0.5) * ART), ART, ART);
+    }
+    return;
+  }
+  c.save();
+  c.translate(center.x, center.y);
+  c.rotate(angle * side);
+  c.scale(ART, ART);
+  smoothShell(c, 0, 0);
+  c.restore();
+}
+
 /** Design units to CSS px, for what is drawn with the snail (eggs). */
 export function toScreen(f: Pick<SnailFrame, "x" | "ground">, rig: Rig, p: { x: number; y: number }): { x: number; y: number } {
   return { x: f.x + (p.x - MID) * ART * rig.turn, y: f.ground - rig.lift + (p.y - GROUND) * ART };
@@ -501,17 +545,34 @@ export function toScreen(f: Pick<SnailFrame, "x" | "ground">, rig: Rig, p: { x: 
 
 // ---------- what goes around the snail ----------
 
-/** The slime trail on the ground: points where it passed, fading over `TRAIL_MS`. */
-export const TRAIL_MS = 9000;
+/** The slime trail on the ground: where it passed in the last `TRAIL_MS`, fading as it ages. */
+export const TRAIL_MS = 7000;
 
 export function drawTrail(c: CanvasRenderingContext2D, look: Look, ground: number, trail: readonly { x: number; t: number }[], now: number): void {
-  for (const p of trail) {
-    const a = (1 - (now - p.t) / TRAIL_MS) * 0.55;
-    if (a <= 0) continue;
-    c.fillStyle = `rgba(126,231,135,${a.toFixed(3)})`;
+  if (trail.length < 2) return;
+  // Strong where it just passed, fading out over its last seconds.
+  const fade = (t: number) => Math.max(0, 1 - (now - t) / TRAIL_MS) ** 0.7;
+  for (let i = 1; i < trail.length; i++) {
+    const a = trail[i - 1]!;
+    const b = trail[i]!;
+    const alpha = fade(b.t);
+    if (alpha <= 0.01) continue;
+    const left = Math.min(a.x, b.x);
+    const width = Math.abs(b.x - a.x) + 0.6;
     if (look === "pixel") {
-      if (Math.round(p.x) % ART === 0) c.fillRect(Math.round(p.x), ground + 1, ART, 2);
-    } else c.fillRect(p.x - 1, ground + 1, 2.2, 1.6);
+      // A band of art pixels: the slime, and a glint along its top.
+      const x0 = Math.floor(left / 2) * 2;
+      const x1 = Math.ceil((left + width) / 2) * 2;
+      c.fillStyle = `rgba(126,231,135,${(0.9 * alpha).toFixed(3)})`;
+      c.fillRect(x0, ground - 2, x1 - x0, 4);
+      c.fillStyle = `rgba(255,255,255,${(0.45 * alpha).toFixed(3)})`;
+      if (i % 3 === 0) c.fillRect(x0, ground - 2, 2, 1);
+    } else {
+      c.fillStyle = `rgba(126,231,135,${(0.85 * alpha).toFixed(3)})`;
+      c.fillRect(left, ground - 2, width, 3.4);
+      c.fillStyle = `rgba(255,255,255,${(0.4 * alpha).toFixed(3)})`;
+      c.fillRect(left, ground - 2, width, 0.9);
+    }
   }
 }
 

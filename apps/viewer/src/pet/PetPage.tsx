@@ -332,8 +332,9 @@ function draw(el: HTMLCanvasElement, pet: PetState, t: number, dt: number) {
       tellNative({ type: "petMove", dx: whole });
       pet.room = { left: pet.room.left + whole, right: pet.room.right - whole };
     }
-    const tail = pet.world - pet.brain.dir * 18;
-    if (!pet.trail.length || Math.abs(pet.trail[pet.trail.length - 1]!.x - tail) >= 2) pet.trail.push({ x: tail, t });
+    // The trail starts where its body ends.
+    const tail = pet.world - pet.brain.dir * 24;
+    if (!pet.trail.length || Math.abs(pet.trail[pet.trail.length - 1]!.x - tail) >= 1.5) pet.trail.push({ x: tail, t });
   }
   pet.trail = pet.trail.filter((p) => t - p.t < TRAIL_MS);
   pet.stride = Math.max(0, Math.min(1, pet.stride + (moving ? dt : -dt) / 200));
