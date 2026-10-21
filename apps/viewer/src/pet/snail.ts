@@ -546,7 +546,7 @@ export function toScreen(f: Pick<SnailFrame, "x" | "ground">, rig: Rig, p: { x: 
 // ---------- what goes around the snail ----------
 
 /** The slime trail on the ground: where it passed in the last `TRAIL_MS`, fading as it ages. */
-export const TRAIL_MS = 7000;
+export const TRAIL_MS = 4000;
 
 export function drawTrail(c: CanvasRenderingContext2D, look: Look, ground: number, trail: readonly { x: number; t: number }[], now: number): void {
   if (trail.length < 2) return;
