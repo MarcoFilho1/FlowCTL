@@ -182,22 +182,29 @@ function GraphBody({
       })
     );
   }, [petting, elapsed, scene, shell.x, shell.y]);
+  // Too many nodes to fit apart for a shape: the most recent ones dream, the rest rest out of sight.
+  const resting = useMemo(
+    () => new Set(dreaming && !pet ? scene.nodes.slice(0, scene.nodes.length - fit.count).map((shape) => shape.id) : []),
+    [dreaming, pet, scene, fit.count]
+  );
   const dreamBoxes = useMemo(() => {
     if (gathered) return gathered;
     if (!dreaming) return layoutBoxes;
-    const frame = dreamFrame(scene.nodes.length, elapsed);
-    const points = dreamPoints(scene.nodes.length, frame);
+    const frame = dreamFrame(fit.count, elapsed);
+    const points = dreamPoints(fit.count, frame);
     const leaving = frame.from === "graph" ? frame.mix : 1;
+    const first = scene.nodes.length - fit.count;
     return new Map<string, Box>(
-      scene.nodes.map((shape, i) => {
-        const p = points[i]!;
+      scene.nodes.map((shape, index) => {
+        if (index < first) return [shape.id, circleBox(shape)];
+        const p = points[index - first]!;
         const cx = center.x + p.x * fit.radius;
         const cy = center.y + p.y * fit.radius;
         return [shape.id, circleBox({ r: shape.r, cx: shape.cx + (cx - shape.cx) * leaving, cy: shape.cy + (cy - shape.cy) * leaving })];
       })
     );
-  }, [gathered, dreaming, elapsed, layoutBoxes, fit.radius]);
-  const frame = dreaming && !pet ? dreamFrame(scene.nodes.length, elapsed) : undefined;
+  }, [gathered, dreaming, elapsed, layoutBoxes, fit.radius, fit.count]);
+  const frame = dreaming && !pet ? dreamFrame(fit.count, elapsed) : undefined;
   const outlinePath = (shape: DreamShape) => {
     const points = dreamOutline(shape);
     if (!points) return null;
@@ -496,6 +503,7 @@ function GraphBody({
                 pixel={pixel}
                 entering={entering.has(shape.id)}
                 flashing={flashing.has(shape.id)}
+                resting={resting.has(shape.id)}
                 key={shape.id}
                 shape={shape}
                 box={boxes.get(shape.id) ?? circleBox(shape)}
@@ -585,18 +593,23 @@ function NodeView({
   pixel,
   entering,
   flashing,
+  resting,
   ...props
 }: {
   pixel: boolean;
   entering: boolean;
   flashing: boolean;
+  /** Left out of the dream: there are more nodes than fit apart. */
+  resting: boolean;
   shape: NodeShape;
   box: Box;
   onHover: (on: boolean) => void;
 }) {
   const drawn = pixel ? <PixelNode {...props} /> : <Node {...props} />;
   // A tool error just happened here: blink red, then back to its own color.
-  const node = flashing ? <g className="flashing">{drawn}</g> : drawn;
+  const flashed = flashing ? <g className="flashing">{drawn}</g> : drawn;
+  // Always wrapped, so a node left out of the dream fades out and back in.
+  const node = <g className={resting ? "dreamer resting" : "dreamer"}>{flashed}</g>;
   // A node that just appeared materializes: wrapped so its own transforms stay untouched.
   return entering ? <g className={pixel ? "entering entering-px" : "entering"}>{node}</g> : node;
 }

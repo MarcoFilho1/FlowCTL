@@ -410,6 +410,9 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 /* The idle animation: the edges fade while the nodes form a shape. */
 .link, .arrow-head, .flow { transition: opacity 600ms ease; }
 .app svg.dreaming .link, .app svg.dreaming .flow { opacity: 0; }
+/* More nodes than fit apart in the dream: the older ones fade out while it lasts. */
+.dreamer { transition: opacity 600ms ease; }
+.dreamer.resting { opacity: 0; pointer-events: none; }
 .dream-outline { fill: none; stroke: var(--edge); stroke-width: 1; stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .app.look-pixel .dream-outline { stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: square; }
 
