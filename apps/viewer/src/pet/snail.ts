@@ -550,31 +550,40 @@ export const TRAIL_MS = 7000;
 
 export function drawTrail(c: CanvasRenderingContext2D, look: Look, ground: number, trail: readonly { x: number; t: number }[], now: number): void {
   if (trail.length < 2) return;
-  // Strong where it just passed, fading out over its last seconds.
-  const fade = (t: number) => Math.max(0, 1 - (now - t) / TRAIL_MS) ** 0.7;
   for (let i = 1; i < trail.length; i++) {
     const a = trail[i - 1]!;
     const b = trail[i]!;
-    const alpha = fade(b.t);
+    // A gradient along it: light where it just passed, darker the older it is, then gone.
+    const age = Math.min(1, Math.max(0, (now - b.t) / TRAIL_MS));
+    const alpha = age < 0.55 ? 0.9 : 0.9 * (1 - (age - 0.55) / 0.45);
     if (alpha <= 0.01) continue;
+    const rgb = TRAIL_FRESH.map((v, k) => Math.round(v + (TRAIL_OLD[k]! - v) * age)).join(",");
+    const glint = 0.5 * (1 - age);
     const left = Math.min(a.x, b.x);
     const width = Math.abs(b.x - a.x) + 0.6;
     if (look === "pixel") {
-      // A band of art pixels: the slime, and a glint along its top.
       const x0 = Math.floor(left / 2) * 2;
       const x1 = Math.ceil((left + width) / 2) * 2;
-      c.fillStyle = `rgba(126,231,135,${(0.9 * alpha).toFixed(3)})`;
+      c.fillStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
       c.fillRect(x0, ground - 2, x1 - x0, 4);
-      c.fillStyle = `rgba(255,255,255,${(0.45 * alpha).toFixed(3)})`;
-      if (i % 3 === 0) c.fillRect(x0, ground - 2, 2, 1);
+      if (i % 3 === 0 && glint > 0.05) {
+        c.fillStyle = `rgba(255,255,255,${glint.toFixed(3)})`;
+        c.fillRect(x0, ground - 2, 2, 1);
+      }
     } else {
-      c.fillStyle = `rgba(126,231,135,${(0.85 * alpha).toFixed(3)})`;
+      c.fillStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
       c.fillRect(left, ground - 2, width, 3.4);
-      c.fillStyle = `rgba(255,255,255,${(0.4 * alpha).toFixed(3)})`;
-      c.fillRect(left, ground - 2, width, 0.9);
+      if (glint > 0.05) {
+        c.fillStyle = `rgba(255,255,255,${glint.toFixed(3)})`;
+        c.fillRect(left, ground - 2, width, 0.9);
+      }
     }
   }
 }
+
+/** The trail's color where it just passed, and where it is oldest. */
+const TRAIL_FRESH = [196, 247, 204];
+const TRAIL_OLD = [30, 104, 52];
 
 /** Zzz rising from the shell while it sleeps. */
 export function drawZzz(c: CanvasRenderingContext2D, look: Look, f: Pick<SnailFrame, "x" | "ground" | "dir" | "t">, color: string): void {
