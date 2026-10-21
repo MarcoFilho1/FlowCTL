@@ -88,6 +88,13 @@ export const pt = {
   "features.sessions.body":
     "Cada sessão aberta ganha uma página, e os controles ‹ 1/3 › alternam entre elas. Quando a que está na tela descansa, a janela vai para a sessão que começa a trabalhar ou precisa de você.",
   "features.sessions.note": "Um indicador pisca quando outra sessão precisa de você.",
+  "features.snail.title": "Um caracol para fazer companhia",
+  "features.snail.body":
+    "Com Idle em Snail, depois de um minuto sem nada rodando os nós se juntam num caracol, que sai da janela e anda por cima do Dock deixando um rastro. Ele olha em volta, cochila e, de vez em quando, tira da concha uma bandeira, um café ou um livro. Passe o mouse para ver a sessão atual; clique para trazer o grafo de volta.",
+  "features.snail.note": "O caracol de verdade, com uma sessão de exemplo: ele trabalha, comemora quando ela termina e chacoalha a concha quando ela precisa de você. Passe o mouse sobre ele.",
+  "features.snailOnly.body":
+    "Prefere só o caracol? Com View em Snail, a janela do grafo não aparece: o caracol fica sempre na tela e mostra sozinho o que acontece. Uma bolinha azul é o passo em andamento e estoura quando ele termina; um ✓ e confete quando a sessão acaba; um ! quando ela precisa de você, e o clique leva direto ao terminal.",
+  "features.snailOnly.note": "O caracol é só do Mac, por enquanto.",
 
   "demo.label": "Demo ao vivo",
   "demo.topbar.sessions": "Sessões",

@@ -89,6 +89,13 @@ export const en: Record<Key, string> = {
   "features.sessions.body":
     "Each open session gets a page, and the ‹ 1/3 › controls switch between them. When the page on screen is resting, the window turns to the session that starts working or needs you.",
   "features.sessions.note": "A dot blinks when another session needs you.",
+  "features.snail.title": "A snail keeps you company",
+  "features.snail.body":
+    "With Idle set to Snail, after a minute with nothing running the nodes gather into a snail that leaves the window and walks along the top of your Dock, leaving a trail. It looks around, naps, and now and then takes a flag, a coffee or a book out of its shell. Hover it to see the current session; click it to bring the graph back.",
+  "features.snail.note": "The real snail with a sample session: it works, celebrates when the session finishes and rattles its shell when it needs you. Hover it.",
+  "features.snailOnly.body":
+    "Prefer only the snail? With View set to Snail, the graph's window stays away: the snail stays on screen and shows what happens by itself. A blue ball is the step under way and bursts when it is done; a check and confetti when the session finishes; a ! when it needs you, and a click takes you straight to the terminal.",
+  "features.snailOnly.note": "The snail is on the Mac for now.",
 
   "demo.label": "Live demo",
   "demo.topbar.sessions": "Sessions",

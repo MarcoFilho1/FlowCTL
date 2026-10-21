@@ -121,12 +121,50 @@ tamanho, opacidade e onde a janela fica: arraste para qualquer lugar.
 
 Depois de cinco minutos sem nada rodando, a janela some até uma sessão voltar
 a trabalhar (Hide When Idle). Antes disso, entra a animação de ocioso: depois
-de um minuto, os nós saem do grafo e formam uma figura que gira devagar. As
-duas vêm ligadas e podem ser desligadas no menu.
+de um minuto, os nós saem do grafo e formam uma figura que gira devagar, ou se
+juntam num caracol (abaixo). As duas vêm ligadas e podem ser desligadas no
+menu.
 
 <p align="center">
   <img alt="A janela volta da barra de menus e os nós formam uma figura que gira devagar" src="docs/media/dream.gif" width="800">
 </p>
+
+### Um caracol para fazer companhia
+
+Coloque **Idle** em **Snail** e, depois de um minuto sem nada rodando, os nós
+voam para dentro de um caracol na parte de baixo da janela. Ele sai da janela
+e anda por cima do Dock (ou pela borda de baixo da tela, quando o Dock se
+esconde), deixando um rastro de baba que some em poucos segundos. Ele olha em
+volta, cochila dentro da concha e, de vez em quando, joga a concha de lado,
+procura lá dentro e tira uma bandeira escrita KEEP FOCUSED, uma xícara de café
+ou um livro.
+
+- **Passe o mouse** sobre ele para ver um cartão com a sessão atual: o
+  estado, os passos feitos e no que ela está.
+- **Arraste** para qualquer ponto da borda de baixo; ele fica pendurado pela
+  concha e sai de novo onde você soltar.
+- **Clique** para trazer o grafo de volta. Quando uma sessão espera por você,
+  a concha chacoalha com um "!", e o clique leva direto ao terminal dela.
+
+Quando uma sessão começa a trabalhar, o caracol se recolhe na concha, pula de
+volta para a janela e os nós saem dele para o grafo.
+
+<p align="center">
+  <img alt="O caracol em pixel tira uma xícara de café da concha e toma um gole, depois empurra uma bolinha azul que fica verde e estoura a cada passo concluído, e comemora com confete e um ✓ quando a sessão termina" src="docs/media/snail.gif" width="800">
+</p>
+
+### Só o caracol
+
+Prefere não ver o grafo? Coloque **View** em **Snail**: a janela não aparece
+e o caracol fica sempre na tela, mostrando sozinho o que acontece. Enquanto
+uma sessão trabalha, ele empurra uma bolinha azul, o passo em andamento, que
+fica verde e estoura a cada passo concluído; quando a sessão termina, ele
+pula e solta confete; quando ela precisa de você, a concha chacoalha até você
+responder. Um clique nele abre o grafo para uma olhada, e o caracol volta
+depois de um minuto.
+
+Por enquanto o caracol é só do Mac; no Windows a animação de ocioso continua
+com as figuras.
 
 ## Instalação
 
@@ -190,8 +228,9 @@ rodar o `/flowctl init` você mesmo.
 
 O **ícone da barra de menus** abre um painel no estilo da Central de
 Controle: mostrar ou esconder o overlay, suas sessões (clique numa para trazer
-o terminal dela para frente), o visual, o tema (automático, escuro, claro), o
-tamanho (pequeno, médio, grande) e o som, e botões para sempre por cima,
+o terminal dela para frente), a visualização (grafo ou só o caracol), o
+visual, o tema (automático, escuro, claro), o tamanho (pequeno, médio,
+grande), a animação de ocioso (figuras ou o caracol) e o som, e botões para sempre por cima,
 animação de ocioso, mostrar automaticamente e esconder quando ocioso.
 **Ajustes…** guarda tudo isso, mais opacidade e mostrar subagentes. No Windows, no estilo do próprio Windows 11:
 o clique esquerdo no ícone da bandeja abre um painel como as Configurações

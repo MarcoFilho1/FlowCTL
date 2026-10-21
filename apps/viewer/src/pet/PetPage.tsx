@@ -92,7 +92,11 @@ const dark = (theme: Theme) => theme === "dark" || (theme === "auto" && typeof m
 /** The snail's height on screen, px: the card sits above it. */
 const SNAIL_TALL = 66;
 
-export function PetPage({ store: given }: { store?: SessionStore } = {}) {
+/**
+ * `embedded`: drawn inside another page (the website), which keeps its own
+ * theme on the root and its own window.flowctl; the snail only draws.
+ */
+export function PetPage({ store: given, embedded = false }: { store?: SessionStore; embedded?: boolean } = {}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [store] = useState(() => given ?? createSessionStore());
   const [hovering, setHovering] = useState(false);
@@ -100,13 +104,14 @@ export function PetPage({ store: given }: { store?: SessionStore } = {}) {
 
   // The palette's tokens hang off the root, as in the overlay.
   useEffect(() => {
+    if (embedded) return;
     const root = document.documentElement;
     if (theme === "auto") root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", theme);
-  }, [theme]);
+  }, [theme, embedded]);
 
   useEffect(() => {
-    installBridge(store);
+    if (!embedded) installBridge(store);
     const now = performance.now();
     const pet: PetState = {
       look: "pixel",
@@ -198,7 +203,7 @@ export function PetPage({ store: given }: { store?: SessionStore } = {}) {
       unsubscribe();
       delete window.flowctlPet;
     };
-  }, [store]);
+  }, [store, embedded]);
 
   return (
     <div className="pet-page">

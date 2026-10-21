@@ -119,12 +119,48 @@ and where the window sits: drag it anywhere.
 
 After five minutes with nothing running, the window fades out until a session
 works again (Hide When Idle). Before that, the idle animation kicks in: after a
-minute, the nodes leave the graph and form a shape that turns slowly. Both are
-on by default and can be turned off in the menu.
+minute, the nodes leave the graph and form a shape that turns slowly, or they
+gather into a snail (below). Both are on by default and can be turned off in
+the menu.
 
 <p align="center">
   <img alt="The window comes back from the menu bar and its nodes form a slowly turning shape" src="docs/media/dream.gif" width="800">
 </p>
+
+### A snail keeps you company
+
+Set **Idle** to **Snail** and, after a minute with nothing running, the nodes
+fly into a snail at the bottom of the window. It leaves the window and walks
+along the top of your Dock (or the bottom of the screen when the Dock hides),
+leaving a slime trail that fades in a few seconds. It looks around, naps in
+its shell and, now and then, tosses its shell aside, rummages in it and pulls
+out a flag that says KEEP FOCUSED, a cup of coffee or a book.
+
+- **Hover it** for a card with the current session: its state, the steps
+  done and what it is on.
+- **Drag it** anywhere along the bottom; it hangs by its shell and comes out
+  again where you drop it.
+- **Click it** to bring the graph back. When a session waits for you, its
+  shell rattles under a "!", and a click takes you straight to that terminal.
+
+When a session starts working, the snail curls into its shell, hops back into
+the window and the nodes fly out of it into the graph.
+
+<p align="center">
+  <img alt="The pixel snail takes a cup of coffee out of its shell and sips it, then pushes a blue ball that turns green and bursts as each step is done, and celebrates with confetti and a check when the session finishes" src="docs/media/snail.gif" width="800">
+</p>
+
+### Only the snail
+
+Prefer no graph at all? Set **View** to **Snail**: the window stays away and
+the snail stays out, showing what happens on its own. While a session works it
+pushes a blue ball, the step under way, which turns green and bursts each time
+a step is done; when the session finishes it hops and throws confetti; when it
+needs you, its shell rattles until you answer. A click on it opens the graph
+for a look, and the snail comes back out after a minute.
+
+The snail is on the Mac for now; on Windows the idle animation keeps its
+shapes.
 
 ## Install
 
@@ -187,8 +223,8 @@ next session start updates the app too, with the same download and checks as
 
 The **menu bar icon** opens a panel in the manner of Control Center: show or
 hide the overlay, your sessions (click one to bring its terminal forward), the
-look, theme (auto, dark, light), size (small, medium, large) and sound, and
-toggles for always on top, idle animation, show automatically and hide when
+view (graph or only the snail), look, theme (auto, dark, light), size (small,
+medium, large), idle animation (shapes or the snail) and sound, and toggles for always on top, idle animation, show automatically and hide when
 idle. **Settings…** holds them all, plus opacity and show subagents. On
 Windows, in Windows 11's own manner: a left click on the tray icon opens a
 flyout like Quick Settings (toggle buttons, an opacity slider, the look,
