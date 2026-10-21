@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
         bridge.onPetFormed = { [weak self] point in self?.petFormed(at: point) }
         self.panel = panel
         let pet = PetWindow(page: paths.viewerPage)
-        pet.onClick = { [weak self] in self?.showPanel() }
+        pet.onClick = { [weak self] in self?.petClicked() }
         pet.currentBodies = { [weak self] in self?.replayBodies() ?? [] }
         self.pet = pet
         anchor = restoredAnchor()
@@ -418,6 +418,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, StatusMenuActions {
             // Only the snail: this is a look at the graph, and the snail comes back out after a while.
             if self.isSnailView { self.armPeek() }
         }
+    }
+
+    /// A click on the snail: while a session waits for the person (the shell
+    /// rattling under its "!"), straight to that session's terminal; else the
+    /// graph, in the overlay.
+    private func petClicked() {
+        if let id = waitingSessionId {
+            focusTerminal(of: id, node: nil)
+        } else {
+            showPanel()
+        }
+    }
+
+    /// The session waiting for the person that changed last, if any.
+    private var waitingSessionId: String? {
+        let now = Date()
+        return registry.sessions.values
+            .filter { registry.effectiveState(of: $0, now: now) == .waitingYou }
+            .max { $0.info.updatedAt < $1.info.updatedAt }?
+            .info.sessionId
     }
 
     // MARK: Only the snail
