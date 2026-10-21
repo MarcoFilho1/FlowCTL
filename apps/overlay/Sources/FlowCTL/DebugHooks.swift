@@ -43,6 +43,7 @@ enum DebugHooks {
                 let window: NSWindow? = switch query["window"] {
                 case "control": app.debugStatusMenu?.panel.debugWindow
                 case "settings": app.debugStatusMenu?.settings.debugWindow
+                case "pet": app.debugPet?.debugPanel
                 default: app.debugPanel
                 }
                 return capture(window).map { .ok($0 + "\n") } ?? .badRequest("capture failed")
@@ -80,6 +81,20 @@ enum DebugHooks {
                 return .ok()
             case ("POST", "/debug/eval"):
                 guard let webView = app.debugBridge?.webView else { return .badRequest("no page") }
+                let source = String(decoding: request.body, as: UTF8.self)
+                return .ok(evaluate(source, in: webView) + "\n")
+            case ("POST", "/debug/pet-carry"):
+                // As if the person pressed on the snail and moved it by dx, dy (points, y up); pet-drop lets go.
+                app.debugPet?.debugCarry(dx: CGFloat(Double(query["dx"] ?? "0") ?? 0), dy: CGFloat(Double(query["dy"] ?? "0") ?? 0))
+                return .ok()
+            case ("POST", "/debug/pet-drop"):
+                app.debugPet?.debugDrop()
+                return .ok()
+            case ("POST", "/debug/pet-click"):
+                app.debugPet?.onClick?()
+                return .ok()
+            case ("POST", "/debug/pet-eval"):
+                guard let webView = app.debugPet?.debugWebView else { return .badRequest("no pet") }
                 let source = String(decoding: request.body, as: UTF8.self)
                 return .ok(evaluate(source, in: webView) + "\n")
             case ("GET", "/debug/page-events"):

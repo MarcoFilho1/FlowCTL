@@ -36,17 +36,28 @@ function lerp(from: Box, to: Box, t: number): Box {
 export function useTween(target: Boxes, { instant = false, ms = TWEEN_MS }: { instant?: boolean; ms?: number } = {}): Boxes {
   const [shown, setShown] = useState<Boxes>(target);
   const drawnRef = useRef<Boxes>(target);
+  /** Whether the last committed frame drew the target as it was (instant). */
+  const wasInstant = useRef(instant);
+  useEffect(() => {
+    wasInstant.current = instant;
+  });
 
   useEffect(() => {
     if (instant) return;
     const start = drawnRef.current;
+    // `shown` is stale after an instant spell: start from where the boxes were drawn.
+    setShown(start);
     if (!prefersMotion()) {
       setShown(target);
       return;
     }
-    const began = performance.now();
+    // Timed from the first frame drawn, not from now: a page coming back on
+    // screen (the overlay returning from the snail) draws nothing for a while,
+    // and the tween would otherwise be over before anyone saw it.
+    let began = -1;
     let frame = 0;
     const step = (now: number) => {
+      if (began < 0) began = now;
       const t = Math.min(1, (now - began) / ms);
       const k = ease(t);
       const next = new Map<string, Box>();
@@ -61,7 +72,9 @@ export function useTween(target: Boxes, { instant = false, ms = TWEEN_MS }: { in
     return () => cancelAnimationFrame(frame);
   }, [target, instant]);
 
-  let drawn: Boxes = instant ? target : shown;
+  // Right after an instant spell, the boxes are where it last drew them, not
+  // where the last tween left them (the nodes come home from the snail's shell).
+  let drawn: Boxes = instant ? target : wasInstant.current ? drawnRef.current : shown;
   // Boxes added since the last frame show at once; removed ones vanish.
   if (![...target.keys()].every((id) => drawn.has(id)) || drawn.size !== target.size) {
     const merged = new Map<string, Box>();

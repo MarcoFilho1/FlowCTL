@@ -208,6 +208,9 @@ struct ControlPanelView: View {
     /// The choices people change most, each a row of segments: look, theme, size and sound.
     private var appearanceTile: some View {
         VStack(spacing: 8) {
+            ChoiceRow(symbol: "eye", title: "View", selection: model.binding(\.view, fallback: .standard),
+                      options: OverlayView.allCases.map { ($0, $0.title) },
+                      help: "Graph shows the overlay. Snail shows only the snail, which works while your sessions work; click it to see the graph.")
             ChoiceRow(symbol: "paintbrush.pointed", title: "Look", selection: model.binding(\.look, fallback: .standard),
                       options: PageLook.allCases.map { ($0, $0.title) })
             ChoiceRow(symbol: "circle.lefthalf.filled", title: "Theme", selection: model.binding(\.themeChoice, fallback: .standard),
@@ -215,6 +218,9 @@ struct ControlPanelView: View {
             ChoiceRow(symbol: "arrow.up.left.and.arrow.down.right", title: "Size", selection: model.binding(\.panelSize, fallback: .standard),
                       options: PanelSize.allCases.map { ($0, String($0.title.prefix(1))) },
                       help: PanelSize.allCases.map(\.title).joined(separator: ", "))
+            ChoiceRow(symbol: "sparkles", title: "Idle", selection: model.binding(\.idleStyle, fallback: .standard),
+                      options: IdleStyle.allCases.map { ($0, $0.title) },
+                      help: "After a minute with nothing working: the nodes form shapes, or gather into a snail that walks along the bottom of the screen.")
             ChoiceRow(symbol: "speaker.wave.2", title: "Sound", selection: model.binding(\.soundChoice, fallback: .standard),
                       options: SoundChoice.allCases.map { ($0, $0 == .look ? "Look" : $0.title) },
                       help: "Look plays the look's own sounds: clean for Smooth, 8-bit for Pixel.")

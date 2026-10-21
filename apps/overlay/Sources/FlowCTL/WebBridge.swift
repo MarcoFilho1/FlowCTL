@@ -24,6 +24,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var currentSound: () -> Bool = { true }
     /// Whether the graph forms its shapes when idle (on by default).
     var currentIdleAnimation: () -> Bool = { true }
+    /// Shapes or the snail (shapes by default).
+    var currentIdleStyle: () -> IdleStyle = { .standard }
     /// The palette the person picked (auto by default).
     var currentTheme: () -> String = { ThemeChoice.standard.rawValue }
     /// The style of the sounds (look by default).
@@ -115,6 +117,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             self.applySound(self.currentSound())
             self.applySoundStyle(self.currentSoundStyle())
             self.applyIdleAnimation(self.currentIdleAnimation())
+            self.applyIdleStyle(self.currentIdleStyle())
             let pending = self.queued
             self.queued.removeAll()
             pending.forEach(self.send)
@@ -137,6 +140,21 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     /// `window.flowctl.setIdleAnimation(on)`, the same way: applied on every load.
     func applyIdleAnimation(_ on: Bool) {
         setPageOption("setIdleAnimation", value: on, what: "idle animation \(on ? "on" : "off")", missing: "the viewer has no setIdleAnimation yet")
+    }
+
+    /// `window.flowctl.setIdleStyle(style)`, the same way: applied on every load.
+    func applyIdleStyle(_ style: IdleStyle) {
+        setPageOption("setIdleStyle", value: style.rawValue, what: "idle style \(style.rawValue)", missing: "the viewer has no setIdleStyle yet")
+    }
+
+    /// `window.flowctl.petAway()`: the snail left for its own window; the nodes stay in it until it is back.
+    func petAway() {
+        setPageOption("petAway", value: true, what: "pet away", missing: "the viewer has no petAway")
+    }
+
+    /// `window.flowctl.petBack()`: the overlay is back from the snail, so the idle wait starts over.
+    func petBack() {
+        setPageOption("petBack", value: true, what: "pet back", missing: "the viewer has no petBack")
     }
 
     /// `window.flowctl.setTheme(theme)`, the same way, right after the look.
@@ -188,6 +206,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     var onGripDragEnded: (() -> Void)?
     /// The viewer's × was clicked: hide the panel, as the native one did.
     var onClose: (() -> Void)?
+    /// The nodes gathered into the snail; its feet are at this page point (top-left origin).
+    var onPetFormed: ((CGPoint) -> Void)?
 
     fileprivate func gripDragEnded() {
         onGripDragEnded?()
@@ -207,6 +227,9 @@ final class WebBridge: NSObject, WKNavigationDelegate {
             onClose?()
         case "size":
             break
+        case "petFormed":
+            guard let x = (message["x"] as? NSNumber)?.doubleValue, let y = (message["y"] as? NSNumber)?.doubleValue, x.isFinite, y.isFinite else { return }
+            onPetFormed?(CGPoint(x: x, y: y))
         case "focus":
             guard let sessionId = message["sessionId"] as? String, !sessionId.isEmpty else { return }
             onFocus?(sessionId, message["nodeId"] as? String)

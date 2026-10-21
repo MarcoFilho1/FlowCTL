@@ -415,3 +415,34 @@ body { background: transparent; color: var(--text); font: 12px/1.35 var(--font);
 .dreamer.resting { opacity: 0; pointer-events: none; }
 .dream-outline { fill: none; stroke: var(--edge); stroke-width: 1; stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .app.look-pixel .dream-outline { stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: square; }
+
+/* The snail's window (?ui=pet): nothing but the snail, on a transparent page. */
+html.pet-window, html.pet-window body { overflow: hidden; background: transparent; }
+.pet-page { position: relative; width: 100%; height: 100%; }
+canvas.pet { display: block; width: 100%; height: 100%; cursor: pointer; }
+/* The session at a glance, above the snail while the mouse is on it. */
+.pet-card {
+  position: absolute; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 16px); box-sizing: border-box;
+  padding: 8px 10px; border-radius: 10px; background: var(--card); color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 0 0 1px var(--chip); font: 11px/1.35 var(--font);
+  display: grid; gap: 4px; pointer-events: none; animation: pet-card-in 160ms ease-out;
+}
+@keyframes pet-card-in { from { opacity: 0; transform: translate(-50%, 4px); } }
+.pet-card p { margin: 0; }
+.pet-card-head { display: flex; align-items: baseline; gap: 8px; justify-content: space-between; }
+.pet-card-name { font-weight: 600; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pet-card-state { font-size: 10px; font-weight: 600; white-space: nowrap; color: var(--muted); }
+.pet-card-state.state-working { color: var(--running); }
+.pet-card-state.state-waiting_you { color: var(--needs-you); }
+.pet-card-state.state-idle { color: var(--done); }
+.pet-card-progress { display: flex; align-items: center; gap: 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pet-card-bar { flex: 1; min-width: 60px; height: 4px; border-radius: 2px; background: var(--chip); overflow: hidden; }
+.pet-card-bar > span { display: block; height: 100%; background: var(--done); }
+.pet-card-focus { display: grid; }
+.pet-card-label { color: var(--muted); font-size: 10px; }
+.pet-card-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 220px; }
+.pet-card-foot { color: var(--muted); font-size: 10px; }
+.pet-card-empty { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .pet-card { animation: none; } }
+/* The snail forming out of the nodes, over the graph. */
+.snail-form { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

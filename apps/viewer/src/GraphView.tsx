@@ -8,6 +8,8 @@ import { cue, cuesFor } from "./sound.ts";
 import { errorsOf, statusesOf, transitions } from "./transitions.ts";
 import { useTween } from "./useTween.ts";
 import { BAR_H, dreamFit, dreamFrame, dreamOutline, dreamPoints, MORPH_MS, type DreamShape } from "./dream.ts";
+import { FEET_UP, gatherProgress, INTO_SHELL } from "./pet/gather.ts";
+import { SnailForm } from "./pet/SnailForm.tsx";
 
 /** How long a finish burst and a handoff packet stay on screen. */
 export const EFFECT_MS = 1000;
@@ -121,7 +123,9 @@ function GraphBody({
   look = "pixel",
   sound = false,
   sounds = look,
-  dreaming = false
+  dreaming = false,
+  pet = false,
+  onPetFormed
 }: {
   snapshot: Snapshot;
   look?: Look;
@@ -130,6 +134,10 @@ function GraphBody({
   sounds?: Look;
   /** Nothing has worked for a while: the nodes form shapes (the idle animation). */
   dreaming?: boolean;
+  /** The idle animation is the snail: the nodes gather into it instead of forming shapes. */
+  pet?: boolean;
+  /** The snail formed; its feet are at this page point. */
+  onPetFormed?: (feet: { x: number; y: number }) => void;
 }) {
   const pixel = look === "pixel";
   const labels = useContext(LabelsContext);
@@ -143,12 +151,44 @@ function GraphBody({
   const elapsed = useDreamClock(dreaming, pixel, hovered !== null);
   const center = { x: scene.width / 2, y: scene.height / 2 };
   const fit = dreamFit(scene.nodes.length, Math.max(1, ...scene.nodes.map((shape) => shape.r)), viewport, pixel);
-  // Too many nodes to fit apart: the most recent ones dream, the rest rest out of sight.
+  // The snail: the nodes fly one by one into its shell, at the bottom middle of the view.
+  const petting = dreaming && pet;
+  // Back from the snail, the nodes fly home from its shell: the camera holds
+  // still until they are there, or the shell would be somewhere else on screen.
+  const [homecoming, setHomecoming] = useState(false);
+  const wasPetting = useRef(false);
+  /** Until when the camera holds (performance.now): set before the camera's effect runs in the same commit. */
+  const holdCamera = useRef(0);
+  useEffect(() => {
+    if (petting) {
+      wasPetting.current = true;
+      return;
+    }
+    if (!wasPetting.current) return;
+    wasPetting.current = false;
+    holdCamera.current = performance.now() + 1000;
+    setHomecoming(true);
+    const timer = setTimeout(() => setHomecoming(false), 1000);
+    return () => clearTimeout(timer);
+  }, [petting]);
+  const [cam, setCam] = useState<Camera>({ x: 0, y: 0, s: 1 });
+  const shell = { x: (viewport.width / 2 - cam.x) / cam.s, y: (viewport.height - FEET_UP - INTO_SHELL - cam.y) / cam.s };
+  const gathered = useMemo(() => {
+    if (!petting) return null;
+    return new Map<string, Box>(
+      scene.nodes.map((shape, i) => {
+        const p = gatherProgress(i, scene.nodes.length, elapsed);
+        return [shape.id, circleBox({ r: shape.r * (1 - 0.7 * p), cx: shape.cx + (shell.x - shape.cx) * p, cy: shape.cy + (shell.y - shape.cy) * p })];
+      })
+    );
+  }, [petting, elapsed, scene, shell.x, shell.y]);
+  // Too many nodes to fit apart for a shape: the most recent ones dream, the rest rest out of sight.
   const resting = useMemo(
-    () => new Set(dreaming ? scene.nodes.slice(0, scene.nodes.length - fit.count).map((shape) => shape.id) : []),
-    [dreaming, scene, fit.count]
+    () => new Set(dreaming && !pet ? scene.nodes.slice(0, scene.nodes.length - fit.count).map((shape) => shape.id) : []),
+    [dreaming, pet, scene, fit.count]
   );
   const dreamBoxes = useMemo(() => {
+    if (gathered) return gathered;
     if (!dreaming) return layoutBoxes;
     const frame = dreamFrame(fit.count, elapsed);
     const points = dreamPoints(fit.count, frame);
@@ -163,8 +203,8 @@ function GraphBody({
         return [shape.id, circleBox({ r: shape.r, cx: shape.cx + (cx - shape.cx) * leaving, cy: shape.cy + (cy - shape.cy) * leaving })];
       })
     );
-  }, [dreaming, elapsed, layoutBoxes, fit.radius, fit.count]);
-  const frame = dreaming ? dreamFrame(fit.count, elapsed) : undefined;
+  }, [gathered, dreaming, elapsed, layoutBoxes, fit.radius, fit.count]);
+  const frame = dreaming && !pet ? dreamFrame(fit.count, elapsed) : undefined;
   const outlinePath = (shape: DreamShape) => {
     const points = dreamOutline(shape);
     if (!points) return null;
@@ -178,7 +218,6 @@ function GraphBody({
   // Back from the dream, the nodes fly home a little slower than a layout change.
   const boxes = useTween(dreamBoxes, { instant: dreaming, ms: dreaming ? undefined : 900 });
 
-  const [cam, setCam] = useState<Camera>({ x: 0, y: 0, s: 1 });
   const [dragging, setDragging] = useState(false);
   const press = useRef<{ start: Point; cam: Camera; moved: boolean; node: string | null } | null>(null);
   const lastManual = useRef(-Infinity);
@@ -187,10 +226,10 @@ function GraphBody({
   const mode = snapshot.sessionState === "working" || snapshot.sessionState === "waiting_you" ? "follow" : "overview";
   const auto = useMemo(
     () =>
-      dreaming
+      dreaming && !pet
         ? { x: viewport.width / 2 - center.x * fit.s, y: (viewport.height + BAR_H) / 2 - center.y * fit.s, s: fit.s }
         : cameraFor(scene, viewport, mode, pixel),
-    [scene, viewport, mode, pixel, dreaming, fit.s]
+    [scene, viewport, mode, pixel, dreaming, pet, fit.s]
   );
   // While the session rests, a view the person chose (zoom, pan) stays until
   // the session works again; while it works, the camera takes over again
@@ -200,6 +239,8 @@ function GraphBody({
     if (mode === "follow") heldAtRest.current = false;
   }, [mode]);
   useEffect(() => {
+    // The snail forms where the view is, and the nodes come back from there: the camera holds still.
+    if (petting || homecoming || performance.now() < holdCamera.current) return;
     // The dream frames itself, whatever view the person chose before.
     if (dreaming) {
       heldAtRest.current = false;
@@ -209,7 +250,7 @@ function GraphBody({
     if (mode === "overview" && heldAtRest.current) return;
     if (performance.now() - lastManual.current < FOLLOW_PAUSE_MS) return;
     setCam(auto);
-  }, [auto.x, auto.y, auto.s, dreaming]);
+  }, [auto.x, auto.y, auto.s, dreaming, petting, homecoming]);
 
   const drawn = useGlide(cam, dragging);
 
@@ -457,7 +498,7 @@ function GraphBody({
                 const d = outlinePath(shape);
                 return d && <path key={shape} className="dream-outline" d={d} style={{ opacity: opacity * 0.5 }} />;
               })}
-            {scene.nodes.map((shape) => (
+            {scene.nodes.filter((shape, i) => !petting || gatherProgress(i, scene.nodes.length, elapsed) < 1).map((shape) => (
               <NodeView
                 pixel={pixel}
                 entering={entering.has(shape.id)}
@@ -481,6 +522,7 @@ function GraphBody({
           </g>
           </g>
         </svg>
+        {pet && <SnailForm active={petting} look={look} onFormed={onPetFormed} />}
         {offscreen.map((shape) => (
           <Beacon
             key={shape.id}

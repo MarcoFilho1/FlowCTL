@@ -11,6 +11,13 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
+                Picker(selection: model.binding(\.view, fallback: .standard)) {
+                    ForEach(OverlayView.allCases, id: \.self) { Text($0.title).tag($0) }
+                } label: {
+                    Text("View")
+                    Text("Only the snail: it works while your sessions work, celebrates when they finish and rattles when one needs you. Click it to see the graph.")
+                }
+                .pickerStyle(.segmented)
                 Picker("Size", selection: model.binding(\.panelSize, fallback: .standard)) {
                     ForEach(PanelSize.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
@@ -46,6 +53,14 @@ struct SettingsView: View {
                     Text("Idle animation")
                     Text("The graph moves gently after a minute with nothing working.")
                 }
+                Picker(selection: model.binding(\.idleStyle, fallback: .standard)) {
+                    ForEach(IdleStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+                } label: {
+                    Text("Idle style")
+                    Text("Shapes in the overlay, or a snail that walks along the bottom of the screen.")
+                }
+                .pickerStyle(.segmented)
+                .disabled(!(model.prefs?.idleAnimation ?? true))
             } header: {
                 Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
             }

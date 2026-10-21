@@ -5,6 +5,7 @@ import type { Replay } from "./DevControls.tsx";
 import { FIXTURES, loadFixture, replaySnapshots } from "./player.ts";
 import { createSessionStore, installBridge } from "./store.ts";
 import "./styles.css";
+import { PetPage } from "./pet/PetPage.tsx";
 import { QuickSettingsPage, SettingsPage } from "./windows/Pages.tsx";
 
 const store = createSessionStore();
@@ -52,10 +53,14 @@ const at = params.get("at");
 const startAt = at === "end" ? "end" : at !== null && Number.isInteger(Number(at)) ? Number(at) : undefined;
 
 // ?ui=controls|settings: the Windows app's tray flyout and Settings window (src/windows).
-const ui = params.get("ui");
+// ?ui=pet: the snail's window (src/pet); the Mac app sets window.__flowctlUI instead.
+const ui = params.get("ui") ?? (window as { __flowctlUI?: string }).__flowctlUI ?? null;
 
 const root = document.getElementById("root");
-if (root && (ui === "controls" || ui === "settings")) {
+if (root && ui === "pet") {
+  document.documentElement.classList.add("pet-window");
+  createRoot(root).render(<StrictMode><PetPage /></StrictMode>);
+} else if (root && (ui === "controls" || ui === "settings")) {
   createRoot(root).render(<StrictMode>{ui === "controls" ? <QuickSettingsPage /> : <SettingsPage />}</StrictMode>);
 } else if (root) {
   createRoot(root).render(

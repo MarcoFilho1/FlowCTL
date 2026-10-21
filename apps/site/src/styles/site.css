@@ -644,6 +644,40 @@ main,
   margin: 12px 0 0;
 }
 
+.feature.wide {
+  grid-column: 1 / -1;
+}
+
+/* The live snail: a strip of desktop with a Dock, the snail's window on it. */
+.snail-desk {
+  position: relative;
+  height: 250px;
+  margin-top: 14px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--s-bg-2), var(--s-bg));
+  border: 1px solid var(--s-line);
+}
+
+.snail-dock {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 0;
+  height: 18px;
+  border-radius: 9px 9px 0 0;
+  background: var(--s-grid);
+  border: 1px solid var(--s-line);
+  border-bottom: 0;
+}
+
+.snail-window {
+  position: absolute;
+  bottom: 18px;
+  width: 260px;
+  height: 230px;
+}
+
 /* ---- Install ---- */
 
 .install-card {

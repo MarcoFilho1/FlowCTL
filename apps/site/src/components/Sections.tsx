@@ -4,6 +4,7 @@ import { t, type Key } from "../i18n/index.ts";
 import type { SceneId } from "../scenes/types.ts";
 import { InstallCommands } from "./Install.tsx";
 import { SceneDemo } from "./Demo.tsx";
+import { SnailDemo } from "./SnailDemo.tsx";
 import { Terminal } from "./Terminal.tsx";
 import { LookSwitch, ThemeSwitch } from "./Controls.tsx";
 import { usePrefs } from "./Prefs.tsx";
@@ -103,6 +104,12 @@ interface FeatureCard {
   tour?: boolean;
   controls?: "look" | "theme";
   note?: Key;
+  /** The live snail instead of a graph demo. */
+  snail?: boolean;
+  /** More paragraphs, after the body. */
+  more?: Key[];
+  /** Across the whole grid. */
+  wide?: boolean;
 }
 
 const FEATURES: FeatureCard[] = [
@@ -113,7 +120,8 @@ const FEATURES: FeatureCard[] = [
   { title: "features.theme.title", body: "features.theme.body", demo: "overlay", controls: "theme" },
   { title: "features.hover.title", body: "features.hover.body", demo: "overlay", tour: true },
   { title: "features.idle.title", body: "features.idle.body", demo: "idle", note: "features.idle.note" },
-  { title: "features.sessions.title", body: "features.sessions.body", note: "features.sessions.note" }
+  { title: "features.sessions.title", body: "features.sessions.body", note: "features.sessions.note" },
+  { title: "features.snail.title", body: "features.snail.body", more: ["features.snailOnly.body"], snail: true, note: "features.snail.note", wide: true }
 ];
 
 export function Features() {
@@ -123,13 +131,16 @@ export function Features() {
       <p className="lead">{w("features.lead")}</p>
       <div className="feature-grid">
         {FEATURES.map((feature) => (
-          <article key={feature.title} className="feature">
+          <article key={feature.title} className={`feature${feature.wide ? " wide" : ""}`}>
             <h3>{w(feature.title)}</h3>
             <p>{w(feature.body)}</p>
+            {feature.more?.map((key) => <p key={key}>{w(key)}</p>)}
             {feature.controls === "look" && <LookSwitch />}
             {feature.controls === "theme" && <ThemeSwitch />}
             {feature.demo && <SceneDemo id={feature.demo} label={w(feature.title)} tour={feature.tour} />}
+            {feature.snail && <SnailDemo label={w(feature.title)} />}
             {feature.note && <p className="note">{w(feature.note)}</p>}
+            {feature.snail && <p className="note">{w("features.snailOnly.note")}</p>}
           </article>
         ))}
       </div>

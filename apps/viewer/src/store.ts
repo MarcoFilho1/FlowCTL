@@ -17,6 +17,9 @@ export type SoundStyle = "look" | "smooth" | "pixel";
  */
 export type Theme = "auto" | "dark" | "light";
 
+/** What the idle animation is: the nodes form shapes, or they gather into the snail that walks the screen. */
+export type IdleStyle = "shapes" | "pet";
+
 export interface SessionsState {
   /** In the order they first arrived. */
   sessions: readonly Snapshot[];
@@ -29,6 +32,12 @@ export interface SessionsState {
   soundStyle: SoundStyle;
   /** Nodes form moving shapes once nothing has worked for a minute (default on). */
   idleAnimation: boolean;
+  /** Shapes (default) or the snail. */
+  idleStyle: IdleStyle;
+  /** Counts the times the overlay came back from the snail: the idle wait starts over. */
+  wakes: number;
+  /** The snail is out in its own window: the nodes stay gathered until it comes back. */
+  petAway: boolean;
   theme: Theme;
 }
 
@@ -43,6 +52,11 @@ export interface SessionStore {
   setSound(on: boolean): void;
   setSoundStyle(style: SoundStyle): void;
   setIdleAnimation(on: boolean): void;
+  setIdleStyle(style: IdleStyle): void;
+  /** The overlay is back from the snail: the nodes fly home and the idle wait starts over. */
+  wake(): void;
+  /** The snail left for its own window. */
+  setPetAway(away: boolean): void;
   setTheme(theme: Theme): void;
   getState(): SessionsState;
   subscribe(listener: () => void): () => void;
@@ -91,7 +105,7 @@ export function createSessionStore(now: () => number = () => Date.now()): Sessio
    * until it waits again.
    */
   const announced = new Set<string>();
-  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true, theme: "auto" };
+  let state: SessionsState = { sessions: [], active: null, look: "pixel", showSubagents: true, sound: true, soundStyle: "look", idleAnimation: true, idleStyle: "shapes", wakes: 0, petAway: false, theme: "auto" };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
 
@@ -149,6 +163,20 @@ export function createSessionStore(now: () => number = () => Date.now()): Sessio
       state = { ...state, idleAnimation: on };
       emit();
     },
+    setIdleStyle(style) {
+      if ((style !== "shapes" && style !== "pet") || state.idleStyle === style) return;
+      state = { ...state, idleStyle: style };
+      emit();
+    },
+    wake() {
+      state = { ...state, wakes: state.wakes + 1, petAway: false };
+      emit();
+    },
+    setPetAway(away) {
+      if (typeof away !== "boolean" || state.petAway === away) return;
+      state = { ...state, petAway: away };
+      emit();
+    },
     setTheme(theme) {
       if ((theme !== "auto" && theme !== "dark" && theme !== "light") || state.theme === theme) return;
       state = { ...state, theme };
@@ -187,6 +215,10 @@ declare global {
       setSound(on: boolean): void;
       setSoundStyle(style: SoundStyle): void;
       setIdleAnimation(on: boolean): void;
+      setIdleStyle?(style: IdleStyle): void;
+      /** The snail left for its own window; and the overlay is back from it. */
+      petAway?(): void;
+      petBack?(): void;
       setTheme(theme: Theme): void;
       /** The Mac woke: the sound starts over with a new audio context. */
       resetAudio?(): void;
@@ -204,7 +236,13 @@ export type NativeMessage =
   /** Where the window can be grabbed and dragged, in page points; width 0 means nowhere. */
   | { type: "grip"; x: number; y: number; width: number; height: number }
   /** The person closed the overlay with the × in the top bar. */
-  | { type: "close" };
+  | { type: "close" }
+  /** The nodes gathered into the snail: its feet are at this page point, the app takes it from here. */
+  | { type: "petFormed"; x: number; y: number }
+  /** From the snail's window: walk the window this many px; the snail is in its shell; it was clicked. */
+  | { type: "petMove"; dx: number }
+  | { type: "petTucked" }
+  | { type: "petClick" };
 
 /** Sends a message to the overlay app (macOS: WebKit's handler; Windows: the Tauri page script's); a no-op in a plain browser. */
 export function tellNative(message: NativeMessage, target: Window = window): boolean {
@@ -228,6 +266,9 @@ export function installBridge(store: SessionStore, target: Window = window): voi
     setSound: (on) => store.setSound(on),
     setSoundStyle: (style) => store.setSoundStyle(style),
     setIdleAnimation: (on) => store.setIdleAnimation(on),
+    setIdleStyle: (style) => store.setIdleStyle(style),
+    petAway: () => store.setPetAway(true),
+    petBack: () => store.wake(),
     setTheme: (theme) => store.setTheme(theme),
     resetAudio: () => resetAudio()
   };

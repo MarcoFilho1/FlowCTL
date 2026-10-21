@@ -5,7 +5,7 @@ import { DevControls, type Replay } from "./DevControls.tsx";
 import { GraphView } from "./GraphView.tsx";
 import { Close, DragZone, Grip, Header, Pager } from "./Header.tsx";
 import { cue } from "./sound.ts";
-import { sessionKey, soundLook, withoutSubagents, type SessionStore } from "./store.ts";
+import { sessionKey, soundLook, tellNative, withoutSubagents, type SessionStore } from "./store.ts";
 
 export function App({
   store,
@@ -19,7 +19,7 @@ export function App({
   /** How long nothing works before the idle animation (0 starts it at once). */
   dreamAfter?: number;
 }) {
-  const { sessions: all, active, look, showSubagents, sound, soundStyle, idleAnimation, theme } = useSyncExternalStore(store.subscribe, store.getState);
+  const { sessions: all, active, look, showSubagents, sound, soundStyle, idleAnimation, idleStyle, wakes, petAway, theme } = useSyncExternalStore(store.subscribe, store.getState);
   const sounds = soundLook(look, soundStyle);
   // The palette's tokens hang off the root, so the theme goes there.
   useEffect(() => {
@@ -34,7 +34,8 @@ export function App({
   );
   const chosen = sessions.find((session) => sessionKey(session) === active) ?? sessions[0];
   const current = useMemo(() => (chosen && !showSubagents ? withoutSubagents(chosen) : chosen), [chosen, showSubagents]);
-  const dreaming = useDreaming(all, idleAnimation, dreamAfter);
+  // While the snail is out the nodes stay in it, even once a session works: they fly home when it is back.
+  const dreaming = useDreaming(all, idleAnimation, dreamAfter, wakes) || (petAway && idleStyle === "pet");
 
   // A session off screen that starts waiting for the person still chimes.
   const waitingBefore = useRef(new Set<string>());
@@ -59,7 +60,16 @@ export function App({
       {current ? (
         <>
           {/* Keyed per session: each tab keeps its own orientation and tweens. */}
-          <GraphView key={sessionKey(current)} snapshot={current} look={look} sound={sound} sounds={sounds} dreaming={dreaming} />
+          <GraphView
+            key={sessionKey(current)}
+            snapshot={current}
+            look={look}
+            sound={sound}
+            sounds={sounds}
+            dreaming={dreaming}
+            pet={idleStyle === "pet"}
+            onPetFormed={(feet) => tellNative({ type: "petFormed", ...feet })}
+          />
         </>
       ) : (
         <p className="empty">Waiting for a Claude Code session…</p>
@@ -72,9 +82,9 @@ const isLive = (session: Snapshot) => session.sessionState === "working" || sess
 
 /**
  * True once no session has worked or waited for `after` ms (counted from the
- * page's start too), false again the moment one does.
+ * page's start too, and from each `wakes`), false again the moment one does.
  */
-function useDreaming(sessions: readonly Snapshot[], enabled: boolean, after: number): boolean {
+function useDreaming(sessions: readonly Snapshot[], enabled: boolean, after: number, wakes: number): boolean {
   const live = sessions.some(isLive);
   const [dreaming, setDreaming] = useState(false);
   useEffect(() => {
@@ -82,6 +92,6 @@ function useDreaming(sessions: readonly Snapshot[], enabled: boolean, after: num
     if (!enabled || live) return;
     const timer = setTimeout(() => setDreaming(true), after);
     return () => clearTimeout(timer);
-  }, [live, enabled, after]);
+  }, [live, enabled, after, wakes]);
   return dreaming && enabled && !live;
 }
