@@ -95,6 +95,10 @@
     "2026-10-21": {
       "count": 0,
       "uniques": 0
+    },
+    "2026-10-22": {
+      "count": 0,
+      "uniques": 0
     }
   },
   "clones": {
@@ -193,6 +197,10 @@
     "2026-10-21": {
       "count": 230,
       "uniques": 76
+    },
+    "2026-10-22": {
+      "count": 21,
+      "uniques": 13
     }
   },
   "snapshots": {
@@ -1045,6 +1053,103 @@
       "watchers": 0,
       "uniqueVisitors14d": 9,
       "uniqueCloners14d": 498,
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 24,
+          "uniques": 2
+        },
+        {
+          "referrer": "linkedin.com",
+          "count": 1,
+          "uniques": 1
+        }
+      ],
+      "paths": [
+        {
+          "path": "/MarcoFilho1/FlowCTL",
+          "count": 42,
+          "uniques": 9
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/stargazers",
+          "count": 11,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/commits/main",
+          "count": 5,
+          "uniques": 2
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/pulls",
+          "count": 4,
+          "uniques": 3
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/blob/main/README.pt-BR.md",
+          "count": 3,
+          "uniques": 3
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/branches",
+          "count": 3,
+          "uniques": 2
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/workflows/traffic.yml",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/workflows/traffic.yml.",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/actions/runs/38070636767",
+          "count": 1,
+          "uniques": 1
+        }
+      ],
+      "downloads": {
+        "v1.0.11 FlowCTL-1.0.11-macos.zip": 1,
+        "v1.0.11 FlowCTL-1.0.11-windows-x64.zip": 1,
+        "v1.0.10 FlowCTL-1.0.10-macos.zip": 2,
+        "v1.0.10 FlowCTL-1.0.10-windows-x64.zip": 1,
+        "v1.0.9 FlowCTL-1.0.9-macos.zip": 1,
+        "v1.0.9 FlowCTL-1.0.9-windows-x64.zip": 2,
+        "v1.0.8 FlowCTL-1.0.8-macos.zip": 1,
+        "v1.0.8 FlowCTL-1.0.8-windows-x64.zip": 1,
+        "v1.0.7 FlowCTL-1.0.7-macos.zip": 1,
+        "v1.0.7 FlowCTL-1.0.7-windows-x64.zip": 1,
+        "v1.0.6 FlowCTL-1.0.6-macos.zip": 2,
+        "v1.0.6 FlowCTL-1.0.6-windows-x64.zip": 1,
+        "v1.0.5 FlowCTL-1.0.5-macos.zip": 1,
+        "v1.0.5 FlowCTL-1.0.5-windows-x64.zip": 1,
+        "v1.0.4 FlowCTL-1.0.4-macos.zip": 2,
+        "v1.0.4 FlowCTL-1.0.4-windows-x64.zip": 1,
+        "v1.0.3 FlowCTL-1.0.3-macos.zip": 2,
+        "v1.0.3 FlowCTL-1.0.3-windows-x64.zip": 1,
+        "v1.0.2 FlowCTL-1.0.2-macos.zip": 1,
+        "v1.0.2 FlowCTL-1.0.2-windows-x64.zip": 2,
+        "v1.0.1 FlowCTL-1.0.1-macos.zip": 1,
+        "v1.0.1 FlowCTL-1.0.1-windows-x64.zip": 2,
+        "v1.0.0 FlowCTL-1.0.0-macos.zip": 1,
+        "v1.0.0 FlowCTL-1.0.0-windows-x64.zip": 5
+      }
+    },
+    "2026-10-23": {
+      "stars": 7,
+      "forks": 0,
+      "watchers": 0,
+      "uniqueVisitors14d": 9,
+      "uniqueCloners14d": 507,
       "referrers": [
         {
           "referrer": "github.com",
