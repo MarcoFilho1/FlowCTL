@@ -123,6 +123,10 @@
     "2026-10-28": {
       "count": 3,
       "uniques": 1
+    },
+    "2026-10-29": {
+      "count": 1,
+      "uniques": 1
     }
   },
   "clones": {
@@ -249,6 +253,10 @@
     "2026-10-28": {
       "count": 5,
       "uniques": 3
+    },
+    "2026-10-29": {
+      "count": 4,
+      "uniques": 2
     }
   },
   "snapshots": {
@@ -1740,6 +1748,73 @@
       "watchers": 0,
       "uniqueVisitors14d": 4,
       "uniqueCloners14d": 326,
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 8,
+          "uniques": 3
+        }
+      ],
+      "paths": [
+        {
+          "path": "/MarcoFilho1/FlowCTL",
+          "count": 10,
+          "uniques": 4
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/stargazers",
+          "count": 5,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/forks",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/branches",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/pulls",
+          "count": 1,
+          "uniques": 1
+        }
+      ],
+      "downloads": {
+        "v1.0.11 FlowCTL-1.0.11-macos.zip": 1,
+        "v1.0.11 FlowCTL-1.0.11-windows-x64.zip": 1,
+        "v1.0.10 FlowCTL-1.0.10-macos.zip": 2,
+        "v1.0.10 FlowCTL-1.0.10-windows-x64.zip": 1,
+        "v1.0.9 FlowCTL-1.0.9-macos.zip": 1,
+        "v1.0.9 FlowCTL-1.0.9-windows-x64.zip": 2,
+        "v1.0.8 FlowCTL-1.0.8-macos.zip": 1,
+        "v1.0.8 FlowCTL-1.0.8-windows-x64.zip": 1,
+        "v1.0.7 FlowCTL-1.0.7-macos.zip": 1,
+        "v1.0.7 FlowCTL-1.0.7-windows-x64.zip": 1,
+        "v1.0.6 FlowCTL-1.0.6-macos.zip": 2,
+        "v1.0.6 FlowCTL-1.0.6-windows-x64.zip": 1,
+        "v1.0.5 FlowCTL-1.0.5-macos.zip": 1,
+        "v1.0.5 FlowCTL-1.0.5-windows-x64.zip": 1,
+        "v1.0.4 FlowCTL-1.0.4-macos.zip": 2,
+        "v1.0.4 FlowCTL-1.0.4-windows-x64.zip": 1,
+        "v1.0.3 FlowCTL-1.0.3-macos.zip": 2,
+        "v1.0.3 FlowCTL-1.0.3-windows-x64.zip": 1,
+        "v1.0.2 FlowCTL-1.0.2-macos.zip": 1,
+        "v1.0.2 FlowCTL-1.0.2-windows-x64.zip": 2,
+        "v1.0.1 FlowCTL-1.0.1-macos.zip": 1,
+        "v1.0.1 FlowCTL-1.0.1-windows-x64.zip": 2,
+        "v1.0.0 FlowCTL-1.0.0-macos.zip": 1,
+        "v1.0.0 FlowCTL-1.0.0-windows-x64.zip": 5
+      }
+    },
+    "2026-10-30": {
+      "stars": 7,
+      "forks": 1,
+      "watchers": 0,
+      "uniqueVisitors14d": 4,
+      "uniqueCloners14d": 292,
       "referrers": [
         {
           "referrer": "github.com",
