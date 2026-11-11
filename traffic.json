@@ -171,6 +171,10 @@
     "2026-11-09": {
       "count": 0,
       "uniques": 0
+    },
+    "2026-11-10": {
+      "count": 0,
+      "uniques": 0
     }
   },
   "clones": {
@@ -345,6 +349,10 @@
     "2026-11-09": {
       "count": 14,
       "uniques": 8
+    },
+    "2026-11-10": {
+      "count": 3,
+      "uniques": 2
     }
   },
   "snapshots": {
@@ -2587,6 +2595,63 @@
           "path": "/MarcoFilho1/FlowCTL",
           "count": 6,
           "uniques": 5
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/stargazers",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "path": "/MarcoFilho1/FlowCTL/commit/6f3e55862da4c4971f00bac47c81d6d74a0ff8eb",
+          "count": 1,
+          "uniques": 1
+        }
+      ],
+      "downloads": {
+        "v1.0.11 FlowCTL-1.0.11-macos.zip": 1,
+        "v1.0.11 FlowCTL-1.0.11-windows-x64.zip": 2,
+        "v1.0.10 FlowCTL-1.0.10-macos.zip": 2,
+        "v1.0.10 FlowCTL-1.0.10-windows-x64.zip": 1,
+        "v1.0.9 FlowCTL-1.0.9-macos.zip": 1,
+        "v1.0.9 FlowCTL-1.0.9-windows-x64.zip": 2,
+        "v1.0.8 FlowCTL-1.0.8-macos.zip": 1,
+        "v1.0.8 FlowCTL-1.0.8-windows-x64.zip": 1,
+        "v1.0.7 FlowCTL-1.0.7-macos.zip": 1,
+        "v1.0.7 FlowCTL-1.0.7-windows-x64.zip": 1,
+        "v1.0.6 FlowCTL-1.0.6-macos.zip": 2,
+        "v1.0.6 FlowCTL-1.0.6-windows-x64.zip": 1,
+        "v1.0.5 FlowCTL-1.0.5-macos.zip": 1,
+        "v1.0.5 FlowCTL-1.0.5-windows-x64.zip": 1,
+        "v1.0.4 FlowCTL-1.0.4-macos.zip": 2,
+        "v1.0.4 FlowCTL-1.0.4-windows-x64.zip": 1,
+        "v1.0.3 FlowCTL-1.0.3-macos.zip": 2,
+        "v1.0.3 FlowCTL-1.0.3-windows-x64.zip": 1,
+        "v1.0.2 FlowCTL-1.0.2-macos.zip": 1,
+        "v1.0.2 FlowCTL-1.0.2-windows-x64.zip": 2,
+        "v1.0.1 FlowCTL-1.0.1-macos.zip": 1,
+        "v1.0.1 FlowCTL-1.0.1-windows-x64.zip": 2,
+        "v1.0.0 FlowCTL-1.0.0-macos.zip": 1,
+        "v1.0.0 FlowCTL-1.0.0-windows-x64.zip": 5
+      }
+    },
+    "2026-11-11": {
+      "stars": 7,
+      "forks": 1,
+      "watchers": 0,
+      "uniqueVisitors14d": 5,
+      "uniqueCloners14d": 54,
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 4,
+          "uniques": 3
+        }
+      ],
+      "paths": [
+        {
+          "path": "/MarcoFilho1/FlowCTL",
+          "count": 5,
+          "uniques": 4
         },
         {
           "path": "/MarcoFilho1/FlowCTL/stargazers",
