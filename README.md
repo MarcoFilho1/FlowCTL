@@ -1,6 +1,6 @@
 # FlowCTL in numbers
 
-Updated 2026-11-15 by `scripts/traffic.mjs`. GitHub keeps traffic for 14 days;
+Updated 2026-11-16 by `scripts/traffic.mjs`. GitHub keeps traffic for 14 days;
 this file keeps it from 2026-09-28 on. The site's visitors are in
 Vercel (the project's Analytics tab).
 
