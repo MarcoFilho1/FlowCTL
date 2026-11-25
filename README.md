@@ -1,6 +1,6 @@
 # FlowCTL in numbers
 
-Updated 2026-11-24 by `scripts/traffic.mjs`. GitHub keeps traffic for 14 days;
+Updated 2026-11-25 by `scripts/traffic.mjs`. GitHub keeps traffic for 14 days;
 this file keeps it from 2026-09-28 on. The site's visitors are in
 Vercel (the project's Analytics tab).
 
@@ -10,7 +10,7 @@ Vercel (the project's Analytics tab).
 | --- | --- |
 | Repository views | 107 |
 | Unique visitors, last 14 days (GitHub) | 1 |
-| Clones (plugin installs and updates, CI included) | 2649 |
+| Clones (plugin installs and updates, CI included) | 2652 |
 | App downloads (one per `/flowctl init`) | 36 |
 | ↳ macOS | 16 |
 | ↳ Windows | 20 |
@@ -27,6 +27,7 @@ Vercel (the project's Analytics tab).
 
 | Day | Views | Unique visitors | Clones |
 | --- | --- | --- | --- |
+| 2026-11-24 | 0 | 0 | 3 |
 | 2026-11-23 | 0 | 0 | 15 |
 | 2026-11-22 | 1 | 1 | 16 |
 | 2026-11-21 | 0 | 0 | 18 |
